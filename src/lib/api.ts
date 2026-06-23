@@ -368,6 +368,8 @@ export function buildQueryString(params: CommonQueryParams): string {
   if (params.locationType) query.append("locationType", params.locationType);
   if (params.locationId !== undefined)
     query.append("locationId", String(params.locationId));
+  if (params.projectId !== undefined)
+    query.append("projectId", String(params.projectId));
   if (params.queries && params.queries.length > 0) {
     params.queries.forEach((q) => query.append("queries", q));
   }
@@ -384,10 +386,23 @@ export async function apiUpload<T>(
   const query = new URLSearchParams(queryParams).toString();
   const url = `${API_BASE_URL}${endpoint}${query ? `?${query}` : ""}`;
 
+  // CSRF Token Handling: Add CSRF header for state-changing requests
+  // Mirrors the pattern used in apiFetch. Do NOT set Content-Type here —
+  // the browser must set it with the correct multipart boundary.
+  const requestHeaders: Record<string, string> = {};
+  const upperMethod = method.toUpperCase();
+  if (["POST", "PUT", "DELETE", "PATCH"].includes(upperMethod)) {
+    const csrfToken = await CsrfTokenService.ensureValidToken();
+    if (csrfToken) {
+      requestHeaders[csrfToken.headerName] = csrfToken.token;
+    }
+  }
+
   const response = await fetch(url, {
     method: method,
     body: formData,
     credentials: "include", // Send cookies automatically
+    headers: requestHeaders,
   });
 
   if (!response.ok) {
@@ -486,4 +501,210 @@ export const deleteUser = (id: number): Promise<void> => {
   return apiFetch<void>(`/users/${id}`, {
     method: "DELETE",
   });
+};
+
+// --- Projects ---
+
+import type {
+  ProjectAttachmentDTO,
+  ProjectCreateUpdateDTO,
+  ProjectDetails,
+  ProjectDTO,
+  PageProjectDTO,
+} from "@/types/project";
+import type {
+  DashboardStatsDTO,
+  PagePaymentDTO,
+  PaymentAttachmentDTO,
+  PaymentCreateUpdateDTO,
+  PaymentDTO,
+} from "@/types/payment";
+import type { QueryParams as ProjectQueryParams } from "@/types/common";
+
+export const getAllProjectsPaged = (
+  params: CommonQueryParams = {},
+): Promise<PageProjectDTO> => {
+  return apiFetch<PageProjectDTO>(`/projects?${buildQueryString(params)}`);
+};
+
+export const getProjectById = (id: number): Promise<ProjectDetails> => {
+  return apiFetch<ProjectDetails>(`/projects/${id}`);
+};
+
+export const createProject = (
+  data: ProjectCreateUpdateDTO,
+): Promise<ProjectDetails> => {
+  return apiFetch<ProjectDetails>("/projects", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+};
+
+export const updateProject = (
+  id: number,
+  data: Partial<ProjectCreateUpdateDTO>,
+): Promise<ProjectDetails> => {
+  return apiFetch<ProjectDetails>(`/projects/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+};
+
+export const deleteProject = (id: number): Promise<void> => {
+  return apiFetch<void>(`/projects/${id}`, {
+    method: "DELETE",
+  });
+};
+
+// --- Project attachments ---
+
+export const getProjectAttachments = (
+  projectId: number,
+): Promise<ProjectAttachmentDTO[]> => {
+  return apiFetch<ProjectAttachmentDTO[]>(`/projects/${projectId}/attachments`);
+};
+
+export const uploadProjectAttachment = (
+  projectId: number,
+  file: File,
+): Promise<ProjectAttachmentDTO> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiUpload<ProjectAttachmentDTO>(
+    `/projects/${projectId}/attachments`,
+    formData,
+  );
+};
+
+export const downloadProjectAttachment = async (
+  projectId: number,
+  attachmentId: number,
+): Promise<Blob> => {
+  const url = `${API_BASE_URL}/projects/${projectId}/attachments/${attachmentId}/download`;
+  const response = await fetch(url, {
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw {
+      message: `Download failed: ${response.statusText}`,
+      status: response.status,
+    } as ApiError;
+  }
+  return response.blob();
+};
+
+export const deleteProjectAttachment = (
+  projectId: number,
+  attachmentId: number,
+): Promise<void> => {
+  return apiFetch<void>(
+    `/projects/${projectId}/attachments/${attachmentId}`,
+    {
+      method: "DELETE",
+    },
+  );
+};
+
+// --- Payments ---
+
+interface PaymentQueryParams extends ProjectQueryParams {
+  projectId?: number;
+}
+
+export const getAllPaymentsPaged = (
+  params: PaymentQueryParams = {},
+): Promise<PagePaymentDTO> => {
+  return apiFetch<PagePaymentDTO>(`/payments?${buildQueryString(params)}`);
+};
+
+export const getPaymentById = (id: number): Promise<PaymentDTO> => {
+  return apiFetch<PaymentDTO>(`/payments/${id}`);
+};
+
+export const createPayment = (
+  data: PaymentCreateUpdateDTO,
+): Promise<PaymentDTO> => {
+  return apiFetch<PaymentDTO>("/payments", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+};
+
+export const updatePayment = (
+  id: number,
+  data: Partial<PaymentCreateUpdateDTO>,
+): Promise<PaymentDTO> => {
+  return apiFetch<PaymentDTO>(`/payments/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+};
+
+export const deletePayment = (id: number): Promise<void> => {
+  return apiFetch<void>(`/payments/${id}`, {
+    method: "DELETE",
+  });
+};
+
+export const generateProjectPayment = (
+  projectId: number,
+): Promise<PaymentDTO> => {
+  return apiFetch<PaymentDTO>(`/projects/${projectId}/payments/generate`, {
+    method: "POST",
+  });
+};
+
+// --- Payment attachments ---
+
+export const getPaymentAttachments = (
+  paymentId: number,
+): Promise<PaymentAttachmentDTO[]> => {
+  return apiFetch<PaymentAttachmentDTO[]>(`/payments/${paymentId}/attachments`);
+};
+
+export const uploadPaymentAttachment = (
+  paymentId: number,
+  file: File,
+): Promise<PaymentAttachmentDTO> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiUpload<PaymentAttachmentDTO>(
+    `/payments/${paymentId}/attachments`,
+    formData,
+  );
+};
+
+export const downloadPaymentAttachment = async (
+  paymentId: number,
+  attachmentId: number,
+): Promise<Blob> => {
+  const url = `${API_BASE_URL}/payments/${paymentId}/attachments/${attachmentId}/download`;
+  const response = await fetch(url, {
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw {
+      message: `Download failed: ${response.statusText}`,
+      status: response.status,
+    } as ApiError;
+  }
+  return response.blob();
+};
+
+export const deletePaymentAttachment = (
+  paymentId: number,
+  attachmentId: number,
+): Promise<void> => {
+  return apiFetch<void>(
+    `/payments/${paymentId}/attachments/${attachmentId}`,
+    {
+      method: "DELETE",
+    },
+  );
+};
+
+// --- Dashboard ---
+
+export const getDashboardStats = (): Promise<DashboardStatsDTO> => {
+  return apiFetch<DashboardStatsDTO>("/dashboard/stats");
 };

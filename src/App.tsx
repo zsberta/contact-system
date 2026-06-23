@@ -12,6 +12,12 @@ import UsersPage from "./pages/UsersPage";
 import UserCreatePage from "./pages/UserCreatePage";
 import UserEditPage from "./pages/UserEditPage";
 import UserViewPage from "./pages/UserViewPage";
+import ProjectsPage from "./pages/ProjectsPage";
+import ProjectCreatePage from "./pages/ProjectCreatePage";
+import ProjectEditPage from "./pages/ProjectEditPage";
+import ProjectViewPage from "./pages/ProjectViewPage";
+import PaymentEditPage from "./pages/PaymentEditPage";
+import PaymentViewPage from "./pages/PaymentViewPage";
 import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Layout from "./components/Layout";
@@ -48,6 +54,27 @@ const App = () => (
                   <Route path="/users/create" element={<UserCreatePage />} />
                   <Route path="/users/view/:id" element={<UserViewPage />} />
                   <Route path="/users/edit/:id" element={<UserEditPage />} />
+                  <Route path="/projects" element={<ProjectsPage />} />
+                  <Route
+                    path="/projects/create"
+                    element={<ProjectCreatePage />}
+                  />
+                  <Route
+                    path="/projects/view/:id"
+                    element={<ProjectViewPage />}
+                  />
+                  <Route
+                    path="/projects/edit/:id"
+                    element={<ProjectEditPage />}
+                  />
+                  <Route
+                    path="/projects/:id/payments/:paymentId/edit"
+                    element={<PaymentEditPage />}
+                  />
+                  <Route
+                    path="/projects/:id/payments/:paymentId/view"
+                    element={<PaymentViewPage />}
+                  />
                   <Route path="*" element={<NotFound />} />
                 </Route>
               </Route>

@@ -1,4 +1,26 @@
 {
-  "welcome": "Üdvözöljük a Contact System-ben",
-  "placeholder_text": "Ez egy helyőrző vezérlőpult. A valódi tartalom később kerül ide."
+  "welcome": "Üdvözöljük a BuzzCRM-ben",
+  "placeholder_text": "Ez egy helyőrző vezérlőpult. A valódi tartalom később kerül ide.",
+  "outstanding": "Kintlévőség",
+  "outstanding_sub": "Függő + lejárt",
+  "revenue_30d": "Bevétel (30 nap)",
+  "revenue_30d_sub": "Utolsó 30 nap",
+  "revenue_90d": "Bevétel (3 hónap)",
+  "revenue_90d_sub": "Utolsó 3 hónap",
+  "revenue_365d": "Bevétel (1 év)",
+  "revenue_365d_sub": "Utolsó 365 nap",
+  "revenue_chart": "Havi bevétel",
+  "revenue_chart_sub": "Utolsó 12 hónap",
+  "revenue_chart_no_data": "Még nincs bevételi adat",
+  "status_breakdown": "Számla állapot",
+  "status_breakdown_sub": "Összesített darabszám",
+  "status_count_pending": "Függőben",
+  "status_count_overdue": "Lejárt",
+  "status_count_paid": "Kiegyenlített",
+  "status_count_cancelled": "Törölt",
+  "upcoming_payments": "Következő számlák",
+  "upcoming_payments_sub": "Következő 5 esedékes",
+  "upcoming_payments_empty": "Nincs esedékes számla",
+  "upcoming_payment_due": "Esedékes: {{date}}",
+  "upcoming_payment_overdue": "Lejárt: {{date}}"
 }

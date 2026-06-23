@@ -1,4 +1,26 @@
 {
-  "welcome": "Welcome to Contact System",
-  "placeholder_text": "This is a placeholder dashboard. Real content will be added later."
+  "welcome": "Welcome to BuzzCRM",
+  "placeholder_text": "This is a placeholder dashboard. Real content will be added later.",
+  "outstanding": "Outstanding",
+  "outstanding_sub": "Pending + overdue",
+  "revenue_30d": "Revenue (30 days)",
+  "revenue_30d_sub": "Last 30 days",
+  "revenue_90d": "Revenue (3 months)",
+  "revenue_90d_sub": "Last 3 months",
+  "revenue_365d": "Revenue (1 year)",
+  "revenue_365d_sub": "Last 365 days",
+  "revenue_chart": "Monthly revenue",
+  "revenue_chart_sub": "Last 12 months",
+  "revenue_chart_no_data": "No revenue data yet",
+  "status_breakdown": "Payment status",
+  "status_breakdown_sub": "All-time counts",
+  "status_count_pending": "Pending",
+  "status_count_overdue": "Overdue",
+  "status_count_paid": "Paid",
+  "status_count_cancelled": "Cancelled",
+  "upcoming_payments": "Upcoming payments",
+  "upcoming_payments_sub": "Next 5 due",
+  "upcoming_payments_empty": "No upcoming payments",
+  "upcoming_payment_due": "Due {{date}}",
+  "upcoming_payment_overdue": "Overdue {{date}}"
 }

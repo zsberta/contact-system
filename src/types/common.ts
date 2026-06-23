@@ -54,6 +54,7 @@ export interface QueryParams {
   status?: string;
   locationType?: string;
   locationId?: number;
+  projectId?: number;
 }
 
 export interface DocumentQueryParams extends QueryParams {

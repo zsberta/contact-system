@@ -7,6 +7,8 @@ import enNavigation from "./i18n/en/navigation.json";
 import enDashboard from "./i18n/en/dashboard.json";
 import enSeo from "./i18n/en/seo.json";
 import enUsers from "./i18n/en/users.json";
+import enProjects from "./i18n/en/projects.json";
+import enPayments from "./i18n/en/payments.json";
 
 import huAuth from "./i18n/hu/auth.json";
 import huCommon from "./i18n/hu/common.json";
@@ -14,6 +16,8 @@ import huNavigation from "./i18n/hu/navigation.json";
 import huDashboard from "./i18n/hu/dashboard.json";
 import huSeo from "./i18n/hu/seo.json";
 import huUsers from "./i18n/hu/users.json";
+import huProjects from "./i18n/hu/projects.json";
+import huPayments from "./i18n/hu/payments.json";
 
 const resources = {
   en: {
@@ -23,6 +27,8 @@ const resources = {
     dashboard: enDashboard,
     seo: enSeo,
     users: enUsers,
+    projects: enProjects,
+    payments: enPayments,
   },
   hu: {
     auth: huAuth,
@@ -31,6 +37,8 @@ const resources = {
     dashboard: huDashboard,
     seo: huSeo,
     users: huUsers,
+    projects: huProjects,
+    payments: huPayments,
   },
 };
 
@@ -39,7 +47,7 @@ i18n.use(initReactI18next).init({
   lng: "hu",
   fallbackLng: "en",
   defaultNS: "common",
-  ns: ["common", "auth", "navigation", "dashboard", "seo", "users"],
+  ns: ["common", "auth", "navigation", "dashboard", "seo", "users", "projects", "payments"],
   interpolation: { escapeValue: false },
 });
 

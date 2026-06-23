@@ -37,10 +37,10 @@ const SEO: React.FC<SEOProps> = ({
   const currentLanguage = i18n.language;
 
   // Default values
-  const defaultTitle = t("common:app_title") || "Contact System";
+  const defaultTitle = t("common:app_title") || "BuzzCRM";
   const defaultDescription =
     t("common:app_description") ||
-    "Contact System - Adminisztrációs Rendszer / Contact Management System";
+    "BuzzCRM - Adminisztrációs Rendszer / Contact Management System";
   const defaultAuthor = "Webbees";
   const defaultImage = "/logo.svg";
   const siteUrl = "https://contact-system.webbees.hu";
@@ -51,7 +51,7 @@ const SEO: React.FC<SEOProps> = ({
     description || fallbackDescription || defaultDescription,
   );
   const finalKeywords = String(
-    keywords || fallbackKeywords || t("seo:keywords.default") || "contact system, admin, webbees",
+    keywords || fallbackKeywords || t("seo:keywords.default") || "buzzcrm, admin, webbees",
   );
   const finalAuthor = String(author || defaultAuthor);
   const finalImage = String(image || defaultImage);

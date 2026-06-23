@@ -1,4 +1,4 @@
-# Contact System
+# BuzzCRM
 
 A simple, single-user admin dashboard. Login-only, no public registration, no SSO. Built on the same React/Vite/shadcn stack as InventoBee, but with Express + PostgreSQL as the backend (no Java proxy).
 
