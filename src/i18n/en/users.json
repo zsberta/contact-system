@@ -1,0 +1,23 @@
+{
+  "user_management": "User management",
+  "user": "user",
+  "user_details": "User details",
+  "create_user": "Create user",
+  "create_user_description": "Add a new user to the system. They will be able to sign in immediately.",
+  "edit_user": "Edit user",
+  "user_not_found": "User not found",
+  "first_name": "First name",
+  "last_name": "Last name",
+  "full_name": "Full name",
+  "email": "Email",
+  "password": "Password",
+  "password_placeholder": "At least 8 characters",
+  "new_password_optional": "New password (optional)",
+  "leave_blank_to_keep": "Leave blank to keep current",
+  "password_confirm": "Confirm password",
+  "password_confirm_placeholder": "Repeat the password",
+  "passwords_must_match": "Passwords do not match",
+  "password_min_length": "Password must be at least 8 characters",
+  "confirm_delete_title": "Delete user",
+  "confirm_delete_description": "Are you sure you want to delete user \"{{name}}\" ({{email}})? This action cannot be undone."
+}

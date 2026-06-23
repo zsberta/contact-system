@@ -1,0 +1,23 @@
+{
+  "user_management": "Felhasználókezelés",
+  "user": "felhasználó",
+  "user_details": "Felhasználó adatai",
+  "create_user": "Új felhasználó",
+  "create_user_description": "Új felhasználó hozzáadása a rendszerhez. Azonnal be tud jelentkezni.",
+  "edit_user": "Felhasználó szerkesztése",
+  "user_not_found": "A felhasználó nem található",
+  "first_name": "Keresztnév",
+  "last_name": "Vezetéknév",
+  "full_name": "Teljes név",
+  "email": "E-mail",
+  "password": "Jelszó",
+  "password_placeholder": "Legalább 8 karakter",
+  "new_password_optional": "Új jelszó (opcionális)",
+  "leave_blank_to_keep": "Hagyd üresen a régi megtartásához",
+  "password_confirm": "Jelszó megerősítése",
+  "password_confirm_placeholder": "Ismételd meg a jelszót",
+  "passwords_must_match": "A két jelszó nem egyezik",
+  "password_min_length": "A jelszónak legalább 8 karakter hosszúnak kell lennie",
+  "confirm_delete_title": "Felhasználó törlése",
+  "confirm_delete_description": "Biztosan törölni szeretnéd a(z) \"{{name}}\" felhasználót ({{email}})? Ez a művelet nem visszavonható."
+}
