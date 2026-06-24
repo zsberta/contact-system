@@ -9,6 +9,9 @@
  *   - Keys used in src/** but missing in en/<ns>.json
  *   - Keys used in src/** but missing in hu/<ns>.json
  *   - Language drift (en has key, hu doesn't, or vice versa)
+ *   - JSON namespace files on disk but not wired into src/i18n.ts (ns[] or
+ *     resources[<lang>] map). Catches the "namespace exists but i18n.ts
+ *     was never updated" bug class.
  *
  * Skips:
  *   - Dynamic t(someVar) calls (can't be statically checked)
@@ -218,6 +221,84 @@ function extractKeyLiterals(filePath, cleaned, knownNamespaces) {
 }
 
 /**
+ * Statically parse src/i18n.ts to learn which namespaces are wired into the
+ * runtime — both via the `ns: [...]` allowlist and via each language's
+ * `resources[<lang>]` map. Returns:
+ *   {
+ *     allowlist: Set<string>,             // every namespace listed in ns[]
+ *     resourcesByLang: Record<lang, Set<ns>>, // what each lang's resources block includes
+ *   }
+ *
+ * Implementation is intentionally regex-based (not a full TS parser) so the
+ * script has zero npm dependencies. Robust to the current flat per-namespace
+ * import style in src/i18n.ts. Output is deterministic — iteration order
+ * depends only on the source file, which is stable.
+ *
+ * If src/i18n.ts cannot be located or parsed, emits a WARN to stderr and
+ * returns an empty result so the rest of the script still runs.
+ */
+function parseI18nTsWiring(filePath) {
+  const empty = { allowlist: new Set(), resourcesByLang: {} };
+  let src;
+  try {
+    src = readFileSync(filePath, "utf8");
+  } catch (e) {
+    console.error(
+      yellow(`⚠ could not read ${filePath} for wiring check: ${e.message}; wiring check skipped`),
+    );
+    return empty;
+  }
+
+  // 1. Parse the `ns: [...]` array literal.
+  const nsMatch = src.match(/\bns:\s*\[([^\]]+)\]/s);
+  const allowlist = new Set();
+  if (nsMatch) {
+    for (const raw of nsMatch[1].split(",")) {
+      const item = raw.trim().replace(/^["']|["']$/g, "");
+      if (item) allowlist.add(item);
+    }
+  } else {
+    console.error(
+      yellow(`⚠ could not parse i18n.ts; wiring check skipped (no ns: [...] array literal found)`),
+    );
+    return empty;
+  }
+
+  // 2. Parse the `const resources = { en: { ... }, hu: { ... } }` block.
+  //    We slice between `const resources = {` and the first standalone `};` at
+  //    column 0 — this tolerates nested braces in the per-language blocks.
+  const resStart = src.search(/\bconst\s+resources\s*=\s*\{/);
+  const resourcesByLang = {};
+  if (resStart !== -1) {
+    const body = src.slice(resStart);
+    // Find each `<lang>: { ... }` entry. We deliberately use a non-greedy
+    // capture so the first `}` closes the per-language block. To avoid
+    // matching unrelated options blocks (e.g. `interpolation: { ... }`), we
+    // require the key to look like a BCP-47-ish language code: a short
+    // lowercase token, optionally with a hyphenated region (e.g. `en`,
+    // `hu`, `pt-BR`).
+    const langEntryRegex = /\b([a-z]{2,3}(?:-[A-Za-z0-9]+)?):\s*\{([^{}]*)\}\s*,?/g;
+    let m;
+    while ((m = langEntryRegex.exec(body)) !== null) {
+      const lang = m[1];
+      const inner = m[2];
+      const nsSet = new Set();
+      // Each entry is either a bare identifier (kebab-case var name like
+      // `privacyPolicy`) or a quoted key (`"privacy-policy"`). Split on commas,
+      // take the first token of each entry, strip quotes.
+      for (const raw of inner.split(",")) {
+        const first = raw.trim().split(/[:\s]/)[0];
+        const item = first ? first.replace(/^["']|["']$/g, "") : "";
+        if (item) nsSet.add(item);
+      }
+      resourcesByLang[lang] = nsSet;
+    }
+  }
+
+  return { allowlist, resourcesByLang };
+}
+
+/**
  * Scan all source files and collect used (ns, key) pairs.
  *
  * Returns: { calls: KeyCall[], literals: KeyCall[] }
@@ -321,6 +402,32 @@ function main() {
     }
   }
 
+  // 3. Wiring check: JSON namespace files on disk must be wired into src/i18n.ts.
+  //    Catches the "namespace exists but i18n.ts was never updated" bug class
+  //    (see gotcha: i18n-widgets-privacy-policy-namespace-not-registered-2026-06-24).
+  const wiring = parseI18nTsWiring(join(process.cwd(), "src/i18n.ts"));
+  // `knownNamespaces` is a Set, so spread to array, then sort for determinism.
+  const onDiskNamespaces = [...knownNamespaces].sort();
+  const unwiredNs = onDiskNamespaces.filter((ns) => !wiring.allowlist.has(ns));
+  if (unwiredNs.length > 0) {
+    errors.push({ kind: "not-wired-in-i18n-ts", items: unwiredNs });
+  }
+  // Also: namespaces wired into ns[] but missing from a specific language's
+  // resources map. We only flag missing-from-lang if the namespace is allowed
+  // at all — otherwise the previous check already caught it.
+  const missingFromLang = [];
+  for (const lang of Object.keys(wiring.resourcesByLang).sort()) {
+    const missing = onDiskNamespaces
+      .filter(
+        (ns) =>
+          wiring.allowlist.has(ns) && !wiring.resourcesByLang[lang].has(ns),
+      );
+    for (const ns of missing) missingFromLang.push(`${lang}:${ns}`);
+  }
+  if (missingFromLang.length > 0) {
+    errors.push({ kind: "not-wired-in-lang-resources", items: missingFromLang });
+  }
+
   // Print report.
   console.log("");
   console.log(bold(cyan("i18n key check")));
@@ -332,7 +439,11 @@ function main() {
 
   if (errors.length === 0) {
     const ms = Date.now() - t0;
-    console.log(green(`✓ All translation keys are present and in sync (${ms}ms).`));
+    console.log(
+      green(
+        `✓ i18n check passed: all namespaces wired, no drift, no missing keys (${ms}ms).`,
+      ),
+    );
     console.log("");
     process.exit(0);
   }
@@ -340,8 +451,47 @@ function main() {
   for (const err of errors) {
     if (err.kind.startsWith("missing-in-")) {
       console.log(red(bold(`✗ Source uses keys missing in ${err.lang}:`)));
-    } else {
+    } else if (err.kind === "drift") {
       console.log(red(bold(`✗ Language drift (${err.lang}):`)));
+    } else if (err.kind === "not-wired-in-i18n-ts") {
+      console.log(
+        red(
+          bold(
+            "✗ JSON namespace(s) on disk but not wired into i18n.ts:",
+          ),
+        ),
+      );
+      console.log(
+        dim(
+          "    (Add to the 'ns' array AND import + register under each lang in 'resources'.)",
+        ),
+      );
+      for (const ns of err.items) {
+        console.log(`    ${yellow(ns)}`);
+      }
+      console.log("");
+      continue;
+    } else if (err.kind === "not-wired-in-lang-resources") {
+      console.log(
+        red(
+          bold(
+            "✗ Namespace wired into i18n.ts ns[] but missing from resources[<lang>]:",
+          ),
+        ),
+      );
+      console.log(
+        dim(
+          "    (Add the import + entry to the resources[<lang>] map.)",
+        ),
+      );
+      for (const item of err.items) {
+        const [lang, ns] = item.split(":");
+        console.log(
+          `    ${yellow(item)}  ${dim(`(${ns}.json exists; needs entry in resources.${lang})`)}`,
+        );
+      }
+      console.log("");
+      continue;
     }
     for (const k of err.items) {
       // Prefer a literal (zod-style) source location, then a t() call, else JSON-only.
@@ -366,12 +516,19 @@ function main() {
   const totalDrift = errors
     .filter((e) => e.kind === "drift")
     .reduce((n, e) => n + e.items.length, 0);
+  const totalUnwired = errors
+    .filter((e) => e.kind === "not-wired-in-i18n-ts")
+    .reduce((n, e) => n + e.items.length, 0);
+  const totalLangGap = errors
+    .filter((e) => e.kind === "not-wired-in-lang-resources")
+    .reduce((n, e) => n + e.items.length, 0);
+  const parts = [];
+  if (totalMissing > 0) parts.push(`${totalMissing} missing key(s)`);
+  if (totalDrift > 0) parts.push(`${totalDrift} drift key(s)`);
+  if (totalUnwired > 0) parts.push(`${totalUnwired} unwired namespace(s)`);
+  if (totalLangGap > 0) parts.push(`${totalLangGap} lang-resources gap(s)`);
   console.log(
-    red(
-      bold(
-        `✗ i18n check failed: ${totalMissing} missing key(s), ${totalDrift} drift key(s).`,
-      ),
-    ),
+    red(bold(`✗ i18n check failed: ${parts.join(", ")}.`)),
   );
   console.log("");
   process.exit(1);
