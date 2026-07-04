@@ -468,14 +468,14 @@ router.post("/forgot-password", forgotLimiter, async (req, res) => {
       const name = user.first_name || "there";
       const body =
         `Hi ${name},\n\n` +
-        `We received a request to reset your BuzzCRM password.\n\n` +
+        `We received a request to reset your Zsolt's CRM password.\n\n` +
         `Click the link below to set a new password (valid for 15 minutes):\n` +
         `${link}\n\n` +
         `If you didn't request this, you can safely ignore this email.\n\n` +
-        `— The BuzzCRM team`;
+        `— The Zsolt's CRM team`;
       await sendMail({
         to: user.email,
-        subject: "Reset your BuzzCRM password",
+        subject: "Reset your Zsolt's CRM password",
         text: body,
       });
     }

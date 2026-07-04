@@ -37,13 +37,13 @@ const SEO: React.FC<SEOProps> = ({
   const currentLanguage = i18n.language;
 
   // Default values
-  const defaultTitle = t("common:app_title") || "BuzzCRM";
+  const defaultTitle = t("common:app_title") || "Zsolt's CRM";
   const defaultDescription =
     t("common:app_description") ||
-    "BuzzCRM - Adminisztrációs Rendszer / Contact Management System";
-  const defaultAuthor = "Webbees";
+    "Zsolt's CRM - Adminisztrációs Rendszer / Contact Management System";
+  const defaultAuthor = "Zsolt Berta";
   const defaultImage = "/logo.svg";
-  const siteUrl = "https://contact-system.webbees.hu";
+  const siteUrl = "https://crm.zsoltberta.hu";
 
   // Use provided values or fallbacks
   const finalTitle = String(title || fallbackTitle || defaultTitle);
@@ -51,7 +51,7 @@ const SEO: React.FC<SEOProps> = ({
     description || fallbackDescription || defaultDescription,
   );
   const finalKeywords = String(
-    keywords || fallbackKeywords || t("seo:keywords.default") || "buzzcrm, admin, webbees",
+    keywords || fallbackKeywords || t("seo:keywords.default") || "zsolts-crm, admin, zsoltberta.hu",
   );
   const finalAuthor = String(author || defaultAuthor);
   const finalImage = String(image || defaultImage);

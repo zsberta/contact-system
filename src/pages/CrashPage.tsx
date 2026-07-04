@@ -19,7 +19,7 @@ const CrashPage = ({ error, onReset }: CrashPageProps) => {
       <SEO
         title={t("error_crash_page_title")}
         description={t("error_crash_message")}
-        keywords="error, crash, BuzzCRM"
+        keywords="error, crash, zsolts-crm"
         url="/crash"
         noindex={true}
       />

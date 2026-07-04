@@ -65,7 +65,7 @@ export default {
         },
         // Using the same HSL value as the primary color for success
         success: {
-          DEFAULT: "hsl(160 100% 37%)",
+          DEFAULT: "hsl(212 73% 18%)",
           foreground: "hsl(210 40% 98%)",
         },
       },

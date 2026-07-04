@@ -290,12 +290,12 @@ router.post("/", async (req, res) => {
       const link = `${publicUrl}/set-password?token=${encodeURIComponent(plain)}`;
       const body =
         `Hi ${firstName},\n\n` +
-        `An administrator has created a BuzzCRM account for you.\n\n` +
+        `An administrator has created a Zsolt's CRM account for you.\n\n` +
         `Click the link below to set your password (valid for 24 hours):\n` +
         `${link}\n\n` +
         `Once set, you can sign in and view your assigned projects.\n\n` +
-        `— The BuzzCRM team`;
-      await sendMail({ to: dto.email, subject: "Welcome to BuzzCRM", text: body });
+        `— The Zsolt's CRM team`;
+      await sendMail({ to: dto.email, subject: "Welcome to Zsolt's CRM", text: body });
     }
     await client.query("COMMIT");
     return res.status(201).json({ ...dto, inviteToken });
@@ -498,11 +498,11 @@ router.post("/:id/invite", async (req, res) => {
     const link = `${publicUrl}/set-password?token=${encodeURIComponent(plain)}`;
     const body =
       `Hi ${user.first_name || "there"},\n\n` +
-      `An administrator has (re)issued your BuzzCRM invite.\n\n` +
+      `An administrator has (re)issued your Zsolt's CRM invite.\n\n` +
       `Click the link below to set your password (valid for 24 hours):\n` +
       `${link}\n\n` +
-      `— The BuzzCRM team`;
-    await sendMail({ to: user.email, subject: "Your BuzzCRM invite", text: body });
+      `— The Zsolt's CRM team`;
+    await sendMail({ to: user.email, subject: "Your Zsolt's CRM invite", text: body });
     return res.json({
       inviteToken: plain,
       expiresAt: new Date(Date.now() + INVITE_TTL_SEC * 1000).toISOString(),

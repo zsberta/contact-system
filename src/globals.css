@@ -13,8 +13,8 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
 
-    /* Primary: Custom HSL */
-    --primary: 160 100% 37%;
+    /* Primary: Brand indigo (Zsolt's CRM — matches zsoltberta.hu #0A2540) */
+    --primary: 212 73% 18%;
     --primary-foreground: 210 40% 98%; /* White/Off-white */
 
     --secondary: 210 40% 96.1%;
@@ -37,15 +37,15 @@
 
     --sidebar-background: 0 0% 100%; /* Changed to white */
     --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 160 100% 37%;
+    --sidebar-primary: 212 73% 18%;
     --sidebar-primary-foreground: 0 0% 98%;
     --sidebar-accent: 240 4.8% 95.9%;
     --sidebar-accent-foreground: 240 5.9% 10%;
     --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 160 100% 37%;
+    --sidebar-ring: 212 73% 18%;
 
     /* Chart Colors */
-    --chart-1: 160 100% 37%; /* Primary Green */
+    --chart-1: 212 73% 60%; /* Primary Indigo */
     --chart-2: 217 91% 60%; /* Blue */
     --chart-3: 32 95% 44%; /* Orange */
     --chart-4: 262 83% 58%; /* Purple */
@@ -62,8 +62,8 @@
     --popover: 222.2 84% 4.9%;
     --popover-foreground: 210 40% 98%;
 
-    /* Primary: Custom HSL (Dark Theme) */
-    --primary: 160 100% 48%;
+    /* Primary: Brand indigo — Dark Theme (Zsolt's CRM, matches zsoltberta.hu) */
+    --primary: 212 73% 38%;
     --primary-foreground: 222.2 47.4% 11.2%; /* Dark text */
 
     --secondary: 217.2 32.6% 17.5%;
@@ -84,15 +84,15 @@
 
     --sidebar-background: 240 5.9% 10%;
     --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 160 100% 48%;
+    --sidebar-primary: 212 73% 38%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 240 3.7% 15.9%;
     --sidebar-accent-foreground: 240 4.8% 95.9%;
     --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 160 100% 48%;
+    --sidebar-ring: 212 73% 38%;
 
     /* Chart Colors - Dark Mode */
-    --chart-1: 160 100% 48%; /* Primary Green */
+    --chart-1: 212 73% 60%; /* Primary Indigo */
     --chart-2: 217 91% 60%; /* Blue */
     --chart-3: 32 95% 44%; /* Orange */
     --chart-4: 262 83% 58%; /* Purple */
