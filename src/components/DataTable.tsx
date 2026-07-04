@@ -42,7 +42,7 @@ const EMPTY_QUERIES: string[] = [];
 interface ColumnDef<TData> {
   accessorKey?: keyof TData | string;
   header: string | React.ReactNode | (() => React.ReactNode);
-  cell: (row: TData) => React.ReactNode;
+  cell: (row: TData, index?: number) => React.ReactNode;
   enableSorting?: boolean;
   id?: string;
 }
@@ -51,7 +51,7 @@ interface DataTableProps<TData, TValue> {
   columns: {
     accessorKey?: keyof TData | string;
     header: string | React.ReactNode | (() => React.ReactNode);
-    cell: (row: TData) => React.ReactNode;
+  cell: (row: TData, index?: number) => React.ReactNode;
     enableSorting?: boolean;
     id?: string;
   }[];
@@ -76,6 +76,8 @@ interface DataTableProps<TData, TValue> {
   onRowClick?: (row: TData) => void;
 
   freezeLastColumn?: boolean;
+
+  emptyMessage?: React.ReactNode;
 
   isRowDisabled?: (row: TData) => boolean;
   getRowDisabledReason?: (row: TData) => string;
@@ -129,6 +131,7 @@ export function DataTable<TData, TValue>({
   onRowDoubleClick,
   onRowClick,
   freezeLastColumn = true,
+  emptyMessage,
   isRowDisabled,
   getRowDisabledReason,
   getRowClassName,
@@ -165,7 +168,8 @@ export function DataTable<TData, TValue>({
       <Checkbox
         checked={selectedRows.size === data.length && data.length > 0}
         ref={(el) => {
-          if (el) el.indeterminate = selectedRows.size > 0 && selectedRows.size < data.length;
+          if (el) (el as HTMLButtonElement & { indeterminate?: boolean }).indeterminate =
+            selectedRows.size > 0 && selectedRows.size < data.length;
         }}
         onCheckedChange={(checked) => {
           if (checked) {
@@ -441,7 +445,7 @@ export function DataTable<TData, TValue>({
                       isMobile && "px-2 py-4 text-sm", // Smaller padding on mobile
                     )}
                   >
-                    {t("common:no_results")}
+                    {emptyMessage ?? t("common:no_results")}
                   </TableCell>
                 </TableRow>
               )}

@@ -61,6 +61,8 @@
   "leave_blank_to_keep_current_file": "Hagyja üresen a fájl mezőt a jelenlegi fájl megtartásához.",
   "search_options": "Keresési opciók...",
   "no_options_found": "Nincs találat.",
+  "select_all": "Összes kijelölése",
+  "deselect_all": "Kijelölés törlése",
   "go_to_previous_page": "Előző oldal",
   "go_to_next_page": "Következő oldal",
   "first_page": "Első oldal",

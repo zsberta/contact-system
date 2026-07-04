@@ -22,6 +22,7 @@ import type { ProjectDetails } from "@/types/project";
 import { deleteProject, getProjectById } from "@/lib/api";
 import { ProjectAttachments } from "@/components/projects/ProjectAttachments";
 import { ProjectPayments } from "@/components/projects/ProjectPayments";
+import { ProjectForms } from "@/components/forms/ProjectForms";
 
 const formatPrice = (price: number | null): string => {
   if (price === null || price === undefined) return "—";
@@ -184,6 +185,8 @@ const ProjectViewPage: React.FC = () => {
       </Card>
 
       <ProjectAttachments projectId={project.id} />
+
+      <ProjectForms projectId={project.id} />
 
       <ProjectPayments projectId={project.id} projectPrice={project.price} />
 

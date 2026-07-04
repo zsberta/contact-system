@@ -15,6 +15,8 @@ import { router as paymentsRouter } from "./routes/payments.js";
 import { router as paymentAttachmentsRouter } from "./routes/payment-attachments.js";
 import { router as projectPaymentGeneratorRouter } from "./routes/project-payment-generator.js";
 import { router as usersRouter } from "./routes/users.js";
+import { router as formsRouter } from "./routes/forms.js";
+import { router as formEmbedRouter } from "./routes/form-embed.js";
 import { pool } from "./db/pool.js";
 import { assertSafeStartup } from "./lib/startup-guard.js";
 
@@ -103,6 +105,18 @@ app.use("/api/projects", projectsRouter);
 app.use("/api/payments", paymentsRouter);
 app.use("/api/payments", paymentAttachmentsRouter);
 app.use("/api/projects", projectPaymentGeneratorRouter);
+app.use("/api/forms", formsRouter);
+
+// --- Embeddable form infrastructure ---------------------------------------
+// Forms have NO iframe and NO loader script (ADR 0009). The public POST
+// endpoint handles a direct submission from any host page; no CSP bypass
+// is required because the visitor never loads our origin inside theirs.
+
+// Public submission endpoint (no auth, no CSRF). The /api/public/* prefix
+// is CSRF-exempt per middleware/csrf.js; the secret_token is the
+// capability. Rate-limited with two chained express-rate-limit instances
+// (burst + sustained) inside the router.
+app.use("/api/public/forms", formEmbedRouter);
 
 const distDir = path.join(__dirname, "dist");
 app.use(express.static(distDir));

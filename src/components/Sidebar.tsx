@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, Briefcase } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, FileText } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
@@ -24,6 +24,14 @@ const Sidebar = ({ onClose }: SidebarProps = {}) => {
       >
         <LayoutDashboard className="h-4 w-4" />
         <span>{t("navigation:dashboard")}</span>
+      </NavLink>
+      <NavLink
+        to="/forms"
+        onClick={() => onClose?.()}
+        className={linkClass}
+      >
+        <FileText className="h-4 w-4" />
+        <span>{t("navigation:forms")}</span>
       </NavLink>
       <NavLink
         to="/projects"

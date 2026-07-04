@@ -72,3 +72,5 @@ pgdata/
 # Vite-specific
 .vite/
 docker-compose.yml
+.aider*
+.opencode

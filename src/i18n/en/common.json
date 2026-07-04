@@ -61,6 +61,8 @@
   "leave_blank_to_keep_current_file": "Leave the file field blank to keep the current file.",
   "search_options": "Search options...",
   "no_options_found": "No option found.",
+  "select_all": "Select all",
+  "deselect_all": "Deselect all",
   "go_to_previous_page": "Go to previous page",
   "go_to_next_page": "Go to next page",
   "first_page": "First page",

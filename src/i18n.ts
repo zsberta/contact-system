@@ -9,8 +9,7 @@ import enSeo from "./i18n/en/seo.json";
 import enUsers from "./i18n/en/users.json";
 import enProjects from "./i18n/en/projects.json";
 import enPayments from "./i18n/en/payments.json";
-import enWidgets from "./i18n/en/widgets.json";
-import enPrivacyPolicy from "./i18n/en/privacy-policy.json";
+import enForms from "./i18n/en/forms.json";
 
 import huAuth from "./i18n/hu/auth.json";
 import huCommon from "./i18n/hu/common.json";
@@ -20,8 +19,7 @@ import huSeo from "./i18n/hu/seo.json";
 import huUsers from "./i18n/hu/users.json";
 import huProjects from "./i18n/hu/projects.json";
 import huPayments from "./i18n/hu/payments.json";
-import huWidgets from "./i18n/hu/widgets.json";
-import huPrivacyPolicy from "./i18n/hu/privacy-policy.json";
+import huForms from "./i18n/hu/forms.json";
 
 const resources = {
   en: {
@@ -33,8 +31,7 @@ const resources = {
     users: enUsers,
     projects: enProjects,
     payments: enPayments,
-    widgets: enWidgets,
-    "privacy-policy": enPrivacyPolicy,
+    forms: enForms,
   },
   hu: {
     auth: huAuth,
@@ -45,8 +42,7 @@ const resources = {
     users: huUsers,
     projects: huProjects,
     payments: huPayments,
-    widgets: huWidgets,
-    "privacy-policy": huPrivacyPolicy,
+    forms: huForms,
   },
 };
 
@@ -64,8 +60,7 @@ i18n.use(initReactI18next).init({
     "users",
     "projects",
     "payments",
-    "widgets",
-    "privacy-policy",
+    "forms",
   ],
   interpolation: { escapeValue: false },
 });

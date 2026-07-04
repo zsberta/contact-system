@@ -18,6 +18,10 @@ import ProjectEditPage from "./pages/ProjectEditPage";
 import ProjectViewPage from "./pages/ProjectViewPage";
 import PaymentEditPage from "./pages/PaymentEditPage";
 import PaymentViewPage from "./pages/PaymentViewPage";
+import FormsPage from "./pages/FormsPage";
+import FormCreatePage from "./pages/FormCreatePage";
+import FormEditPage from "./pages/FormEditPage";
+import FormViewPage from "./pages/FormViewPage";
 import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Layout from "./components/Layout";
@@ -74,6 +78,19 @@ const App = () => (
                   <Route
                     path="/projects/:id/payments/:paymentId/view"
                     element={<PaymentViewPage />}
+                  />
+                  <Route path="/forms" element={<FormsPage />} />
+                  <Route
+                    path="/forms/create"
+                    element={<FormCreatePage />}
+                  />
+                  <Route
+                    path="/forms/view/:id"
+                    element={<FormViewPage />}
+                  />
+                  <Route
+                    path="/forms/edit/:id"
+                    element={<FormEditPage />}
                   />
                   <Route path="*" element={<NotFound />} />
                 </Route>

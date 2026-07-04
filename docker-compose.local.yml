@@ -53,7 +53,11 @@ services:
       BCRYPT_COST: "12"
     env_file:
       - .env
-    command: ["sh", "-c", "npm run db:migrate && npm run db:seed && node server.js"]
+    # NOTE: db:seed is intentionally NOT chained here. See the matching comment in
+    # docker-compose.yml for the full rationale (it boils down to: seed is idempotent for
+    # forms/users but appends demo submissions on every run, which would double them on each
+    # `docker compose up`). Use `npm run db:fresh` for a clean seeded state.
+    command: ["sh", "-c", "npm run db:migrate && node server.js"]
 
 volumes:
   pgdata:
