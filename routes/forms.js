@@ -2,6 +2,16 @@ import express from "express";
 import crypto from "node:crypto";
 import { pool } from "../db/pool.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
+import { getScopedProjectIds, appendProjectScope } from "../lib/scope.js";
+
+// Read-only for endusers. Mutations are rejected with 403.
+const isEnduser = (req) => req.user && req.user.role === "enduser";
+const forbidEnduserMutation = (req, res) => {
+  if (isEnduser(req)) {
+    return res.status(403).json({ errorMessage: "Endusers have read-only access" });
+  }
+  return null;
+};
 
 // Admin CRUD for the Forms module. Authoritative source for the schema
 // per ADR 0009 (Forms module replaces the legacy embeddable-form module
@@ -304,12 +314,29 @@ router.get("/", async (req, res) => {
   );
   const searchFilter = buildWhereClause(queries, filterType, allocator);
 
-  const allConditions = [projectFilter.sql, searchFilter.sql].filter(Boolean);
+  // Enduser scoping: the user may only see forms on projects they're
+  // assigned to. The scope clause binds a single bigint[] param, so it
+  // only consumes one placeholder index. Admins get an empty clause.
+  const scopedProjectIds = await getScopedProjectIds(req);
+  const enduserScope = appendProjectScope({
+    placeholderIndex: allocator.next(),
+    projectIds: scopedProjectIds,
+    tableAlias: "f",
+  });
+  // appendProjectScope returns " AND ..." — strip the leading " AND " so
+  // the .join(" AND ") in allConditions composes cleanly without a
+  // double-AND.
+  const enduserScopeSql = enduserScope.sql
+    ? enduserScope.sql.replace(/^\s*AND\b/i, "")
+    : "";
+
+  const allConditions = [projectFilter.sql, searchFilter.sql, enduserScopeSql].filter(Boolean);
   const whereSql =
     allConditions.length > 0 ? `WHERE ${allConditions.join(" AND ")}` : "";
   const whereParams = [
     ...projectFilter.params,
     ...searchFilter.params,
+    ...enduserScope.params,
   ];
 
   const order = buildOrderClause(sortField, sortOrder);
@@ -376,6 +403,19 @@ router.get("/:id", async (req, res) => {
   if (!Number.isFinite(formId) || formId <= 0) {
     return res.status(400).json({ errorMessage: "Invalid id" });
   }
+  if (isEnduser(req)) {
+    const { rows: pre } = await pool.query(
+      `SELECT project_id FROM forms WHERE id = $1`,
+      [formId],
+    );
+    if (pre.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "Form not found" });
+    }
+    const allowed = Array.isArray(req.user.projectIds)
+      ? req.user.projectIds.includes(Number(pre.rows[0].project_id))
+      : false;
+    if (!allowed) return res.status(404).json({ errorMessage: "Form not found" });
+  }
   try {
     const { rows } = await pool.query(
       `SELECT f.id, f.project_id, p.name AS project_name,
@@ -398,6 +438,8 @@ router.get("/:id", async (req, res) => {
 
 // ---- POST /api/forms ----
 router.post("/", async (req, res) => {
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
   const validation = validateFormBody(req.body, { partial: false });
   if (!validation.ok) {
     return res.status(400).json({ errorMessage: validation.error });
@@ -478,6 +520,8 @@ router.post("/", async (req, res) => {
 
 // ---- PUT /api/forms/:id ----
 router.put("/:id", async (req, res) => {
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
   const formId = parseInt(req.params.id, 10);
   if (!Number.isFinite(formId) || formId <= 0) {
     return res.status(400).json({ errorMessage: "Invalid id" });
@@ -546,6 +590,8 @@ router.put("/:id", async (req, res) => {
 // decided not to enforce a 409 "has submissions" guard — operators
 // can wipe a form along with its submissions via the FK CASCADE.
 router.delete("/:id", async (req, res) => {
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
   const formId = parseInt(req.params.id, 10);
   if (!Number.isFinite(formId) || formId <= 0) {
     return res.status(400).json({ errorMessage: "Invalid id" });
@@ -572,6 +618,8 @@ router.delete("/:id", async (req, res) => {
 // is server-known, the slug is a human label. Origin is auto-derived
 // from the request when APP_PUBLIC_URL is unset (dev convenience).
 router.get("/:id/snippet", async (req, res) => {
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
   const formId = parseInt(req.params.id, 10);
   if (!Number.isFinite(formId) || formId <= 0) {
     return res.status(400).json({ errorMessage: "Invalid id" });

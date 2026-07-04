@@ -7,6 +7,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import { pool } from "../db/pool.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
+import { getScopedProjectIds, appendProjectScope } from "../lib/scope.js";
 
 export const router = express.Router();
 
@@ -15,6 +16,16 @@ export const router = express.Router();
 // the contract obvious at the call site.
 const UPLOAD_ROOT = process.env.UPLOADS_DIR || "/app/uploads";
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
+
+// Read-only for endusers. The CRUD verbs refuse if the requester is an
+// enduser. Scoping is applied to every read query.
+const isEnduser = (req) => req.user && req.user.role === "enduser";
+const forbidEnduserMutation = (req, res) => {
+  if (isEnduser(req)) {
+    return res.status(403).json({ errorMessage: "Endusers have read-only access" });
+  }
+  return null;
+};
 
 // Whitelist of sniffed mime types we accept. We deliberately do NOT trust the
 // client's Content-Type header — file-type sniffs the first ~4KB of the buffer.
@@ -373,12 +384,42 @@ router.get("/", requireAuth, async (req, res) => {
   const order = buildOrderClause(sortField, sortOrder);
   const offset = page * size;
 
+  // Enduser scoping: limit to the user's assigned projects. The list of
+  // ids comes from the JWT (no DB roundtrip) and is bound as a single
+  // bigint[] parameter via appendProjectScope. The helper returns
+  // " AND <col> = ANY($N::bigint[])" for endusers, or "" for admins.
+  // On the projects table the scoping column is "id" (the projects
+  // table doesn't have a project_id column).
+  const scopedProjectIds = await getScopedProjectIds(req);
+  const scope = appendProjectScope({
+    placeholderIndex: where.params.length + 1,
+    projectIds: scopedProjectIds,
+    tableAlias: null,
+    column: "id",
+  });
+  // appendProjectScope returns " AND ..." — we keep both forms available
+  // so the composer below can chain it as " AND ..." (with the search
+  // WHERE) or as a standalone "WHERE ..." (without one).
+  // Compose the final WHERE: when both are empty, the result is "";
+  // when only scope is present, the leading " AND " is stripped and we
+  // prepend WHERE. When search is present, scope chains with it via the
+  // leading " AND ".
+  let composedWhere = "";
+  if (where.sql && scope.sql) {
+    composedWhere = `${where.sql}${scope.sql}`;
+  } else if (where.sql) {
+    composedWhere = where.sql;
+  } else if (scope.sql) {
+    composedWhere = `WHERE ${scope.sql.replace(/^\s*AND\b/i, "")}`;
+  }
+  const composedParams = [...where.params, ...scope.params];
+
   try {
-    const countSql = `SELECT COUNT(*)::int AS total FROM projects ${where.sql}`;
-    const countResult = await pool.query(countSql, where.params);
+    const countSql = `SELECT COUNT(*)::int AS total FROM projects ${composedWhere}`;
+    const countResult = await pool.query(countSql, composedParams);
     const totalElements = countResult.rows[0].total;
 
-    const baseParamCount = where.params.length;
+    const baseParamCount = composedParams.length;
     const limitParam = baseParamCount + 1;
     const offsetParam = baseParamCount + 2;
     const dataSqlFinal = `SELECT id, name, domain_address, price, fordulonap,
@@ -386,12 +427,12 @@ router.get("/", requireAuth, async (req, res) => {
                                  customer_phone, customer_email, created_at,
                                  updated_at, last_status_change_at
                           FROM projects
-                          ${where.sql}
+                          ${composedWhere}
                           ${order}
                           LIMIT $${limitParam} OFFSET $${offsetParam}`;
 
     const dataResult = await pool.query(dataSqlFinal, [
-      ...where.params,
+      ...composedParams,
       size,
       offset,
     ]);
@@ -432,6 +473,17 @@ router.get("/:id", requireAuth, async (req, res) => {
   if (!Number.isFinite(projectId) || projectId <= 0) {
     return res.status(400).json({ errorMessage: "Invalid id" });
   }
+  // Enduser scope: refuse upfront if the project is not in the user's
+  // assignment set. The 404 is fine here — it doesn't reveal whether
+  // the project exists for someone else.
+  if (isEnduser(req)) {
+    const allowed = Array.isArray(req.user.projectIds)
+      ? req.user.projectIds.includes(projectId)
+      : false;
+    if (!allowed) {
+      return res.status(404).json({ errorMessage: "Project not found" });
+    }
+  }
   try {
     const { rows } = await pool.query(
       `SELECT id, name, domain_address, price, fordulonap, billing_period,
@@ -452,6 +504,8 @@ router.get("/:id", requireAuth, async (req, res) => {
 
 // ---- POST /api/projects ----
 router.post("/", requireAuth, async (req, res) => {
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
   const validation = validateProjectBody(req.body, { partial: false });
   if (!validation.ok) {
     return res.status(400).json({ errorMessage: validation.error });
@@ -495,6 +549,8 @@ router.post("/", requireAuth, async (req, res) => {
 
 // ---- PUT /api/projects/:id ----
 router.put("/:id", requireAuth, async (req, res) => {
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
   const projectId = parseInt(req.params.id, 10);
   if (!Number.isFinite(projectId) || projectId <= 0) {
     return res.status(400).json({ errorMessage: "Invalid id" });
@@ -550,6 +606,8 @@ router.put("/:id", requireAuth, async (req, res) => {
 
 // ---- DELETE /api/projects/:id ----
 router.delete("/:id", requireAuth, async (req, res) => {
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
   const projectId = parseInt(req.params.id, 10);
   if (!Number.isFinite(projectId) || projectId <= 0) {
     return res.status(400).json({ errorMessage: "Invalid id" });
@@ -587,6 +645,12 @@ router.get("/:id/attachments", requireAuth, async (req, res) => {
   if (!Number.isFinite(projectId) || projectId <= 0) {
     return res.status(400).json({ errorMessage: "Invalid id" });
   }
+  if (isEnduser(req)) {
+    const allowed = Array.isArray(req.user.projectIds)
+      ? req.user.projectIds.includes(projectId)
+      : false;
+    if (!allowed) return res.status(404).json({ errorMessage: "Project not found" });
+  }
   try {
     // Verify the project exists so we can return a clean 404 instead of [].
     const proj = await pool.query(`SELECT id FROM projects WHERE id = $1`, [projectId]);
@@ -614,6 +678,8 @@ router.post(
   "/:id/attachments",
   requireAuth,
   (req, res, next) => {
+    const guard = forbidEnduserMutation(req, res);
+    if (guard) return guard;
     const projectId = parseInt(req.params.id, 10);
     if (!Number.isFinite(projectId) || projectId <= 0) {
       return res.status(400).json({ errorMessage: "Invalid id" });
@@ -707,6 +773,12 @@ router.get("/:id/attachments/:attId/download", requireAuth, async (req, res) => 
   if (!Number.isFinite(projectId) || projectId <= 0) {
     return res.status(400).json({ errorMessage: "Invalid id" });
   }
+  if (isEnduser(req)) {
+    const allowed = Array.isArray(req.user.projectIds)
+      ? req.user.projectIds.includes(projectId)
+      : false;
+    if (!allowed) return res.status(404).json({ errorMessage: "Attachment not found" });
+  }
   if (!Number.isFinite(attId) || attId <= 0) {
     return res.status(400).json({ errorMessage: "Invalid attachment id" });
   }
@@ -758,6 +830,8 @@ router.get("/:id/attachments/:attId/download", requireAuth, async (req, res) => 
 
 // ---- DELETE /api/projects/:id/attachments/:attId ----
 router.delete("/:id/attachments/:attId", requireAuth, async (req, res) => {
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
   const projectId = parseInt(req.params.id, 10);
   const attId = parseInt(req.params.attId, 10);
   if (!Number.isFinite(projectId) || projectId <= 0) {

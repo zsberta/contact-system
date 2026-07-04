@@ -20,6 +20,16 @@ import express from "express";
 import crypto from "node:crypto";
 import { pool } from "../db/pool.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
+import { getScopedProjectIds, appendProjectScope } from "../lib/scope.js";
+
+// Read-only for endusers. Mutations are rejected with 403.
+const isEnduser = (req) => req.user && req.user.role === "enduser";
+const forbidEnduserMutation = (req, res) => {
+  if (isEnduser(req)) {
+    return res.status(403).json({ errorMessage: "Endusers have read-only access" });
+  }
+  return null;
+};
 
 export const router = express.Router();
 router.use(requireAuth);
@@ -396,13 +406,24 @@ router.get("/", async (req, res) => {
     allocator,
   );
   const searchFilter = buildWhereClause(queries, filterType, allocator);
+  // Enduser scoping: only show reservations on the user's assigned projects.
+  const scopedProjectIds = await getScopedProjectIds(req);
+  const enduserScope = appendProjectScope({
+    placeholderIndex: allocator.next(),
+    projectIds: scopedProjectIds,
+    tableAlias: "r",
+  });
+  const enduserScopeSql = enduserScope.sql
+    ? enduserScope.sql.replace(/^\s*AND\b/i, "")
+    : "";
 
-  const allConditions = [projectFilter.sql, searchFilter.sql].filter(Boolean);
+  const allConditions = [projectFilter.sql, searchFilter.sql, enduserScopeSql].filter(Boolean);
   const whereSql =
     allConditions.length > 0 ? `WHERE ${allConditions.join(" AND ")}` : "";
   const whereParams = [
     ...projectFilter.params,
     ...searchFilter.params,
+    ...enduserScope.params,
   ];
 
   const order = buildOrderClause(sortField, sortOrder);
@@ -472,6 +493,24 @@ router.get("/:id", async (req, res) => {
   if (!Number.isFinite(id) || id <= 0) {
     return res.status(400).json({ errorMessage: "Invalid id" });
   }
+  if (isEnduser(req)) {
+    // We need the project_id of this reservation to check membership.
+    // One cheap SELECT ahead of the JOINed SELECT keeps the main query
+    // simple.
+    const { rows: pre } = await pool.query(
+      `SELECT project_id FROM reservations WHERE id = $1`,
+      [id],
+    );
+    if (pre.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "Reservation not found" });
+    }
+    const allowed = Array.isArray(req.user.projectIds)
+      ? req.user.projectIds.includes(Number(pre.rows[0].project_id))
+      : false;
+    if (!allowed) {
+      return res.status(404).json({ errorMessage: "Reservation not found" });
+    }
+  }
   try {
     const { rows } = await pool.query(
       `SELECT r.id, r.project_id, p.name AS project_name,
@@ -497,6 +536,8 @@ router.get("/:id", async (req, res) => {
 
 // ---- POST /api/reservations ----
 router.post("/", async (req, res) => {
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
   const validation = validateReservationBody(req.body, { partial: false });
   if (!validation.ok) {
     return res.status(400).json({ errorMessage: validation.error });
@@ -581,6 +622,8 @@ router.post("/", async (req, res) => {
 
 // ---- PUT /api/reservations/:id ----
 router.put("/:id", async (req, res) => {
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) {
     return res.status(400).json({ errorMessage: "Invalid id" });
@@ -647,6 +690,8 @@ router.put("/:id", async (req, res) => {
 // decided not to enforce a 409 "has bookings" guard — operators can wipe a
 // reservation along with its bookings via the FK CASCADE.
 router.delete("/:id", async (req, res) => {
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) {
     return res.status(400).json({ errorMessage: "Invalid id" });

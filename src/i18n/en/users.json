@@ -19,5 +19,37 @@
   "passwords_must_match": "Passwords do not match",
   "password_min_length": "Password must be at least 8 characters",
   "confirm_delete_title": "Delete user",
-  "confirm_delete_description": "Are you sure you want to delete user \"{{name}}\" ({{email}})? This action cannot be undone."
+  "confirm_delete_description": "Are you sure you want to delete user \"{{name}}\" ({{email}})? This action cannot be undone.",
+
+  "role": "Role",
+  "role_admin": "Admin",
+  "role_enduser": "End user",
+  "role_admin_description": "Full access — manages projects, forms, reservations, payments and other users.",
+  "role_enduser_description": "Read-only access to the projects explicitly assigned by an admin.",
+
+  "create_user_as_enduser": "Create as end user (customer portal)",
+  "create_user_as_enduser_description": "An invite link will be generated. The end user picks their own password and can be assigned to one or more projects.",
+
+  "invite": "Invite",
+  "invite_resent": "Invite (re)issued. The new link was emailed to the user and is also shown below for manual delivery.",
+  "invite_revoked": "Outstanding invites revoked.",
+  "revoke_invite_title": "Revoke outstanding invites?",
+  "revite_invite_description": "Any invite link the user has not yet claimed will stop working. You can issue a fresh one afterwards.",
+  "invite_link_label": "Invite link (copy to deliver manually)",
+  "invite_link_copied": "Invite link copied to clipboard",
+  "send_invite": "Send invite",
+  "resend_invite": "Resend invite",
+  "revoke_invite": "Revoke invites",
+  "invite_required_password": "Leave the password empty — the end user will set it via the invite link.",
+
+  "must_set_password": "Has not set a password yet",
+  "no_active_invite": "No active invite",
+  "pending_invite": "Invite pending",
+  "project_assignments": "Project assignments",
+  "project_assignments_help": "Select the projects this end user can see in their portal. They will get read-only access to forms, reservations and payments on those projects.",
+  "no_project_assignments": "This user is not yet assigned to any project.",
+  "assign_project": "Assign project",
+  "unassign_project": "Remove",
+
+  "enduser_landing_intro": "End users are read-only — they sign in to a customer portal and see only the projects you assign to them."
 }

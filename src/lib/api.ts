@@ -1,5 +1,9 @@
 import {
+  ForgotPasswordRequest,
+  ForgotPasswordResponse,
   JwtAuthenticationResponse,
+  ResetPasswordRequest,
+  SetPasswordRequest,
   SigninRequest,
   UserDetailsDTO,
 } from "@/types/auth";
@@ -7,6 +11,10 @@ import { CsrfTokenService } from "@/services/csrf";
 import { QueryParams as CommonQueryParams } from "@/types/common";
 import type { Page } from "@/types/common";
 import {
+  CreateUserResponse,
+  InviteIssuedResponse,
+  ReplaceAssignmentsResponse,
+  RevokeInviteResponse,
   UserCreateUpdateDTO,
   UserDetails,
   UserDTO,
@@ -466,6 +474,39 @@ export async function logout(): Promise<void> {
   });
 }
 
+// --- Public auth flows (CSRF-exempt on the server) ---
+
+// Set-password (invite flow). Public — the token is the capability, no
+// CSRF token needed.
+export async function setPassword(
+  data: SetPasswordRequest,
+): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>("/auth/set-password", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// Forgot-password. Public. Always 200.
+export async function forgotPassword(
+  data: ForgotPasswordRequest,
+): Promise<ForgotPasswordResponse> {
+  return apiFetch<ForgotPasswordResponse>("/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// Reset-password. Public.
+export async function resetPassword(
+  data: ResetPasswordRequest,
+): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>("/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
 // --- User management API calls ---
 
 export const getAllUsersPaged = (
@@ -480,8 +521,8 @@ export const getUserById = (id: number): Promise<UserDetails> => {
 
 export const createUser = (
   data: UserCreateUpdateDTO,
-): Promise<UserDetails> => {
-  return apiFetch<UserDetails>("/users", {
+): Promise<CreateUserResponse> => {
+  return apiFetch<CreateUserResponse>("/users", {
     method: "POST",
     body: JSON.stringify(data),
   });
@@ -499,6 +540,53 @@ export const updateUser = (
 
 export const deleteUser = (id: number): Promise<void> => {
   return apiFetch<void>(`/users/${id}`, {
+    method: "DELETE",
+  });
+};
+
+// --- Invites & project assignments (admin) ---
+
+export const issueInvite = (
+  userId: number,
+): Promise<InviteIssuedResponse> => {
+  return apiFetch<InviteIssuedResponse>(`/users/${userId}/invite`, {
+    method: "POST",
+  });
+};
+
+export const revokeInvite = (
+  userId: number,
+): Promise<RevokeInviteResponse> => {
+  return apiFetch<RevokeInviteResponse>(`/users/${userId}/invite`, {
+    method: "DELETE",
+  });
+};
+
+export const setUserProjects = (
+  userId: number,
+  projectIds: number[],
+): Promise<ReplaceAssignmentsResponse> => {
+  return apiFetch<ReplaceAssignmentsResponse>(`/users/${userId}/projects`, {
+    method: "PUT",
+    body: JSON.stringify({ projectIds }),
+  });
+};
+
+export const addUserProject = (
+  userId: number,
+  projectId: number,
+): Promise<void> => {
+  return apiFetch<void>(`/users/${userId}/projects`, {
+    method: "POST",
+    body: JSON.stringify({ projectId }),
+  });
+};
+
+export const removeUserProject = (
+  userId: number,
+  projectId: number,
+): Promise<void> => {
+  return apiFetch<void>(`/users/${userId}/projects/${projectId}`, {
     method: "DELETE",
   });
 };

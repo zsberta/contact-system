@@ -9,7 +9,11 @@ import {
   SigninRequest,
   UserDetailsDTO,
 } from "@/types/auth";
-import { signIn, validateSession, logout as logoutApi } from "@/lib/api";
+import {
+  signIn,
+  validateSession,
+  logout as logoutApi,
+} from "@/lib/api";
 import { showSuccess, showError } from "@/utils/toast";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -37,6 +41,15 @@ const initialAuthState: AuthState = {
   isLoading: true,
   passwordChangeRequired: false,
 };
+
+// Pick a landing route based on the user's role. Admins go to the
+// dashboard; endusers go to the customer portal. This is the single
+// source of truth for post-login redirects — every place that calls
+// login() ultimately lands on one of these.
+export function landingRouteForRole(role) {
+  if (role === "enduser") return "/portal";
+  return "/dashboard";
+}
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({
   children,
@@ -143,11 +156,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
         t("auth:welcome_message", { name: response.user?.firstName || "User" }),
       );
 
-      // Redirect to change password if required, otherwise to dashboard
+      // Redirect to change password if required, otherwise to the role-
+      // appropriate landing route.
       if (passwordRequired) {
         navigate("/change-password");
       } else {
-        navigate("/dashboard");
+        navigate(landingRouteForRole(response.user?.role));
       }
     } catch (error) {
       console.error("Login failed:", error);

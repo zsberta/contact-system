@@ -26,6 +26,11 @@ import ReservationsPage from "./pages/ReservationsPage";
 import ReservationCreatePage from "./pages/ReservationCreatePage";
 import ReservationEditPage from "./pages/ReservationEditPage";
 import ReservationViewPage from "./pages/ReservationViewPage";
+import SetPasswordPage from "./pages/SetPasswordPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
+import EnduserPortal from "./pages/EnduserPortal";
+import EnduserProjectView from "./pages/EnduserProjectView";
 import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Layout from "./components/Layout";
@@ -52,63 +57,88 @@ const App = () => (
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/set-password" element={<SetPasswordPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
               <Route path="/no-permission" element={<NoPermissionPage />} />
               <Route path="/crash" element={<CrashPage />} />
 
               <Route element={<ProtectedRoute />}>
                 <Route element={<Layout />}>
-                  <Route path="/dashboard" element={<DashboardPage />} />
-                  <Route path="/users" element={<UsersPage />} />
-                  <Route path="/users/create" element={<UserCreatePage />} />
-                  <Route path="/users/view/:id" element={<UserViewPage />} />
-                  <Route path="/users/edit/:id" element={<UserEditPage />} />
-                  <Route path="/projects" element={<ProjectsPage />} />
+                  {/* Admin-only section. The role check is enforced in
+                      ProtectedRoute; admins who navigate here via a
+                      stale URL bounce to /dashboard, endusers to
+                      /portal. */}
                   <Route
-                    path="/projects/create"
-                    element={<ProjectCreatePage />}
-                  />
+                    element={<ProtectedRoute roles={["admin"]} />}
+                  >
+                    <Route path="/dashboard" element={<DashboardPage />} />
+                    <Route path="/users" element={<UsersPage />} />
+                    <Route path="/users/create" element={<UserCreatePage />} />
+                    <Route path="/users/view/:id" element={<UserViewPage />} />
+                    <Route path="/users/edit/:id" element={<UserEditPage />} />
+                    <Route path="/projects" element={<ProjectsPage />} />
+                    <Route
+                      path="/projects/create"
+                      element={<ProjectCreatePage />}
+                    />
+                    <Route
+                      path="/projects/view/:id"
+                      element={<ProjectViewPage />}
+                    />
+                    <Route
+                      path="/projects/edit/:id"
+                      element={<ProjectEditPage />}
+                    />
+                    <Route
+                      path="/projects/:id/payments/:paymentId/edit"
+                      element={<PaymentEditPage />}
+                    />
+                    <Route
+                      path="/projects/:id/payments/:paymentId/view"
+                      element={<PaymentViewPage />}
+                    />
+                    <Route path="/forms" element={<FormsPage />} />
+                    <Route
+                      path="/forms/create"
+                      element={<FormCreatePage />}
+                    />
+                    <Route
+                      path="/forms/view/:id"
+                      element={<FormViewPage />}
+                    />
+                    <Route
+                      path="/forms/edit/:id"
+                      element={<FormEditPage />}
+                    />
+                    <Route path="/reservations" element={<ReservationsPage />} />
+                    <Route
+                      path="/reservations/create"
+                      element={<ReservationCreatePage />}
+                    />
+                    <Route
+                      path="/reservations/view/:id"
+                      element={<ReservationViewPage />}
+                    />
+                    <Route
+                      path="/reservations/edit/:id"
+                      element={<ReservationEditPage />}
+                    />
+                  </Route>
+
+                  {/* Enduser-only section. Mirrors the admin branch but
+                      with read-only data and a smaller surface (just
+                      the portal + per-project read view). */}
                   <Route
-                    path="/projects/view/:id"
-                    element={<ProjectViewPage />}
-                  />
-                  <Route
-                    path="/projects/edit/:id"
-                    element={<ProjectEditPage />}
-                  />
-                  <Route
-                    path="/projects/:id/payments/:paymentId/edit"
-                    element={<PaymentEditPage />}
-                  />
-                  <Route
-                    path="/projects/:id/payments/:paymentId/view"
-                    element={<PaymentViewPage />}
-                  />
-                  <Route path="/forms" element={<FormsPage />} />
-                  <Route
-                    path="/forms/create"
-                    element={<FormCreatePage />}
-                  />
-                  <Route
-                    path="/forms/view/:id"
-                    element={<FormViewPage />}
-                  />
-                  <Route
-                    path="/forms/edit/:id"
-                    element={<FormEditPage />}
-                  />
-                  <Route path="/reservations" element={<ReservationsPage />} />
-                  <Route
-                    path="/reservations/create"
-                    element={<ReservationCreatePage />}
-                  />
-                  <Route
-                    path="/reservations/view/:id"
-                    element={<ReservationViewPage />}
-                  />
-                  <Route
-                    path="/reservations/edit/:id"
-                    element={<ReservationEditPage />}
-                  />
+                    element={<ProtectedRoute roles={["enduser"]} />}
+                  >
+                    <Route path="/portal" element={<EnduserPortal />} />
+                    <Route
+                      path="/portal/projects/:id"
+                      element={<EnduserProjectView />}
+                    />
+                  </Route>
+
                   <Route path="*" element={<NotFound />} />
                 </Route>
               </Route>

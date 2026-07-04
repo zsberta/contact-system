@@ -1,6 +1,12 @@
+// Paths that are CSRF-exempt. They never have an authenticated session
+// to issue a token against and are gated by a different capability
+// (password, snippet token, public token, etc.).
 const PUBLIC_AUTH_PATHS = new Set([
   "/api/auth/signin",
   "/api/auth/refresh",
+  "/api/auth/set-password",
+  "/api/auth/forgot-password",
+  "/api/auth/reset-password",
   "/api/csrf",
   "/api/csrf/refresh",
 ]);

@@ -1,9 +1,18 @@
 import express from "express";
 import { pool } from "../db/pool.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
+import { getScopedProjectIds } from "../lib/scope.js";
 
 export const router = express.Router();
 router.use(requireAuth);
+
+const isEnduser = (req) => req.user && req.user.role === "enduser";
+const forbidEnduserMutation = (req, res) => {
+  if (isEnduser(req)) {
+    return res.status(403).json({ errorMessage: "Endusers have read-only access" });
+  }
+  return null;
+};
 
 const STATUS_VALUES = new Set(["pending", "paid", "overdue", "cancelled"]);
 const PERIOD_VALUES = new Set(["monthly", "yearly", "one_off"]);
@@ -203,6 +212,13 @@ router.get("/", requireAuth, async (req, res) => {
     params.push(projectFilter);
     whereParts.push(`project_id = $${params.length}`);
   }
+  // Enduser scoping: limit to the user's assigned projects. The list
+  // of ids comes from the JWT (no DB roundtrip).
+  const scopedProjectIds = await getScopedProjectIds(req);
+  if (scopedProjectIds !== null) {
+    params.push(scopedProjectIds);
+    whereParts.push(`project_id = ANY($${params.length}::bigint[])`);
+  }
   const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
   const offset = page * size;
   const limitParam = params.length + 1;
@@ -266,6 +282,14 @@ router.get("/:id", requireAuth, async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({ errorMessage: "Payment not found" });
     }
+    if (isEnduser(req)) {
+      const allowed = Array.isArray(req.user.projectIds)
+        ? req.user.projectIds.includes(Number(rows[0].project_id))
+        : false;
+      if (!allowed) {
+        return res.status(404).json({ errorMessage: "Payment not found" });
+      }
+    }
     return res.json(rowToPaymentDTO(rows[0]));
   } catch (err) {
     console.error("[payments/get]", err.code, err.message);
@@ -275,6 +299,8 @@ router.get("/:id", requireAuth, async (req, res) => {
 
 // ---- POST /api/payments ----
 router.post("/", requireAuth, async (req, res) => {
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
   const validation = validatePaymentBody(req.body, { partial: false });
   if (!validation.ok) {
     return res.status(400).json({ errorMessage: validation.error });
@@ -334,6 +360,8 @@ router.post("/", requireAuth, async (req, res) => {
 
 // ---- PUT /api/payments/:id ----
 router.put("/:id", requireAuth, async (req, res) => {
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
   const paymentId = parseInt(req.params.id, 10);
   if (!Number.isFinite(paymentId) || paymentId <= 0) {
     return res.status(400).json({ errorMessage: "Invalid id" });
@@ -401,6 +429,8 @@ router.put("/:id", requireAuth, async (req, res) => {
 // ---- DELETE /api/payments/:id ----
 // Refuses to delete paid payments — they're an audit trail.
 router.delete("/:id", requireAuth, async (req, res) => {
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
   const paymentId = parseInt(req.params.id, 10);
   if (!Number.isFinite(paymentId) || paymentId <= 0) {
     return res.status(400).json({ errorMessage: "Invalid id" });

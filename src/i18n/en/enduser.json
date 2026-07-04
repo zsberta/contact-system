@@ -1,0 +1,17 @@
+{
+  "portal": "My projects",
+  "portal_title": "My projects - BuzzCRM",
+  "portal_description": "Read-only access to the projects assigned to you.",
+
+  "my_projects": "My projects",
+  "my_projects_empty": "You don't have any projects assigned yet. Your administrator will set you up shortly.",
+  "view_project": "View",
+  "back_to_my_projects": "Back to my projects",
+
+  "project_forms": "Forms",
+  "project_reservations": "Reservations",
+  "project_payments": "Payments",
+  "no_forms": "No forms have been set up on this project yet.",
+  "no_reservations": "No reservations have been set up on this project yet.",
+  "no_payments": "No payments on this project."
+}

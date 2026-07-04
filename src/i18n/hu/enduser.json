@@ -1,0 +1,17 @@
+{
+  "portal": "Projektjeim",
+  "portal_title": "Projektjeim - BuzzCRM",
+  "portal_description": "Olvasási hozzáférés a hozzád rendelt projektekhez.",
+
+  "my_projects": "Projektjeim",
+  "my_projects_empty": "Jelenleg nincs hozzád rendelt projekt. Hamarosan az adminisztrátor beállítja.",
+  "view_project": "Megtekintés",
+  "back_to_my_projects": "Vissza a projektjeimhez",
+
+  "project_forms": "Űrlapok",
+  "project_reservations": "Foglalások",
+  "project_payments": "Számlák",
+  "no_forms": "Ezen a projekten még nincs beállított űrlap.",
+  "no_reservations": "Ezen a projekten még nincs beállított foglalás.",
+  "no_payments": "Ezen a projekten nincs számla."
+}

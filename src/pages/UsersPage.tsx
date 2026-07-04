@@ -1,3 +1,14 @@
+// UsersPage — admin only.
+//
+// Two visual columns the rest of the app doesn't have:
+//   * Role  — admin / enduser, with a badge.
+//   * Invite status — "pending" (mustSetPassword) or "active".
+//
+// The enduser action set adds "resend invite" alongside the existing
+// view / edit / delete actions. The list filter supports ?role=admin or
+// ?role=enduser via the existing query string, but we don't expose that
+// in the UI yet (out of scope for v1).
+
 import React, { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
@@ -7,9 +18,9 @@ import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/DataTable";
 import { Badge } from "@/components/ui/badge";
 import { PlusCircle } from "lucide-react";
-import { PageUserDTO, UserDTO } from "@/types/user";
+import type { PageUserDTO, UserDTO } from "@/types/user";
 import { getAllUsersPaged } from "@/lib/api";
-import { QueryParams } from "@/types/common";
+import type { QueryParams } from "@/types/common";
 import UserActions from "@/components/users/UserActions";
 
 const UsersPage: React.FC = () => {
@@ -83,6 +94,16 @@ const UsersPage: React.FC = () => {
       accessorKey: "email",
       header: t("common:email"),
       cell: (row: UserDTO) => row.email,
+      enableSorting: true,
+    },
+    {
+      accessorKey: "role",
+      header: t("users:role"),
+      cell: (row: UserDTO) => (
+        <Badge variant={row.role === "admin" ? "default" : "secondary"}>
+          {t(`users:role_${row.role}`)}
+        </Badge>
+      ),
       enableSorting: true,
     },
     {

@@ -17,8 +17,15 @@ router.get("/summary", requireAuth, async (_req, res) => {
  * StatusBreakdown / UpcomingPayments). Shape matches DashboardStatsDTO on the
  * client. Best-effort: on any DB error we still return a well-formed zeroed
  * payload so the frontend can render an empty state instead of crashing.
+ *
+ * Endusers (customer role) don't get this — the stats are cross-project by
+ * design, so leaking them would defeat the project scoping. The enduser
+ * portal uses its own per-project stats endpoint instead.
  */
-router.get("/stats", requireAuth, async (_req, res) => {
+router.get("/stats", requireAuth, async (req, res) => {
+  if (req.user && req.user.role === "enduser") {
+    return res.status(403).json({ errorMessage: "Endusers do not have dashboard access" });
+  }
   const empty = {
     revenue30d: 0,
     revenue90d: 0,

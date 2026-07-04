@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/context/AuthContext";
-import { Navigate } from "react-router-dom";
+import { Navigate, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Mail, Lock, LogIn } from "lucide-react";
 import ParticleBackground from "@/components/ParticleBackground";
@@ -152,6 +152,14 @@ const LoginPage: React.FC = () => {
                     </div>
                   )}
                 </Button>
+                <div className="text-center">
+                  <Link
+                    to="/forgot-password"
+                    className="text-sm text-primary hover:underline"
+                  >
+                    {t("auth:forgot_password")}
+                  </Link>
+                </div>
               </form>
             </Form>
           </CardContent>

@@ -11,6 +11,14 @@ import { requireAuth } from "../middleware/jwtAuth.js";
 export const router = express.Router();
 router.use(requireAuth);
 
+const isEnduser = (req) => req.user && req.user.role === "enduser";
+const forbidEnduserMutation = (req, res) => {
+  if (isEnduser(req)) {
+    return res.status(403).json({ errorMessage: "Endusers have read-only access" });
+  }
+  return null;
+};
+
 // All routes require a valid JWT — CSRF is enforced globally for non-GET elsewhere.
 // We declare requireAuth on each handler (mirrors the users route pattern) to make
 // the contract obvious at the call site.
@@ -69,9 +77,17 @@ router.get("/:paymentId/attachments", async (req, res) => {
   }
   try {
     // Verify the payment exists so we can return a clean 404 instead of [].
-    const pay = await pool.query(`SELECT id FROM payments WHERE id = $1`, [paymentId]);
+    const pay = await pool.query(`SELECT id, project_id FROM payments WHERE id = $1`, [paymentId]);
     if (pay.rowCount === 0) {
       return res.status(404).json({ errorMessage: "Payment not found" });
+    }
+    if (isEnduser(req)) {
+      const allowed = Array.isArray(req.user.projectIds)
+        ? req.user.projectIds.includes(Number(pay.rows[0].project_id))
+        : false;
+      if (!allowed) {
+        return res.status(404).json({ errorMessage: "Payment not found" });
+      }
     }
     const { rows } = await pool.query(
       `SELECT id, payment_id, original_filename, stored_filename, mime_type,
@@ -93,6 +109,8 @@ router.get("/:paymentId/attachments", async (req, res) => {
 router.post(
   "/:paymentId/attachments",
   (req, res, next) => {
+    const guard = forbidEnduserMutation(req, res);
+    if (guard) return guard;
     const paymentId = parseInt(req.params.paymentId, 10);
     if (!Number.isFinite(paymentId) || paymentId <= 0) {
       return res.status(400).json({ errorMessage: "Invalid id" });
@@ -189,6 +207,21 @@ router.get("/:paymentId/attachments/:attId/download", async (req, res) => {
   if (!Number.isFinite(attId) || attId <= 0) {
     return res.status(400).json({ errorMessage: "Invalid attachment id" });
   }
+  if (isEnduser(req)) {
+    const { rows: pre } = await pool.query(
+      `SELECT project_id FROM payments WHERE id = $1`,
+      [paymentId],
+    );
+    if (pre.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "Attachment not found" });
+    }
+    const allowed = Array.isArray(req.user.projectIds)
+      ? req.user.projectIds.includes(Number(pre.rows[0].project_id))
+      : false;
+    if (!allowed) {
+      return res.status(404).json({ errorMessage: "Attachment not found" });
+    }
+  }
   try {
     const { rows } = await pool.query(
       `SELECT original_filename, stored_filename, mime_type
@@ -237,6 +270,8 @@ router.get("/:paymentId/attachments/:attId/download", async (req, res) => {
 
 // ---- DELETE /api/payments/:paymentId/attachments/:attId ----
 router.delete("/:paymentId/attachments/:attId", async (req, res) => {
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
   const paymentId = parseInt(req.params.paymentId, 10);
   const attId = parseInt(req.params.attId, 10);
   if (!Number.isFinite(paymentId) || paymentId <= 0) {

@@ -19,5 +19,37 @@
   "passwords_must_match": "A két jelszó nem egyezik",
   "password_min_length": "A jelszónak legalább 8 karakter hosszúnak kell lennie",
   "confirm_delete_title": "Felhasználó törlése",
-  "confirm_delete_description": "Biztosan törölni szeretnéd a(z) \"{{name}}\" felhasználót ({{email}})? Ez a művelet nem visszavonható."
+  "confirm_delete_description": "Biztosan törölni szeretnéd a(z) \"{{name}}\" felhasználót ({{email}})? Ez a művelet nem visszavonható.",
+
+  "role": "Szerepkör",
+  "role_admin": "Admin",
+  "role_enduser": "Végfelhasználó",
+  "role_admin_description": "Teljes hozzáférés — projektek, űrlapok, foglalások, számlák és más felhasználók kezelése.",
+  "role_enduser_description": "Csak olvasási jogosultság a kijelölt projektekhez.",
+
+  "create_user_as_enduser": "Létrehozás végfelhasználóként (ügyfélportál)",
+  "create_user_as_enduser_description": "Meghívó link generálódik. A végfelhasználó magadja meg a jelszavát, és egy vagy több projekthez rendelhető.",
+
+  "invite": "Meghívó",
+  "invite_resent": "Meghívó (újra)küldve. Az új linket e-mailben is kiküldtük a felhasználónak, lentebb pedig manuális átadáshoz is megjelenítjük.",
+  "invite_revoked": "A függőben lévő meghívók visszavonva.",
+  "revoke_invite_title": "Meghívók visszavonása?",
+  "revite_invite_description": "Minden olyan meghívó link, amelyet a felhasználó még nem használt fel, érvénytelenné válik. Utána új meghívót küldhetsz.",
+  "invite_link_label": "Meghívó link (másolható manuális átadáshoz)",
+  "invite_link_copied": "Meghívó link a vágólapra másolva",
+  "send_invite": "Meghívó küldése",
+  "resend_invite": "Meghívó újraküldése",
+  "revoke_invite": "Meghívók visszavonása",
+  "invite_required_password": "A jelszó mezőt hagyd üresen — a végfelhasználó a meghívó linken keresztül állítja be.",
+
+  "must_set_password": "Még nem állított be jelszót",
+  "no_active_invite": "Nincs aktív meghívó",
+  "pending_invite": "Függő meghívó",
+  "project_assignments": "Projekt-hozzárendelések",
+  "project_assignments_help": "Válaszd ki azokat a projekteket, amelyekhez a végfelhasználó hozzáférjen az ügyfélportálon. Csak olvasási hozzáférést kap az űrlapokhoz, foglalásokhoz és számlákhoz.",
+  "no_project_assignments": "Ehhez a felhasználóhoz még nincs projekt rendelve.",
+  "assign_project": "Projekt hozzárendelése",
+  "unassign_project": "Eltávolítás",
+
+  "enduser_landing_intro": "A végfelhasználók csak olvasnak — bejelentkeznek az ügyfélportálra, és csak a hozzájuk rendelt projekteket látják."
 }

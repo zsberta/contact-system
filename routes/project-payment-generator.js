@@ -33,6 +33,9 @@ function rowToPaymentDTO(row) {
 }
 
 router.post("/:id/payments/generate", async (req, res) => {
+  if (req.user && req.user.role === "enduser") {
+    return res.status(403).json({ errorMessage: "Endusers have read-only access" });
+  }
   const projectId = parseInt(req.params.id, 10);
   if (!Number.isFinite(projectId) || projectId <= 0) {
     return res.status(400).json({ errorMessage: "Invalid id" });
