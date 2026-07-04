@@ -17,6 +17,8 @@ import { router as projectPaymentGeneratorRouter } from "./routes/project-paymen
 import { router as usersRouter } from "./routes/users.js";
 import { router as formsRouter } from "./routes/forms.js";
 import { router as formEmbedRouter } from "./routes/form-embed.js";
+import { router as reservationsRouter } from "./routes/reservations.js";
+import { router as reservationEmbedRouter } from "./routes/reservation-embed.js";
 import { pool } from "./db/pool.js";
 import { assertSafeStartup } from "./lib/startup-guard.js";
 
@@ -106,6 +108,9 @@ app.use("/api/payments", paymentsRouter);
 app.use("/api/payments", paymentAttachmentsRouter);
 app.use("/api/projects", projectPaymentGeneratorRouter);
 app.use("/api/forms", formsRouter);
+// Reservations sibling module — same scoping/capability/allowlist/security
+// patterns as Forms. See routes/reservations.js and routes/reservation-embed.js.
+app.use("/api/reservations", reservationsRouter);
 
 // --- Embeddable form infrastructure ---------------------------------------
 // Forms have NO iframe and NO loader script (ADR 0009). The public POST
@@ -117,6 +122,7 @@ app.use("/api/forms", formsRouter);
 // capability. Rate-limited with two chained express-rate-limit instances
 // (burst + sustained) inside the router.
 app.use("/api/public/forms", formEmbedRouter);
+app.use("/api/public/reservations", reservationEmbedRouter);
 
 const distDir = path.join(__dirname, "dist");
 app.use(express.static(distDir));

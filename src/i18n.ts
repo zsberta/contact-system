@@ -10,6 +10,7 @@ import enUsers from "./i18n/en/users.json";
 import enProjects from "./i18n/en/projects.json";
 import enPayments from "./i18n/en/payments.json";
 import enForms from "./i18n/en/forms.json";
+import enReservations from "./i18n/en/reservations.json";
 
 import huAuth from "./i18n/hu/auth.json";
 import huCommon from "./i18n/hu/common.json";
@@ -20,6 +21,7 @@ import huUsers from "./i18n/hu/users.json";
 import huProjects from "./i18n/hu/projects.json";
 import huPayments from "./i18n/hu/payments.json";
 import huForms from "./i18n/hu/forms.json";
+import huReservations from "./i18n/hu/reservations.json";
 
 const resources = {
   en: {
@@ -32,6 +34,7 @@ const resources = {
     projects: enProjects,
     payments: enPayments,
     forms: enForms,
+    reservations: enReservations,
   },
   hu: {
     auth: huAuth,
@@ -43,6 +46,7 @@ const resources = {
     projects: huProjects,
     payments: huPayments,
     forms: huForms,
+    reservations: huReservations,
   },
 };
 
@@ -61,6 +65,7 @@ i18n.use(initReactI18next).init({
     "projects",
     "payments",
     "forms",
+    "reservations",
   ],
   interpolation: { escapeValue: false },
 });

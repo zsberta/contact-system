@@ -22,6 +22,10 @@ import FormsPage from "./pages/FormsPage";
 import FormCreatePage from "./pages/FormCreatePage";
 import FormEditPage from "./pages/FormEditPage";
 import FormViewPage from "./pages/FormViewPage";
+import ReservationsPage from "./pages/ReservationsPage";
+import ReservationCreatePage from "./pages/ReservationCreatePage";
+import ReservationEditPage from "./pages/ReservationEditPage";
+import ReservationViewPage from "./pages/ReservationViewPage";
 import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Layout from "./components/Layout";
@@ -91,6 +95,19 @@ const App = () => (
                   <Route
                     path="/forms/edit/:id"
                     element={<FormEditPage />}
+                  />
+                  <Route path="/reservations" element={<ReservationsPage />} />
+                  <Route
+                    path="/reservations/create"
+                    element={<ReservationCreatePage />}
+                  />
+                  <Route
+                    path="/reservations/view/:id"
+                    element={<ReservationViewPage />}
+                  />
+                  <Route
+                    path="/reservations/edit/:id"
+                    element={<ReservationEditPage />}
                   />
                   <Route path="*" element={<NotFound />} />
                 </Route>

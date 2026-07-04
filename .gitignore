@@ -74,3 +74,4 @@ pgdata/
 docker-compose.yml
 .aider*
 .opencode
+.playwright-cli
