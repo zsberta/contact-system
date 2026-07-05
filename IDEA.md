@@ -1,1 +1,1 @@
-This is a React SPA, express js and postgreSQL dockerized webapp, with a few modules to handle my customers details.
+CRM system for my customers, dockerized, written in react spa, express js and postgresql
