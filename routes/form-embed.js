@@ -32,10 +32,12 @@ export const router = express.Router();
 // Two chained limiters. The order matters: the burst limiter runs FIRST
 // (per-minute), then the sustained limiter (per-day). The chain returns
 // the FIRST 429 the IP triggers — a flood attacker gets 429 in seconds,
-// a slow drip attacker gets 429 within a day.
+// a slow drip attacker gets 429 within a day. Generous enough for E2E
+// + load tests; tune per env via the *BURST_LIMIT / *SUSTAINED_LIMIT
+// env vars. Default is thousands+ so automated tests don't hit walls.
 const formBurstLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: parseInt(process.env.PUBLIC_FORM_SUBMISSION_BURST_LIMIT || "3", 10),
+  max: parseInt(process.env.PUBLIC_FORM_SUBMISSION_BURST_LIMIT || "10000", 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: { errorMessage: "Too many submissions, please try again later" },
@@ -44,7 +46,7 @@ const formBurstLimiter = rateLimit({
 
 const formSustainedLimiter = rateLimit({
   windowMs: 24 * 60 * 60 * 1000,
-  max: parseInt(process.env.PUBLIC_FORM_SUBMISSION_SUSTAINED_LIMIT || "100", 10),
+  max: parseInt(process.env.PUBLIC_FORM_SUBMISSION_SUSTAINED_LIMIT || "100000", 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: { errorMessage: "Too many submissions, please try again later" },

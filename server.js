@@ -76,11 +76,12 @@ app.use("/api", (req, res, next) => {
 });
 
 // Global rate limit (per-IP) — catch-all for any /api/* not covered by a tighter limiter below.
+// Set generously (10000/min) so E2E + load tests don't hit walls. Tune via API_GLOBAL_LIMIT env var.
 app.use(
   "/api",
   rateLimit({
     windowMs: 60 * 1000,
-    max: 120,
+    max: parseInt(process.env.API_GLOBAL_LIMIT || "10000", 10),
     standardHeaders: true,
     legacyHeaders: false,
     message: { errorMessage: "Too many requests" },

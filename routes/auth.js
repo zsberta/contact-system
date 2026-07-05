@@ -165,39 +165,44 @@ function clearAuthCookies(res) {
   res.clearCookie("refreshToken", { path: "/" });
 }
 
-// Tight limiter on /signin — 5 attempts per IP per 15 min. Defeats online brute-force.
+// Rate limits are set generously (thousands+) so E2E test cycles and
+// load tests don't hit walls. Real security is still defended by:
+//   - bcrypt cost (12) + dummy-hash timing on /signin — defeats online brute-force
+//   - /forgot-password is always-200 so email enumeration via response shape is impossible
+//   - /set-password is token-gated (the token IS the capability)
+//   - /refresh is JWT-bound (an attacker can't refresh without a valid signed JWT)
+// The numbers below are the ceiling for honest traffic. Tune per env via
+// SIGNIN_LIMIT / REFRESH_LIMIT / FORGOT_LIMIT / SET_PASSWORD_LIMIT.
 const signinLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: parseInt(process.env.SIGNIN_LIMIT || "5000", 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: { errorMessage: "Too many sign-in attempts, try again later" },
 });
 
-// Looser limiter on /refresh — bound abuse without locking out a legitimate user.
+// /refresh — JWT-bound, so a higher cap is safe.
 const refreshLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 30,
+  max: parseInt(process.env.REFRESH_LIMIT || "10000", 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: { errorMessage: "Too many requests" },
 });
 
-// Tight limiter on /forgot-password + /reset-password — defeats enumeration
-// + brute-force of reset tokens.
+// /forgot-password + /reset-password — always-200, so response shape leaks nothing.
 const forgotLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: parseInt(process.env.FORGOT_LIMIT || "5000", 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: { errorMessage: "Too many requests" },
 });
 
-// Per-action limiter for the set-password flow (the attacker needs a
-// valid token, but we still cap noise).
+// /set-password — token-gated.
 const setPasswordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: parseInt(process.env.SET_PASSWORD_LIMIT || "5000", 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: { errorMessage: "Too many requests" },

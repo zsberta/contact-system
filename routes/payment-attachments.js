@@ -208,7 +208,7 @@ router.get("/:paymentId/attachments/:attId/download", async (req, res) => {
     return res.status(400).json({ errorMessage: "Invalid attachment id" });
   }
   if (isEnduser(req)) {
-    const { rows: pre } = await pool.query(
+    const pre = await pool.query(
       `SELECT project_id FROM payments WHERE id = $1`,
       [paymentId],
     );

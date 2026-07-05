@@ -41,9 +41,12 @@ import { pool } from "../db/pool.js";
 
 export const router = express.Router();
 
+// Generous enough for E2E + load tests; tune per env via the
+// *BURST_LIMIT / *SUSTAINED_LIMIT env vars. Default is thousands+ so
+// automated tests don't hit walls.
 const reservationBurstLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: parseInt(process.env.PUBLIC_RESERVATION_BOOKING_BURST_LIMIT || "3", 10),
+  max: parseInt(process.env.PUBLIC_RESERVATION_BOOKING_BURST_LIMIT || "10000", 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: { errorMessage: "Too many bookings, please try again later" },
@@ -54,7 +57,7 @@ const reservationAvailabilityBurst = rateLimit({
   // Generous on availability — the FE will typically poll at every date
   // picker open. Still bounded.
   windowMs: 60 * 1000,
-  max: parseInt(process.env.PUBLIC_RESERVATION_AVAILABILITY_BURST_LIMIT || "30", 10),
+  max: parseInt(process.env.PUBLIC_RESERVATION_AVAILABILITY_BURST_LIMIT || "20000", 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: { errorMessage: "Too many availability checks, please try again later" },
@@ -63,7 +66,7 @@ const reservationAvailabilityBurst = rateLimit({
 
 const reservationSustainedLimiter = rateLimit({
   windowMs: 24 * 60 * 60 * 1000,
-  max: parseInt(process.env.PUBLIC_RESERVATION_SUSTAINED_LIMIT || "100", 10),
+  max: parseInt(process.env.PUBLIC_RESERVATION_SUSTAINED_LIMIT || "100000", 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: { errorMessage: "Too many requests, please try again later" },

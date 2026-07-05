@@ -122,9 +122,11 @@ const SORTABLE = {
   updatedAt: "updated_at",
 };
 
-// Search across name + slug (ILIKE). Builder combines optional per-token
-// wildcards with the chosen filterType ("any" vs "all").
-const SEARCH_COLUMNS = ["name", "slug"];
+// IMPORTANT: columns must be table-qualified because the GET / list
+// SELECT joins projects p (which also exposes a `name` column); an
+// unqualified `name` would trip PG `42702 ambiguous column`. Fix: see
+// git history and sessions/2026-07-04-reservation-api-curl-tests.
+const SEARCH_COLUMNS = ["f.name", "f.slug"];
 
 // Shared placeholder allocator. Each clause-builder consumes placeholders
 // in order so the resulting SQL's $1, $2, ... match the params slice
@@ -318,11 +320,17 @@ router.get("/", async (req, res) => {
   // assigned to. The scope clause binds a single bigint[] param, so it
   // only consumes one placeholder index. Admins get an empty clause.
   const scopedProjectIds = await getScopedProjectIds(req);
-  const enduserScope = appendProjectScope({
-    placeholderIndex: allocator.next(),
-    projectIds: scopedProjectIds,
-    tableAlias: "f",
-  });
+  // Only allocate a placeholder when we'll actually emit SQL. Otherwise
+  // the allocator advances but the SQL has no $N to bind, which silently
+  // shifts LIMIT/OFFSET to the wrong parameter index.
+  const enduserScope =
+    scopedProjectIds === null || scopedProjectIds === undefined
+      ? { sql: "", params: [] }
+      : appendProjectScope({
+          placeholderIndex: allocator.next(),
+          projectIds: scopedProjectIds,
+          tableAlias: "f",
+        });
   // appendProjectScope returns " AND ..." — strip the leading " AND " so
   // the .join(" AND ") in allConditions composes cleanly without a
   // double-AND.
@@ -404,7 +412,7 @@ router.get("/:id", async (req, res) => {
     return res.status(400).json({ errorMessage: "Invalid id" });
   }
   if (isEnduser(req)) {
-    const { rows: pre } = await pool.query(
+    const pre = await pool.query(
       `SELECT project_id FROM forms WHERE id = $1`,
       [formId],
     );
@@ -730,12 +738,23 @@ router.get("/:id/submissions", async (req, res, next) => {
     const filterType = req.query.filterType === "all" ? "all" : "any";
 
     // Verify the form exists so we 404 instead of returning [].
+    // Enduser scope: refuse upfront if the form is on a project the
+    // user isn't assigned to. The 404 is fine here — it doesn't reveal
+    // whether the form exists for someone else.
     const formCheck = await pool.query(
-      "SELECT id FROM forms WHERE id = $1",
+      "SELECT id, project_id FROM forms WHERE id = $1",
       [formId],
     );
     if (formCheck.rowCount === 0) {
       return res.status(404).json({ errorMessage: "Form not found" });
+    }
+    if (isEnduser(req)) {
+      const allowed = Array.isArray(req.user.projectIds)
+        ? req.user.projectIds.includes(Number(formCheck.rows[0].project_id))
+        : false;
+      if (!allowed) {
+        return res.status(404).json({ errorMessage: "Form not found" });
+      }
     }
 
     const where = buildSubmissionsWhere({ queries, filterType }, 2);
@@ -825,6 +844,24 @@ router.get("/:id/submissions/:submissionId", async (req, res, next) => {
     }
     if (!Number.isFinite(submissionId) || submissionId <= 0) {
       return res.status(400).json({ errorMessage: "Invalid submission id" });
+    }
+    // Enduser scope: check the parent form's project, not the submission
+    // row. The 404 must be identical to "submission not found" so an
+    // enduser can't probe existence of submissions on unassigned forms.
+    if (isEnduser(req)) {
+      const pre = await pool.query(
+        `SELECT f.project_id FROM forms f WHERE f.id = $1`,
+        [formId],
+      );
+      if (pre.rowCount === 0) {
+        return res.status(404).json({ errorMessage: "Submission not found" });
+      }
+      const allowed = Array.isArray(req.user.projectIds)
+        ? req.user.projectIds.includes(Number(pre.rows[0].project_id))
+        : false;
+      if (!allowed) {
+        return res.status(404).json({ errorMessage: "Submission not found" });
+      }
     }
     const { rows, rowCount } = await pool.query(
       `SELECT id, form_id, submitted_at, ip_address, user_agent, referer,

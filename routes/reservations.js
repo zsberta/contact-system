@@ -408,11 +408,17 @@ router.get("/", async (req, res) => {
   const searchFilter = buildWhereClause(queries, filterType, allocator);
   // Enduser scoping: only show reservations on the user's assigned projects.
   const scopedProjectIds = await getScopedProjectIds(req);
-  const enduserScope = appendProjectScope({
-    placeholderIndex: allocator.next(),
-    projectIds: scopedProjectIds,
-    tableAlias: "r",
-  });
+  // Only allocate a placeholder when we'll actually emit SQL. Otherwise
+  // the allocator advances but the SQL has no $N to bind, which silently
+  // shifts LIMIT/OFFSET to the wrong parameter index.
+  const enduserScope =
+    scopedProjectIds === null || scopedProjectIds === undefined
+      ? { sql: "", params: [] }
+      : appendProjectScope({
+          placeholderIndex: allocator.next(),
+          projectIds: scopedProjectIds,
+          tableAlias: "r",
+        });
   const enduserScopeSql = enduserScope.sql
     ? enduserScope.sql.replace(/^\s*AND\b/i, "")
     : "";
@@ -497,7 +503,7 @@ router.get("/:id", async (req, res) => {
     // We need the project_id of this reservation to check membership.
     // One cheap SELECT ahead of the JOINed SELECT keeps the main query
     // simple.
-    const { rows: pre } = await pool.query(
+    const pre = await pool.query(
       `SELECT project_id FROM reservations WHERE id = $1`,
       [id],
     );
@@ -879,12 +885,23 @@ router.get("/:id/bookings", async (req, res, next) => {
     const filterType = req.query.filterType === "all" ? "all" : "any";
 
     // Verify the reservation exists so we 404 instead of returning [].
+    // Enduser scope: refuse upfront if the reservation is on a project
+    // the user isn't assigned to. The 404 is fine here — it doesn't
+    // reveal whether the reservation exists for someone else.
     const reservationCheck = await pool.query(
-      "SELECT id FROM reservations WHERE id = $1",
+      "SELECT id, project_id FROM reservations WHERE id = $1",
       [reservationId],
     );
     if (reservationCheck.rowCount === 0) {
       return res.status(404).json({ errorMessage: "Reservation not found" });
+    }
+    if (isEnduser(req)) {
+      const allowed = Array.isArray(req.user.projectIds)
+        ? req.user.projectIds.includes(Number(reservationCheck.rows[0].project_id))
+        : false;
+      if (!allowed) {
+        return res.status(404).json({ errorMessage: "Reservation not found" });
+      }
     }
 
     const where = buildBookingsWhere({ queries, filterType }, 2);
@@ -950,6 +967,25 @@ router.get("/:id/bookings/:bookingId", async (req, res, next) => {
     }
     if (!Number.isFinite(bookingId) || bookingId <= 0) {
       return res.status(400).json({ errorMessage: "Invalid booking id" });
+    }
+    // Enduser scope: check the parent reservation's project, not the
+    // booking row. The 404 must be identical to "booking not found" so
+    // an enduser can't probe existence of bookings on unassigned
+    // reservations.
+    if (isEnduser(req)) {
+      const pre = await pool.query(
+        `SELECT r.project_id FROM reservations r WHERE r.id = $1`,
+        [reservationId],
+      );
+      if (pre.rowCount === 0) {
+        return res.status(404).json({ errorMessage: "Booking not found" });
+      }
+      const allowed = Array.isArray(req.user.projectIds)
+        ? req.user.projectIds.includes(Number(pre.rows[0].project_id))
+        : false;
+      if (!allowed) {
+        return res.status(404).json({ errorMessage: "Booking not found" });
+      }
     }
     const { rows, rowCount } = await pool.query(
       `SELECT id, reservation_id, starts_at, ends_at, booked_at,

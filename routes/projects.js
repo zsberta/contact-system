@@ -117,17 +117,22 @@ const SEARCH_COLUMNS = [
 ];
 function buildWhereClause(queries, filterType) {
   const terms = (queries || []).filter((q) => q && q.trim().length > 0);
-  if (terms.length === 0) {
-    return { sql: "", params: [] };
-  }
+  if (terms.length === 0) return { sql: "", params: [] };
   const conj = filterType === "all" ? " AND " : " OR ";
-  const colClause = SEARCH_COLUMNS.map((c) => `${c} ILIKE $X`).join(" OR ");
-  const clauses = terms.map(() => `(${colClause})`).join(conj);
-  let placeholder = 1;
-  const nextPlaceholder = () => `$${placeholder++}`;
-  const sql = clauses.replaceAll("$X", () => nextPlaceholder());
-  const params = terms.map((t) => `%${t}%`);
-  return { sql: `WHERE ${sql}`, params };
+  // One placeholder per term, reused across every searchable column.
+  // Mirrors the pattern in routes/reservations.js so the param count
+  // matches the bound params exactly (prevents pg 08P01 "bind message
+  // supplies N parameters, but prepared statement requires M").
+  let n = 1;
+  const clauses = terms.map((term) => {
+    const ph = `$${n++}`;
+    const colSql = SEARCH_COLUMNS.map((c) => `${c} ILIKE ${ph}`).join(" OR ");
+    return { sql: `(${colSql})`, params: [`%${term}%`] };
+  });
+  return {
+    sql: `WHERE ${clauses.map((c) => c.sql).join(conj)}`,
+    params: clauses.flatMap((c) => c.params),
+  };
 }
 
 function buildOrderClause(sortField, sortOrder) {

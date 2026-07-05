@@ -175,13 +175,20 @@ const ProjectForm = ({
         .string()
         .min(1, { message: "common:required_field" })
         .max(200, { message: "projects:max_length" }),
+      // Accepts either a full URL (https://host[:port]) or a bare hostname
+      // (host[:port]). Mirrors the BE contract: the DB stores bare domains
+      // in seeded data, so the FE must accept both shapes. Empty/optional
+      // values are allowed and short-circuit the refine.
       domainAddress: z
         .string()
         .max(500, { message: "projects:max_length" })
         .optional()
         .or(z.literal(""))
         .refine(
-          (val) => !val || val === "" || z.string().url().safeParse(val).success,
+          (val) =>
+            !val ||
+            val === "" ||
+            /^(https?:\/\/)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}(:[0-9]{1,5})?$/.test(val),
           { message: "projects:invalid_url" },
         ),
       price: z
