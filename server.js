@@ -63,8 +63,29 @@ app.use(jwtAuth);
 // Origin/Referer check on state-changing requests — defense in depth on top of CSRF.
 // Rejects cross-origin POST/PUT/DELETE/PATCH by comparing Origin (or Referer) to Host.
 const STATE_CHANGING = new Set(["POST", "PUT", "DELETE", "PATCH"]);
+
+// Helper — the /api/public/* endpoints are explicitly designed to be
+// invoked from any origin (per ADR 0009: no iframe, no loader; the
+// secret_token is the capability, the per-IP rate-limiters in the
+// routers are the abuse defence). Mirror the prefix-match that
+// middleware/csrf.js#isPublicCsrfExempt uses, so both layers stay
+// in lock-step. Behaviour MUST be kept identical — if you add a new
+// public surface, both helpers must cover it.
+function isPublicPath(fullPath) {
+  return fullPath.startsWith("/api/public/");
+}
+function extractApiPath(req) {
+  // For the top-level /api mount, full path == /api + req.path. For
+  // mounted sub-routers (req.baseUrl), it's baseUrl + req.path. We
+  // intentionally do NOT use req.url (it carries the query string).
+  return (req.baseUrl || "") + req.path;
+}
+
 app.use("/api", (req, res, next) => {
   if (!STATE_CHANGING.has(req.method)) return next();
+  // /api/public/* is cross-origin by design — handled below by the
+  // public-embed CORS handler.
+  if (isPublicPath(extractApiPath(req))) return next();
   const origin = req.headers.origin || (req.headers.referer ? new URL(req.headers.referer).origin : null);
   // No Origin/Referer = non-browser client (curl, server-to-server). Allow but log.
   if (!origin) return next();
@@ -117,6 +138,50 @@ app.use("/api/reservations", reservationsRouter);
 // Forms have NO iframe and NO loader script (ADR 0009). The public POST
 // endpoint handles a direct submission from any host page; no CSP bypass
 // is required because the visitor never loads our origin inside theirs.
+//
+// Per ADR 0009 the secret_token is the capability, and the per-IP
+// burst+sustained rate-limiters in the routers are the abuse defence —
+// so the CORS contract for /api/public/* simply reflects the request
+// origin (or `*` in dev) and whitelists the methods/headers the embed
+// actually needs. This is identical in shape to how Formspree / Getform
+// / Netlify Forms handle cross-origin embeds.
+const PUBLIC_EMBED_CORS_HEADERS = {
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Accept",
+  "Access-Control-Max-Age": "600",
+  Vary: "Origin",
+};
+function applyPublicCors(req, res) {
+  const origin = req.headers.origin;
+  const isDev = process.env.NODE_ENV !== "production";
+  if (isDev) {
+    // Dev: reflect everything (incl. `null` or missing origin). The
+    // user explicitly asked for this — see project session log. For
+    // prod, this branch is intentionally NOT taken: production should
+    // move to an explicit allowlist (see TODO_PROD_ORIGINS below).
+    res.setHeader("Access-Control-Allow-Origin", origin || "*");
+  } else if (typeof origin === "string" && origin.length > 0) {
+    // TODO_PROD_ORIGINS: replace this reflection with an explicit
+    // allowlist sourced from env (e.g. PUBLIC_EMBED_ALLOWED_ORIGINS,
+    // comma-separated). Until that is wired, prod reflection is left
+    // in place as a safety net so the user's local dev / staging
+    // workflows keep working. Document this in the ADR follow-up.
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  for (const [k, v] of Object.entries(PUBLIC_EMBED_CORS_HEADERS)) {
+    res.setHeader(k, v);
+  }
+}
+app.use("/api/public/forms", (req, res, next) => {
+  applyPublicCors(req, res);
+  if (req.method === "OPTIONS") return res.status(204).end();
+  next();
+});
+app.use("/api/public/reservations", (req, res, next) => {
+  applyPublicCors(req, res);
+  if (req.method === "OPTIONS") return res.status(204).end();
+  next();
+});
 
 // Public submission endpoint (no auth, no CSRF). The /api/public/* prefix
 // is CSRF-exempt per middleware/csrf.js; the secret_token is the
