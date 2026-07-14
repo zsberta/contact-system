@@ -1,11 +1,15 @@
 import { apiFetch, buildQueryString } from "@/lib/api";
 import type { Page, QueryParams } from "@/types/common";
 import type {
+  AvailabilityScheduleCreateDTO,
+  AvailabilityScheduleDTO,
   AvailabilityWindowDTO,
   ReservationBookingAck,
   ReservationBookingDTO,
   ReservationBookingRequest,
   ReservationCreateDTO,
+  ReservationDisabledRangeCreateDTO,
+  ReservationDisabledRangeDTO,
   ReservationDTO,
   ReservationSnippetResponse,
   ReservationUpdateDTO,
@@ -134,6 +138,82 @@ export async function getReservationBookingById(
   );
 }
 
+export interface ReservationBookingItemInput {
+  startsAt: string;
+  endsAt: string;
+  data?: Record<string, unknown> | null;
+}
+
+// Admin-only booking creation — skips lead_time / max_advance_days.
+// `data` is optional; when present it MUST pass the same bounded-bag check
+// as the public endpoint, and the reservation must have
+// `extraFieldsEnabled = true`.
+export async function createReservationBooking(
+  reservationId: number,
+  startsAt: string,
+  endsAt: string,
+  options?: {
+    data?: Record<string, unknown> | null;
+    locale?: string | null;
+    /**
+     * When "import", the create request is tagged so the BE inserts
+     * `user_agent = "admin-import"` instead of "admin-panel", letting the
+     * calendar badge distinguish migration-imported rows from manually
+     * created ones.
+     */
+    source?: "calendar" | "import";
+  },
+): Promise<ReservationBookingDTO> {
+  const body: Record<string, unknown> = { startsAt, endsAt };
+  if (options?.data !== undefined && options?.data !== null) {
+    body.data = options.data;
+  }
+  if (options?.locale) {
+    body.locale = options.locale;
+  }
+  if (options?.source === "import") {
+    body._source = "import";
+  }
+  return apiFetch<ReservationBookingDTO>(
+    `/reservations/${reservationId}/bookings`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+// Bulk dry-run for the booking-import feature — runs the EXACT same
+// validation as createReservationBooking, but for a list of items, without
+// inserting anything. The FE uses this for "Verify".
+export interface BookingImportDryRunRow {
+  index: number; // 1-based
+  ok: boolean;
+  // Present iff ok:
+  startsAt?: string;
+  endsAt?: string;
+  hasData?: boolean;
+  // Present iff !ok:
+  error?: string;
+}
+
+export interface BookingImportDryRunResponse {
+  results: BookingImportDryRunRow[];
+}
+
+export async function dryRunBookingImport(
+  reservationId: number,
+  items: ReservationBookingItemInput[],
+): Promise<BookingImportDryRunResponse> {
+  return apiFetch<BookingImportDryRunResponse>(
+    `/reservations/${reservationId}/bookings/dry-run`,
+    {
+      method: "POST",
+      body: JSON.stringify({ items }),
+    },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Public endpoints (no CSRF, no auth) — fetch() directly so we bypass the
 // apiFetch CSRF injection (the public endpoint is CSRF-exempt; we want
@@ -200,4 +280,109 @@ export async function publicSubmitReservation(
     throw new Error(msg);
   }
   return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Disabled ranges (admin + enduser read; admin-only create/delete)
+// ---------------------------------------------------------------------------
+
+export async function getDisabledRanges(
+  reservationId: number,
+): Promise<ReservationDisabledRangeDTO[]> {
+  return apiFetch<ReservationDisabledRangeDTO[]>(
+    `/reservations/${reservationId}/disabled-ranges`,
+  );
+}
+
+export async function createDisabledRange(
+  reservationId: number,
+  data: ReservationDisabledRangeCreateDTO,
+): Promise<ReservationDisabledRangeDTO> {
+  return apiFetch<ReservationDisabledRangeDTO>(
+    `/reservations/${reservationId}/disabled-ranges`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+export async function deleteDisabledRange(
+  reservationId: number,
+  rangeId: number,
+): Promise<void> {
+  return apiFetch<void>(
+    `/reservations/${reservationId}/disabled-ranges/${rangeId}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function toggleDisabledRange(
+  reservationId: number,
+  rangeId: number,
+): Promise<{ id: number; enabled: boolean }> {
+  return apiFetch<{ id: number; enabled: boolean }>(
+    `/reservations/${reservationId}/disabled-ranges/${rangeId}/toggle`,
+    { method: "PATCH" },
+  );
+}
+
+export async function updateDisabledRange(
+  reservationId: number,
+  rangeId: number,
+  data: ReservationDisabledRangeCreateDTO,
+): Promise<ReservationDisabledRangeDTO> {
+  return apiFetch<ReservationDisabledRangeDTO>(
+    `/reservations/${reservationId}/disabled-ranges/${rangeId}`,
+    { method: "PUT", body: JSON.stringify(data) },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Availability schedules (admin + enduser read; admin create/delete)
+// ---------------------------------------------------------------------------
+
+export async function getAvailabilitySchedules(
+  reservationId: number,
+): Promise<AvailabilityScheduleDTO[]> {
+  return apiFetch<AvailabilityScheduleDTO[]>(
+    `/reservations/${reservationId}/availability-schedules`,
+  );
+}
+
+export async function createAvailabilitySchedule(
+  reservationId: number,
+  data: AvailabilityScheduleCreateDTO,
+): Promise<AvailabilityScheduleDTO> {
+  return apiFetch<AvailabilityScheduleDTO>(
+    `/reservations/${reservationId}/availability-schedules`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+export async function deleteAvailabilitySchedule(
+  reservationId: number,
+  scheduleId: number,
+): Promise<void> {
+  return apiFetch<void>(
+    `/reservations/${reservationId}/availability-schedules/${scheduleId}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function updateAvailabilitySchedule(
+  reservationId: number,
+  scheduleId: number,
+  data: AvailabilityScheduleCreateDTO,
+): Promise<AvailabilityScheduleDTO> {
+  return apiFetch<AvailabilityScheduleDTO>(
+    `/reservations/${reservationId}/availability-schedules/${scheduleId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(data),
+    },
+  );
 }

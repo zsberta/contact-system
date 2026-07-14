@@ -26,6 +26,7 @@
 import express from "express";
 import rateLimit from "express-rate-limit";
 import { pool } from "../db/pool.js";
+import { notifyProjectOwner, notifySubmitter } from "../lib/email.js";
 
 export const router = express.Router();
 
@@ -210,12 +211,45 @@ router.post(
           locale,
         ],
       );
+      const submittedAt =
+        insertResult.rows[0].submitted_at instanceof Date
+          ? insertResult.rows[0].submitted_at.toISOString()
+          : insertResult.rows[0].submitted_at;
+      const submissionId = Number(insertResult.rows[0].id);
+
+      // Fire-and-forget emails.
+      pool
+        .query(`SELECT project_id, name FROM forms WHERE id = $1`, [formId])
+        .then((cfg) => {
+          if (cfg.rowCount === 0) return;
+          const projectId = Number(cfg.rows[0].project_id);
+          const formName = cfg.rows[0].name;
+          let parsedData = data;
+          try { parsedData = JSON.parse(dataJson); } catch { /* keep original */ }
+
+          const notifyArgs = {
+            kind: "form",
+            projectId,
+            formName,
+            data: parsedData,
+            locale,
+          };
+          // Fire both in parallel; both are fire-and-forget. We don't
+          // await — the public response has already been (or is about
+          // to be) returned. A failure on either side is logged inside
+          // the helpers, never thrown here.
+          Promise.all([
+            notifyProjectOwner(notifyArgs),
+            notifySubmitter(notifyArgs),
+          ]);
+        })
+        .catch((err) => {
+          console.error("[forms/public/notify]", err.code || "", err.message);
+        });
+
       return res.status(201).json({
-        id: Number(insertResult.rows[0].id),
-        submittedAt:
-          insertResult.rows[0].submitted_at instanceof Date
-            ? insertResult.rows[0].submitted_at.toISOString()
-            : insertResult.rows[0].submitted_at,
+        id: submissionId,
+        submittedAt,
       });
     } catch (err) {
       console.error("[forms/public/submit]", err.code, err.message);

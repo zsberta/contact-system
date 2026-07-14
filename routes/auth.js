@@ -23,6 +23,7 @@ import rateLimit from "express-rate-limit";
 import { pool } from "../db/pool.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
 import { sendMail, resolvePublicUrl } from "../lib/email.js";
+import { renderForgotPassword } from "../lib/email-templates.js";
 
 export const router = express.Router();
 
@@ -470,18 +471,15 @@ router.post("/forgot-password", forgotLimiter, async (req, res) => {
       );
       const publicUrl = resolvePublicUrl(req);
       const link = `${publicUrl}/reset-password?token=${encodeURIComponent(plainToken)}`;
-      const name = user.first_name || "there";
-      const body =
-        `Hi ${name},\n\n` +
-        `We received a request to reset your Zsolt's CRM password.\n\n` +
-        `Click the link below to set a new password (valid for 15 minutes):\n` +
-        `${link}\n\n` +
-        `If you didn't request this, you can safely ignore this email.\n\n` +
-        `— The Zsolt's CRM team`;
+      const { subject, html, text } = renderForgotPassword({
+        userName: user.first_name || null,
+        resetLink: link,
+      });
       await sendMail({
         to: user.email,
-        subject: "Reset your Zsolt's CRM password",
-        text: body,
+        subject,
+        html,
+        text,
       });
     }
     return res.json({

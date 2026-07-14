@@ -7,13 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import Sidebar from "./Sidebar";
 import LanguageSwitcher from "./LanguageSwitcher";
-import Breadcrumbs from "./Breadcrumbs";
 import SEO from "./SEO";
+import { ProjectSelector } from "./ProjectSelector";
+import { useProjectContext } from "@/context/ProjectContext";
 
 const Layout: React.FC = () => {
   const { t } = useTranslation(["common", "seo"]);
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const isEnduser = user?.role === "enduser";
 
   const handleLogout = () => {
     setIsSheetOpen(false);
@@ -113,6 +115,9 @@ const Layout: React.FC = () => {
               </SheetContent>
             </Sheet>
 
+            {/* Project selector for endusers (left side of header) */}
+            {isEnduser && <HeaderProjectSelector />}
+
             <div className="flex-1" />
 
             {/* Right side actions */}
@@ -126,7 +131,6 @@ const Layout: React.FC = () => {
 
           {/* Content */}
           <main className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6 overflow-x-hidden">
-            <Breadcrumbs />
             <Suspense fallback={<div className="flex items-center justify-center p-8"><div className="animate-pulse text-muted-foreground">Loading...</div></div>}>
               <Outlet />
             </Suspense>
@@ -136,5 +140,18 @@ const Layout: React.FC = () => {
     </>
   );
 };
+
+// Extracted so the context hook only runs when isEnduser is true.
+function HeaderProjectSelector() {
+  const { projects, selectedId, setSelectedId, isLoading } = useProjectContext();
+  return (
+    <ProjectSelector
+      projects={projects}
+      selectedId={selectedId ?? null}
+      onSelect={setSelectedId}
+      isLoading={isLoading}
+    />
+  );
+}
 
 export default Layout;

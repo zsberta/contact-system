@@ -38,6 +38,8 @@
 import express from "express";
 import rateLimit from "express-rate-limit";
 import { pool } from "../db/pool.js";
+import { notifyProjectOwner, notifySubmitter } from "../lib/email.js";
+import { checkSlotAvailability } from "../lib/reservation-availability.js";
 
 export const router = express.Router();
 
@@ -73,58 +75,18 @@ const reservationSustainedLimiter = rateLimit({
   keyGenerator: (req) => `reservation-sustained:${req.ip}`,
 });
 
-// Validation constants — kept local to this route.
-const DATA_MAX_KEYS_PER_LEVEL = 50;
-const DATA_MAX_DEPTH = 5;
-const DATA_MAX_BYTES = 50 * 1024;
+// Validation constants + parseStrictIso + measureBag — imported from
+// the shared lib so the import feature can run the same checks via dry-run.
+import {
+  parseStrictIso,
+  DATA_MAX_KEYS_PER_LEVEL,
+  DATA_MAX_DEPTH,
+  DATA_MAX_BYTES,
+  measureBag,
+  SLOT_GRID_MAX_MINUTES,
+} from "../lib/booking-validation.js";
+
 const LOCALE_MAX_LEN = 10;
-const SLOT_GRID_MAX_MINUTES = 24 * 60; // 1 day cap
-
-// Recursively measure the keys in any nested plain object + nesting depth.
-//
-// Implementation note: when the recursion would cross DATA_MAX_DEPTH, we
-// stop early but record `results.depth = DATA_MAX_DEPTH + 1`. Combined
-// with the `> DATA_MAX_DEPTH` check at the call site, this guarantees
-// that any payload whose deepest leaf is at depth >= DATA_MAX_DEPTH + 1
-// is rejected — including pathological cases the old logic let through
-// (it stopped recursing while `currentDepth < DATA_MAX_DEPTH`, so
-// deep-nested objects were silently accepted as long as their topmost
-// `DATA_MAX_DEPTH` levels were plain objects). Fix: see
-// 08-gotchas/reservations-public-data-depth-limit-not-enforced-2026-07-04.
-function measureBag(obj, currentDepth = 1, results = { keys: 0, depth: 1 }) {
-  if (obj === null || typeof obj !== "object" || Array.isArray(obj)) return results;
-  const keys = Object.keys(obj).length;
-  if (keys > results.keys) results.keys = keys;
-  if (currentDepth > results.depth) results.depth = currentDepth;
-  if (currentDepth > DATA_MAX_DEPTH) {
-    results.depth = DATA_MAX_DEPTH + 1;
-    return results;
-  }
-  for (const k of Object.keys(obj)) {
-    const v = obj[k];
-    if (v !== null && typeof v === "object" && !Array.isArray(v)) {
-      measureBag(v, currentDepth + 1, results);
-    }
-  }
-  return results;
-}
-
-// Strict ISO 8601 parse — accepts Z or explicit ±HH:MM offset; rejects
-// loose formats the JS Date parser would silently accept.
-function parseStrictIso(s) {
-  if (typeof s !== "string" || s.length === 0) return null;
-  // Must contain 'T' (date+time); timezone must be Z or ±HH:MM
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(s)) {
-    return null;
-  }
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) return null;
-  // Sanity check the round-trip matches (catches things like Feb 30).
-  if (d.toISOString().slice(0, 19) !== s.slice(0, 19)) {
-    return null;
-  }
-  return d;
-}
 
 // isOriginAllowed — same wildcard/exact match semantics as form-embed.js /
 // origin-allowlist.ts. Keep all three in sync.
@@ -185,10 +147,12 @@ function normaliseAllowedOrigins(raw) {
 // is unknown OR the reservation is disabled (indistinguishable from the
 // caller's perspective).
 // ---------------------------------------------------------------------------
+
 async function loadReservationByToken(secretToken) {
   const { rows } = await pool.query(
     `SELECT id, status, allowed_origins, granularity, slot_duration_minutes,
-            lead_time_minutes, max_advance_days, extra_fields_enabled
+            lead_time_minutes, max_advance_days, extra_fields_enabled,
+            disable_hungarian_holidays
      FROM reservations
      WHERE secret_token = $1`,
     [secretToken],
@@ -282,6 +246,57 @@ router.get(
           : row.ends_at,
       }));
 
+      // Also fetch disabled ranges that overlap the window.
+      // Filter: manual ranges are always included; auto_holiday ranges
+      // are only included when disable_hungarian_holidays is ON AND the
+      // individual range is enabled.
+      const disabledResult = await pool.query(
+        `SELECT starts_at, ends_at
+         FROM reservation_disabled_ranges
+         WHERE reservation_id = $1
+           AND tstzrange(starts_at, ends_at, '[)') && tstzrange($2, $3, '[)')
+           AND (
+             (source = 'manual' AND enabled = true)
+             OR
+             (source = 'auto_holiday' AND enabled = true AND $4 = true)
+           )
+         ORDER BY starts_at ASC`,
+        [reservation.id, from.toISOString(), effectiveTo.toISOString(), reservation.disable_hungarian_holidays],
+      );
+
+      const disabled = disabledResult.rows.map((row) => ({
+        startsAt: row.starts_at instanceof Date
+          ? row.starts_at.toISOString()
+          : row.starts_at,
+        endsAt: row.ends_at instanceof Date
+          ? row.ends_at.toISOString()
+          : row.ends_at,
+      }));
+
+      // Fetch availability schedules (recurring time-slot templates).
+      // These define WHEN the reservation is open — the positive counterpart
+      // to disabled ranges which block specific windows.
+      const schedulesResult = await pool.query(
+        `SELECT frequency, day_of_week, day_of_month, start_time, end_time
+         FROM reservation_availability_schedules
+         WHERE reservation_id = $1
+         ORDER BY frequency, day_of_week, day_of_month, start_time ASC`,
+        [reservation.id],
+      );
+
+      const trimTime = (t) => typeof t === "string" ? t.slice(0, 5) : t;
+      const schedules = schedulesResult.rows.map((row) => ({
+        frequency: row.frequency,
+        dayOfWeek: row.day_of_week === null || row.day_of_week === undefined
+          ? null
+          : Number(row.day_of_week),
+        dayOfMonth: row.day_of_month === null || row.day_of_month === undefined
+          ? null
+          : Number(row.day_of_month),
+        startTime: trimTime(row.start_time),
+        endTime: trimTime(row.end_time),
+      }));
+
       return res.json({
         reservationId: Number(reservation.id),
         windowStart: from.toISOString(),
@@ -293,6 +308,8 @@ router.get(
         leadTimeMinutes: Number(reservation.lead_time_minutes),
         maxAdvanceDays: Number(reservation.max_advance_days),
         booked,
+        disabled,
+        schedules,
       });
     } catch (err) {
       console.error("[reservations/public/availability]", err.code, err.message);
@@ -416,6 +433,19 @@ router.post(
         }
       }
 
+      // Server-side availability check: disabled ranges + schedules.
+      // This closes the race window where CRM data changes between the
+      // customer loading the form and submitting.
+      const avail = await checkSlotAvailability(
+        reservationId,
+        startsAtIso,
+        endsAtIso,
+        reservation.disable_hungarian_holidays,
+      );
+      if (!avail.available) {
+        return res.status(400).json({ errorMessage: avail.reason });
+      }
+
       // Optional `data` bag. Only accepted when the reservation permits it;
       // bounded-bag validation matches form submissions.
       let dataJson = null;
@@ -481,17 +511,54 @@ router.post(
       );
 
       const row = insertResult.rows[0];
+      const startsAt = row.starts_at instanceof Date
+        ? row.starts_at.toISOString()
+        : row.starts_at;
+      const endsAt = row.ends_at instanceof Date
+        ? row.ends_at.toISOString()
+        : row.ends_at;
+      const bookedAt = row.booked_at instanceof Date
+        ? row.booked_at.toISOString()
+        : row.booked_at;
+      const bookingId = Number(row.id);
+
+      // Fire-and-forget emails. Same best-effort contract as the
+      // form-submission path: the booking is already persisted; an email
+      // failure MUST NOT fail the 201. Two parallel sends — operator
+      // notification + submitter auto-reply.
+      pool
+        .query(`SELECT project_id, name FROM reservations WHERE id = $1`, [reservationId])
+        .then((cfg) => {
+          if (cfg.rowCount === 0) return;
+          const projectId = Number(cfg.rows[0].project_id);
+          const reservationName = cfg.rows[0].name;
+          let parsedData = null;
+          if (dataJson) {
+            try { parsedData = JSON.parse(dataJson); } catch { /* keep null */ }
+          }
+          const notifyArgs = {
+            kind: "reservation",
+            projectId,
+            formName: reservationName,
+            data: parsedData,
+            locale,
+            startsAt,
+            endsAt,
+          };
+          Promise.all([
+            notifyProjectOwner(notifyArgs),
+            notifySubmitter(notifyArgs),
+          ]);
+        })
+        .catch((err) => {
+          console.error("[reservations/public/notify]", err.code || "", err.message);
+        });
+
       return res.status(201).json({
-        id: Number(row.id),
-        startsAt: row.starts_at instanceof Date
-          ? row.starts_at.toISOString()
-          : row.starts_at,
-        endsAt: row.ends_at instanceof Date
-          ? row.ends_at.toISOString()
-          : row.ends_at,
-        bookedAt: row.booked_at instanceof Date
-          ? row.booked_at.toISOString()
-          : row.booked_at,
+        id: bookingId,
+        startsAt,
+        endsAt,
+        bookedAt,
       });
     } catch (err) {
       // 23P01 = exclusion_violation — the EXCLUDE constraint fired.

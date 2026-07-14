@@ -20,6 +20,7 @@ import crypto from "node:crypto";
 import { pool } from "../db/pool.js";
 import { requireAuth, requireAdmin } from "../middleware/jwtAuth.js";
 import { sendMail, resolvePublicUrl } from "../lib/email.js";
+import { renderInvite } from "../lib/email-templates.js";
 
 export const router = express.Router();
 
@@ -292,14 +293,12 @@ router.post("/", async (req, res) => {
       // Best-effort email. Failure does NOT roll back the create.
       const publicUrl = resolvePublicUrl(req);
       const link = `${publicUrl}/set-password?token=${encodeURIComponent(plain)}`;
-      const body =
-        `Hi ${firstName},\n\n` +
-        `An administrator has created a Zsolt's CRM account for you.\n\n` +
-        `Click the link below to set your password (valid for 24 hours):\n` +
-        `${link}\n\n` +
-        `Once set, you can sign in and view your assigned projects.\n\n` +
-        `— The Zsolt's CRM team`;
-      await sendMail({ to: dto.email, subject: "Welcome to Zsolt's CRM", text: body });
+      const { subject, html, text } = renderInvite({
+        userName: firstName || null,
+        inviteLink: link,
+        isReinvite: false,
+      });
+      await sendMail({ to: dto.email, subject, html, text });
     }
     await client.query("COMMIT");
     return res.status(201).json({ ...dto, inviteToken });
@@ -500,13 +499,12 @@ router.post("/:id/invite", async (req, res) => {
     );
     const publicUrl = resolvePublicUrl(req);
     const link = `${publicUrl}/set-password?token=${encodeURIComponent(plain)}`;
-    const body =
-      `Hi ${user.first_name || "there"},\n\n` +
-      `An administrator has (re)issued your Zsolt's CRM invite.\n\n` +
-      `Click the link below to set your password (valid for 24 hours):\n` +
-      `${link}\n\n` +
-      `— The Zsolt's CRM team`;
-    await sendMail({ to: user.email, subject: "Your Zsolt's CRM invite", text: body });
+    const { subject, html, text } = renderInvite({
+      userName: user.first_name || null,
+      inviteLink: link,
+      isReinvite: true,
+    });
+    await sendMail({ to: user.email, subject, html, text });
     return res.json({
       inviteToken: plain,
       expiresAt: new Date(Date.now() + INVITE_TTL_SEC * 1000).toISOString(),

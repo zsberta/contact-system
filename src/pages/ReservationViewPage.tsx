@@ -1,15 +1,12 @@
 // ----------------------------------------------------------------------------
-// ReservationViewPage — read-only detail card + snippet panel + bookings list
-// inside a 2-tab layout (Details / Bookings). The 3rd tab from the plan
-// was collapsed into a "Configuration summary" section inside Details since
-// the operator already sees granularity/slot/lead-time/max-advance directly
-// in the details card.
+// ReservationViewPage — read-only detail card + snippet panel.
+// Tab navigation is URL-based (NavLink) so each tab is a deep-linkable page.
 // ----------------------------------------------------------------------------
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "react-router-dom";
+import { NavLink, useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -24,7 +21,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ArrowLeft,
   Pencil,
@@ -33,16 +29,28 @@ import {
   PowerOff,
   Copy,
   Lock,
+  CalendarDays,
+  List,
+  FileText,
+  FileUp,
+  Ban,
+  Clock,
 } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
 import type { ReservationDTO } from "@/types/reservation";
+import { useAuth } from "@/context/AuthContext";
 import {
   deleteReservation,
   getReservationById,
   updateReservation,
 } from "@/lib/reservations";
 import { ReservationSnippetPanel } from "@/components/reservations/ReservationSnippetPanel";
-import { ReservationBookingsList } from "@/components/reservations/ReservationBookingsList";
+import { cn } from "@/lib/utils";
+
+const TAB_LINK_CLASS =
+  "inline-flex items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground";
+const TAB_LINK_ACTIVE =
+  "bg-primary text-primary-foreground shadow hover:bg-primary/90 hover:text-primary-foreground";
 
 const ReservationViewPage: React.FC = () => {
   const { t } = useTranslation(["reservations", "common"]);
@@ -50,6 +58,8 @@ const ReservationViewPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { id } = useParams<{ id: string }>();
   const reservationId = id ? Number.parseInt(id) : null;
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false);
@@ -244,31 +254,83 @@ const ReservationViewPage: React.FC = () => {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 w-full">
-      <Tabs defaultValue="details">
-        <TabsList>
-          <TabsTrigger value="details">
-            {t("reservations:details_tab")}
-          </TabsTrigger>
-          <TabsTrigger value="bookings">
-            {t("reservations:bookings_tab")}
-          </TabsTrigger>
-        </TabsList>
+      {/* Tab navigation */}
+      <nav className="flex gap-1 border-b pb-px">
+        <NavLink
+          to={`/reservations/view/${reservationId}`}
+          end
+          className={({ isActive: active }) =>
+            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
+          }
+        >
+          <FileText className="h-4 w-4" />
+          {t("reservations:details_tab")}
+        </NavLink>
+        <NavLink
+          to={`/reservations/view/${reservationId}/bookings`}
+          end
+          className={({ isActive: active }) =>
+            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
+          }
+        >
+          <List className="h-4 w-4" />
+          {t("reservations:bookings_tab")}
+        </NavLink>
+        <NavLink
+          to={`/reservations/view/${reservationId}/bookings/import`}
+          className={({ isActive: active }) =>
+            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
+          }
+        >
+          <FileUp className="h-4 w-4" />
+          {t("reservations:import_tab")}
+        </NavLink>
+        <NavLink
+          to={`/reservations/view/${reservationId}/calendar`}
+          className={({ isActive: active }) =>
+            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
+          }
+        >
+          <CalendarDays className="h-4 w-4" />
+          {t("reservations:calendar_tab")}
+        </NavLink>
+        <NavLink
+          to={`/reservations/view/${reservationId}/schedules`}
+          className={({ isActive: active }) =>
+            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
+          }
+        >
+          <Clock className="h-4 w-4" />
+          {t("reservations:schedules_tab")}
+        </NavLink>
+        <NavLink
+          to={`/reservations/view/${reservationId}/blocked`}
+          className={({ isActive: active }) =>
+            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
+          }
+        >
+          <Ban className="h-4 w-4" />
+          {t("reservations:blocked_tab")}
+        </NavLink>
+      </nav>
 
-        <TabsContent value="details" className="space-y-6">
-          <Card>
-            <CardHeader className="flex flex-col space-y-4 pb-2">
-              <CardTitle className="text-2xl font-bold break-words">
-                {t("reservations:reservation_details")}: {reservation.name}
-              </CardTitle>
-              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                <Button
-                  variant="outline"
-                  onClick={() => navigate("/reservations")}
-                  className="w-full sm:w-auto"
-                >
-                  <ArrowLeft className="mr-2 h-4 w-4" />
-                  {t("reservations:back_to_reservations")}
-                </Button>
+      {/* Details content */}
+      <Card>
+        <CardHeader className="flex flex-col space-y-4 pb-2">
+          <CardTitle className="text-2xl font-bold break-words">
+            {t("reservations:reservation_details")}: {reservation.name}
+          </CardTitle>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <Button
+              variant="outline"
+              onClick={() => navigate("/reservations")}
+              className="w-full sm:w-auto"
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              {t("reservations:back_to_reservations")}
+            </Button>
+            {isAdmin && (
+              <>
                 <Button
                   onClick={() => navigate(`/reservations/edit/${reservation.id}`)}
                   className="w-full sm:w-auto"
@@ -303,108 +365,104 @@ const ReservationViewPage: React.FC = () => {
                   <Trash2 className="mr-2 h-4 w-4" />
                   {t("common:delete")}
                 </Button>
+              </>
+            )}
+          </div>
+        </CardHeader>
+        <Separator />
+        <CardContent className="pt-6 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {details.map((item) => (
+              <div key={item.label} className="space-y-1">
+                <p className="text-sm font-medium text-muted-foreground">
+                  {item.label}
+                </p>
+                <div className="text-base font-semibold break-words">
+                  {item.value}
+                </div>
               </div>
-            </CardHeader>
-            <Separator />
-            <CardContent className="pt-6 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {details.map((item) => (
-                  <div key={item.label} className="space-y-1">
-                    <p className="text-sm font-medium text-muted-foreground">
-                      {item.label}
-                    </p>
-                    <div className="text-base font-semibold break-words">
-                      {item.value}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
-          <ReservationSnippetPanel
-            reservationId={reservation.id}
-            allowedOrigins={reservation.allowedOrigins}
-          />
+      <ReservationSnippetPanel
+        reservationId={reservation.id}
+        allowedOrigins={reservation.allowedOrigins}
+      />
 
-          {/* Disable / Enable confirmation */}
-          <AlertDialog
-            open={isStatusDialogOpen}
-            onOpenChange={setIsStatusDialogOpen}
-          >
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  {isActive
-                    ? t("reservations:disable_confirm_title")
-                    : t("reservations:enable_confirm_title")}
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  {isActive
-                    ? t("reservations:disable_confirm_description", {
-                      name: reservation.name,
-                    })
-                    : t("reservations:enable_confirm_description", {
-                      name: reservation.name,
-                    })}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel disabled={statusMutation.isPending}>
-                  {t("common:cancel")}
-                </AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => statusMutation.mutate()}
-                  disabled={statusMutation.isPending}
-                >
-                  {statusMutation.isPending
-                    ? t("common:saving")
-                    : isActive
-                      ? t("reservations:action_disable")
-                      : t("reservations:action_enable")}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+      {/* Disable / Enable confirmation */}
+      <AlertDialog
+        open={isStatusDialogOpen}
+        onOpenChange={setIsStatusDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {isActive
+                ? t("reservations:disable_confirm_title")
+                : t("reservations:enable_confirm_title")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {isActive
+                ? t("reservations:disable_confirm_description", {
+                  name: reservation.name,
+                })
+                : t("reservations:enable_confirm_description", {
+                  name: reservation.name,
+                })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={statusMutation.isPending}>
+              {t("common:cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => statusMutation.mutate()}
+              disabled={statusMutation.isPending}
+            >
+              {statusMutation.isPending
+                ? t("common:saving")
+                : isActive
+                  ? t("reservations:action_disable")
+                  : t("reservations:action_enable")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-          {/* Delete confirmation */}
-          <AlertDialog
-            open={isDeleteDialogOpen}
-            onOpenChange={setIsDeleteDialogOpen}
-          >
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  {t("reservations:confirm_delete_title")}
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  {t("reservations:confirm_delete_description", {
-                    name: reservation.name,
-                  })}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel disabled={deleteMutation.isPending}>
-                  {t("common:cancel")}
-                </AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => deleteMutation.mutate()}
-                  disabled={deleteMutation.isPending}
-                  className="bg-destructive hover:bg-destructive/90"
-                >
-                  {deleteMutation.isPending
-                    ? t("common:deleting")
-                    : t("common:delete")}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </TabsContent>
-
-        <TabsContent value="bookings" className="space-y-6">
-          <ReservationBookingsList reservationId={reservation.id} />
-        </TabsContent>
-      </Tabs>
+      {/* Delete confirmation */}
+      <AlertDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={setIsDeleteDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("reservations:confirm_delete_title")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("reservations:confirm_delete_description", {
+                name: reservation.name,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>
+              {t("common:cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteMutation.mutate()}
+              disabled={deleteMutation.isPending}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {deleteMutation.isPending
+                ? t("common:deleting")
+                : t("common:delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

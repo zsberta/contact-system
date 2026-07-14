@@ -36,6 +36,7 @@ export interface ReservationDTO {
   leadTimeMinutes: number;
   maxAdvanceDays: number;
   extraFieldsEnabled: boolean;
+  disableHungarianHolidays: boolean;
   // Audit
   createdAt: string;
   updatedAt: string;
@@ -54,6 +55,7 @@ export interface ReservationCreateDTO {
   leadTimeMinutes?: number;
   maxAdvanceDays?: number;
   extraFieldsEnabled?: boolean;
+  disableHungarianHolidays?: boolean;
 }
 
 // PUT /api/reservations/:id body. `projectId` and `secretToken` are
@@ -69,6 +71,7 @@ export interface ReservationUpdateDTO {
   leadTimeMinutes?: number;
   maxAdvanceDays?: number;
   extraFieldsEnabled?: boolean;
+  disableHungarianHolidays?: boolean;
 }
 
 // Snippet response from GET /api/reservations/:id/snippet.
@@ -121,6 +124,17 @@ export interface AvailabilityWindowDTO {
     startsAt: string;
     endsAt: string;
   }>;
+  disabled: Array<{
+    startsAt: string;
+    endsAt: string;
+  }>;
+  schedules: Array<{
+    frequency: AvailabilityScheduleFrequency;
+    dayOfWeek: number | null;
+    dayOfMonth: number | null;
+    startTime: string;
+    endTime: string;
+  }>;
 }
 
 // Public submission response — mirrors the 201 returned by POST /bookings.
@@ -137,4 +151,56 @@ export interface ReservationBookingRequest {
   endsAt: string;
   locale?: string;
   data?: Record<string, unknown> | null;
+}
+
+// ---------------------------------------------------------------------------
+// Disabled ranges — operator-declared blackouts where no bookings are allowed.
+// ---------------------------------------------------------------------------
+
+// Single disabled range, returned by GET /api/reservations/:id/disabled-ranges.
+export interface ReservationDisabledRangeDTO {
+  id: number;
+  reservationId: number;
+  startsAt: string;
+  endsAt: string;
+  reason: string | null;
+  source: "manual" | "auto_holiday";
+  enabled: boolean;
+  createdAt: string;
+}
+
+// POST /api/reservations/:id/disabled-ranges body.
+export interface ReservationDisabledRangeCreateDTO {
+  startsAt: string;
+  endsAt: string;
+  reason?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Availability schedules — recurring time-slot templates that define when
+// a reservation is open for bookings (the positive counterpart to disabled
+// ranges which block specific windows).
+// ---------------------------------------------------------------------------
+
+export type AvailabilityScheduleFrequency = "daily" | "weekly" | "monthly";
+
+// Returned by GET /api/reservations/:id/availability-schedules.
+export interface AvailabilityScheduleDTO {
+  id: number;
+  reservationId: number;
+  frequency: AvailabilityScheduleFrequency;
+  dayOfWeek: number | null;   // 0=Sun..6=Sat, only for weekly
+  dayOfMonth: number | null;  // 1..31, only for monthly
+  startTime: string;          // HH:MM (PostgreSQL TIME)
+  endTime: string;            // HH:MM (PostgreSQL TIME)
+  createdAt: string;
+}
+
+// POST /api/reservations/:id/availability-schedules body.
+export interface AvailabilityScheduleCreateDTO {
+  frequency: AvailabilityScheduleFrequency;
+  dayOfWeek?: number | null;
+  dayOfMonth?: number | null;
+  startTime: string;
+  endTime: string;
 }

@@ -5,10 +5,18 @@ import {
   Building2,
   FileText,
   CalendarClock,
+  BarChart3,
+  ClipboardList,
+  CalendarDays,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/context/AuthContext";
+import { useProjectContext } from "@/context/ProjectContext";
+import { getAllFormsPaged } from "@/lib/forms";
+import { getAllReservationsPaged } from "@/lib/reservations";
+import { getAllAnalyticsConfigsPaged } from "@/lib/analytics";
 
 interface SidebarProps {
   onClose?: () => void;
@@ -26,23 +34,9 @@ const Sidebar = ({ onClose }: SidebarProps = {}) => {
         : "hover:bg-sidebar-accent/50"
     }`;
 
-  // Endusers see only the projects section — they have no access to
-  // the admin dashboard, forms list, reservations list, or user
-  // management. Their project view is the single page that aggregates
-  // everything they're allowed to see.
+  // Enduser: check which features the selected project has.
   if (role === "enduser") {
-    return (
-      <nav className="flex flex-col gap-1 p-2">
-        <NavLink
-          to="/portal"
-          onClick={() => onClose?.()}
-          className={linkClass}
-        >
-          <Briefcase className="h-4 w-4" />
-          <span>{t("navigation:my_projects")}</span>
-        </NavLink>
-      </nav>
-    );
+    return <EnduserSidebar linkClass={linkClass} onClose={onClose} />;
   }
 
   return (
@@ -72,10 +66,22 @@ const Sidebar = ({ onClose }: SidebarProps = {}) => {
         <span>{t("navigation:reservations")}</span>
       </NavLink>
       <NavLink
-        to="/projects"
+        to="/analytics"
         onClick={() => onClose?.()}
         className={linkClass}
       >
+        <BarChart3 className="h-4 w-4" />
+        <span>{t("navigation:analytics")}</span>
+      </NavLink>
+      <NavLink
+        to="/submissions"
+        onClick={() => onClose?.()}
+        className={linkClass}
+      >
+        <ClipboardList className="h-4 w-4" />
+        <span>{t("navigation:submissions")}</span>
+      </NavLink>
+      <NavLink to="/projects" onClick={() => onClose?.()} className={linkClass}>
         <Briefcase className="h-4 w-4" />
         <span>{t("navigation:projects")}</span>
       </NavLink>
@@ -86,5 +92,105 @@ const Sidebar = ({ onClose }: SidebarProps = {}) => {
     </nav>
   );
 };
+
+function EnduserSidebar({
+  linkClass,
+  onClose,
+}: {
+  linkClass: (props: { isActive: boolean }) => string;
+  onClose?: () => void;
+}) {
+  const { t } = useTranslation("navigation");
+  const { selectedId: projectId } = useProjectContext();
+
+  // Check if the selected project has forms.
+  const { data: formsData } = useQuery({
+    queryKey: ["portal", "sidebar-has-forms", projectId],
+    queryFn: () =>
+      getAllFormsPaged({
+        projectId: projectId!,
+        page: 0,
+        size: 1,
+        sortField: "name",
+        sortOrder: "asc",
+      }),
+    enabled: !!projectId,
+  });
+
+  // Check if the selected project has reservations.
+  const { data: reservationsData } = useQuery({
+    queryKey: ["portal", "sidebar-has-reservations", projectId],
+    queryFn: () =>
+      getAllReservationsPaged({
+        projectId: projectId!,
+        page: 0,
+        size: 1,
+        sortField: "name",
+        sortOrder: "asc",
+      }),
+    enabled: !!projectId,
+  });
+
+  // Check if the selected project has analytics enabled.
+  const { data: analyticsData } = useQuery({
+    queryKey: ["portal", "sidebar-has-analytics", projectId],
+    queryFn: () =>
+      getAllAnalyticsConfigsPaged({
+        projectId: projectId!,
+        page: 0,
+        size: 1,
+      }),
+    enabled: !!projectId,
+  });
+
+  const hasForms = (formsData?.totalElements ?? 0) > 0;
+  const hasReservations = (reservationsData?.totalElements ?? 0) > 0;
+  const hasAnalytics = (analyticsData?.totalElements ?? 0) > 0;
+
+  return (
+    <nav className="flex flex-col gap-1 p-2">
+      {hasAnalytics && (
+        <NavLink
+          to="/portal/analytics"
+          onClick={() => onClose?.()}
+          className={linkClass}
+        >
+          <BarChart3 className="h-4 w-4" />
+          <span>{t("navigation:analytics")}</span>
+        </NavLink>
+      )}
+      {hasForms && (
+        <NavLink
+          to="/portal/submissions"
+          onClick={() => onClose?.()}
+          className={linkClass}
+        >
+          <ClipboardList className="h-4 w-4" />
+          <span>{t("navigation:submissions")}</span>
+        </NavLink>
+      )}
+      {hasReservations && (
+        <NavLink
+          to="/portal/reservations"
+          onClick={() => onClose?.()}
+          className={linkClass}
+        >
+          <CalendarClock className="h-4 w-4" />
+          <span>{t("navigation:reservations")}</span>
+        </NavLink>
+      )}
+      {hasReservations && (
+        <NavLink
+          to="/portal/calendar"
+          onClick={() => onClose?.()}
+          className={linkClass}
+        >
+          <CalendarDays className="h-4 w-4" />
+          <span>{t("navigation:calendar")}</span>
+        </NavLink>
+      )}
+    </nav>
+  );
+}
 
 export default Sidebar;

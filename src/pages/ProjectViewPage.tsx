@@ -24,6 +24,7 @@ import { ProjectAttachments } from "@/components/projects/ProjectAttachments";
 import { ProjectPayments } from "@/components/projects/ProjectPayments";
 import { ProjectForms } from "@/components/forms/ProjectForms";
 import { ProjectReservations } from "@/components/reservations/ProjectReservations";
+import { ProjectAnalytics } from "@/components/analytics/ProjectAnalytics";
 
 const formatPrice = (price: number | null): string => {
   if (price === null || price === undefined) return "—";
@@ -190,6 +191,8 @@ const ProjectViewPage: React.FC = () => {
       <ProjectForms projectId={project.id} />
 
       <ProjectReservations projectId={project.id} />
+
+      <ProjectAnalytics projectId={project.id} />
 
       <ProjectPayments projectId={project.id} projectPrice={project.price} />
 

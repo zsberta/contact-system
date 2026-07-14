@@ -237,7 +237,14 @@ const EnduserProjectView: React.FC = () => {
                   className="flex items-center justify-between p-3 border rounded-md"
                 >
                   <div className="min-w-0">
-                    <p className="font-medium truncate">{r.name}</p>
+                    <p className="font-medium truncate">
+                      <Link
+                        to={`/reservations/view/${r.id}`}
+                        className="hover:underline"
+                      >
+                        {r.name}
+                      </Link>
+                    </p>
                     <p className="text-xs font-mono text-muted-foreground truncate">
                       {r.slug}
                     </p>

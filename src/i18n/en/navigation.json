@@ -4,5 +4,8 @@
   "users": "Users",
   "forms": "Forms",
   "reservations": "Reservations",
-  "my_projects": "My projects"
+  "analytics": "Analytics",
+  "submissions": "Submissions",
+  "my_projects": "My projects",
+  "calendar": "Calendar"
 }

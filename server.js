@@ -19,8 +19,12 @@ import { router as formsRouter } from "./routes/forms.js";
 import { router as formEmbedRouter } from "./routes/form-embed.js";
 import { router as reservationsRouter } from "./routes/reservations.js";
 import { router as reservationEmbedRouter } from "./routes/reservation-embed.js";
+import { router as analyticsRouter } from "./routes/analytics.js";
+import { router as analyticsEmbedRouter } from "./routes/analytics-embed.js";
+import { router as submissionsRouter } from "./routes/submissions.js";
 import { pool } from "./db/pool.js";
 import { assertSafeStartup } from "./lib/startup-guard.js";
+import { stop as stopEmailQueue } from "./lib/email-queue.js";
 
 dotenv.config();
 
@@ -134,6 +138,17 @@ app.use("/api/forms", formsRouter);
 // patterns as Forms. See routes/reservations.js and routes/reservation-embed.js.
 app.use("/api/reservations", reservationsRouter);
 
+// Analytics module — same sibling pattern as Forms / Reservations. Admin
+// CRUD lives on /api/analytics (mounted below), the public script loader
+// and event collection endpoint live on /api/public/analytics (mounted
+// after the CORS handler below). See routes/analytics.js and
+// routes/analytics-embed.js.
+app.use("/api/analytics", analyticsRouter);
+
+// Submissions overview — cross-project aggregation endpoints for the
+// Submissions page (form submissions + reservation bookings + calendar).
+app.use("/api/submissions", submissionsRouter);
+
 // --- Embeddable form infrastructure ---------------------------------------
 // Forms have NO iframe and NO loader script (ADR 0009). The public POST
 // endpoint handles a direct submission from any host page; no CSP bypass
@@ -160,6 +175,14 @@ function applyPublicCors(req, res) {
     // prod, this branch is intentionally NOT taken: production should
     // move to an explicit allowlist (see TODO_PROD_ORIGINS below).
     res.setHeader("Access-Control-Allow-Origin", origin || "*");
+    // Some browsers (notably Chrome) treat cross-origin fetches as
+    // credentialed by default when the BE is on `localhost` and the
+    // page is on a different localhost port. The analytics endpoint
+    // doesn't read cookies (it uses req.ip for rate limiting), so
+    // advertising credentials=true here is safe and prevents the
+    // preflight from being rejected. Only enabled in dev to match the
+    // existing dev-only reflection policy.
+    res.setHeader("Access-Control-Allow-Credentials", "true");
   } else if (typeof origin === "string" && origin.length > 0) {
     // TODO_PROD_ORIGINS: replace this reflection with an explicit
     // allowlist sourced from env (e.g. PUBLIC_EMBED_ALLOWED_ORIGINS,
@@ -182,6 +205,11 @@ app.use("/api/public/reservations", (req, res, next) => {
   if (req.method === "OPTIONS") return res.status(204).end();
   next();
 });
+app.use("/api/public/analytics", (req, res, next) => {
+  applyPublicCors(req, res);
+  if (req.method === "OPTIONS") return res.status(204).end();
+  next();
+});
 
 // Public submission endpoint (no auth, no CSRF). The /api/public/* prefix
 // is CSRF-exempt per middleware/csrf.js; the secret_token is the
@@ -189,6 +217,9 @@ app.use("/api/public/reservations", (req, res, next) => {
 // (burst + sustained) inside the router.
 app.use("/api/public/forms", formEmbedRouter);
 app.use("/api/public/reservations", reservationEmbedRouter);
+// Public analytics script loader + event collect. Same CSRF-exempt +
+// per-IP rate-limit contract as the form / reservation embeds.
+app.use("/api/public/analytics", analyticsEmbedRouter);
 
 const distDir = path.join(__dirname, "dist");
 app.use(express.static(distDir));
@@ -206,6 +237,35 @@ app.use((err, req, res, _next) => {
   res.status(err.status || 500).json({ errorMessage: err.message || "Internal server error" });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`[server] listening on :${PORT} (NODE_ENV=${process.env.NODE_ENV || "development"})`);
 });
+
+// Graceful shutdown. docker stop sends SIGTERM and waits
+// stop_grace_period (default 10s) before SIGKILL; SIGINT fires on
+// ctrl-c in dev. We drain the email queue first so any notification
+// in flight at deploy time gets a chance to land — losing the row
+// in the DB is fine because it's already persisted, but losing the
+// email means the operator doesn't know the submission happened.
+let shuttingDown = false;
+async function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[server] received ${signal}, draining email queue + closing server`);
+  try {
+    await stopEmailQueue();
+  } catch (err) {
+    console.error("[server] email queue drain failed:", err.message);
+  }
+  // Stop accepting new connections. Existing in-flight requests get
+  // a small grace window (default behaviour of server.close) to
+  // finish before we exit.
+  server.close((err) => {
+    if (err) console.error("[server] close error:", err.message);
+    // Exit cleanly regardless — docker will SIGKILL after the grace
+    // period anyway, so a clean exit is better than a forced one.
+    process.exit(err ? 1 : 0);
+  });
+}
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));

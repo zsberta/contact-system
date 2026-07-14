@@ -26,12 +26,27 @@ import ReservationsPage from "./pages/ReservationsPage";
 import ReservationCreatePage from "./pages/ReservationCreatePage";
 import ReservationEditPage from "./pages/ReservationEditPage";
 import ReservationViewPage from "./pages/ReservationViewPage";
+import ReservationBookingsPage from "./pages/ReservationBookingsPage";
+import ReservationBookingsImportPage from "./pages/ReservationBookingsImportPage";
+import ReservationCalendarPage from "./pages/ReservationCalendarPage";
+import ReservationDisabledRangesPage from "./pages/ReservationDisabledRangesPage";
+import ReservationAvailabilitySchedulePage from "./pages/ReservationAvailabilitySchedulePage";
+import FormSubmissionsPage from "./pages/FormSubmissionsPage";
+import SubmissionsPage from "./pages/SubmissionsPage";
+import AnalyticsPage from "./pages/AnalyticsPage";
+import AnalyticsEditPage from "./pages/AnalyticsEditPage";
+import AnalyticsViewPage from "./pages/AnalyticsViewPage";
 import SetPasswordPage from "./pages/SetPasswordPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
-import EnduserPortal from "./pages/EnduserPortal";
-import EnduserProjectView from "./pages/EnduserProjectView";
+import EnduserPortalLayout from "./pages/EnduserPortalLayout";
+import PortalSubmissionsPage from "./pages/PortalSubmissionsPage";
+import PortalReservationsPage from "./pages/PortalReservationsPage";
+import PortalCalendarPage from "./pages/PortalCalendarPage";
+import PortalAnalyticsPage from "./pages/PortalAnalyticsPage";
+import PortalIndexRedirect from "./pages/PortalIndexRedirect";
 import { AuthProvider } from "./context/AuthContext";
+import { ProjectProvider } from "./context/ProjectContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Layout from "./components/Layout";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -54,6 +69,7 @@ const App = () => (
       <BrowserRouter>
         <ErrorBoundary>
           <AuthProvider>
+            <ProjectProvider>
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/login" element={<LoginPage />} />
@@ -65,10 +81,7 @@ const App = () => (
 
               <Route element={<ProtectedRoute />}>
                 <Route element={<Layout />}>
-                  {/* Admin-only section. The role check is enforced in
-                      ProtectedRoute; admins who navigate here via a
-                      stale URL bounce to /dashboard, endusers to
-                      /portal. */}
+                  {/* Admin-only section. */}
                   <Route
                     element={<ProtectedRoute roles={["admin"]} />}
                   >
@@ -108,6 +121,10 @@ const App = () => (
                       element={<FormViewPage />}
                     />
                     <Route
+                      path="/forms/view/:id/submissions"
+                      element={<FormSubmissionsPage />}
+                    />
+                    <Route
                       path="/forms/edit/:id"
                       element={<FormEditPage />}
                     />
@@ -121,28 +138,64 @@ const App = () => (
                       element={<ReservationViewPage />}
                     />
                     <Route
+                      path="/reservations/view/:id/bookings"
+                      element={<ReservationBookingsPage />}
+                    />
+                    <Route
+                      path="/reservations/view/:id/bookings/import"
+                      element={<ReservationBookingsImportPage />}
+                    />
+                    <Route
+                      path="/reservations/view/:id/calendar"
+                      element={<ReservationCalendarPage />}
+                    />
+                    <Route
+                      path="/reservations/view/:id/schedules"
+                      element={<ReservationAvailabilitySchedulePage />}
+                    />
+                    <Route
+                      path="/reservations/view/:id/blocked"
+                      element={<ReservationDisabledRangesPage />}
+                    />
+                    <Route
                       path="/reservations/edit/:id"
                       element={<ReservationEditPage />}
                     />
+                    <Route path="/analytics" element={<AnalyticsPage />} />
+                    <Route
+                      path="/analytics/view/:id"
+                      element={<AnalyticsViewPage />}
+                    />
+                    <Route
+                      path="/analytics/edit/:id"
+                      element={<AnalyticsEditPage />}
+                    />
                   </Route>
 
-                  {/* Enduser-only section. Mirrors the admin branch but
-                      with read-only data and a smaller surface (just
-                      the portal + per-project read view). */}
+                  {/* Shared routes — accessible by both admins and endusers. */}
+                  <Route
+                    path="/submissions"
+                    element={<SubmissionsPage />}
+                  />
+
+                  {/* Enduser portal — project selector + child pages. */}
                   <Route
                     element={<ProtectedRoute roles={["enduser"]} />}
                   >
-                    <Route path="/portal" element={<EnduserPortal />} />
-                    <Route
-                      path="/portal/projects/:id"
-                      element={<EnduserProjectView />}
-                    />
+                    <Route path="/portal" element={<EnduserPortalLayout />}>
+                      <Route index element={<PortalIndexRedirect />} />
+                      <Route path="analytics" element={<PortalAnalyticsPage />} />
+                      <Route path="submissions" element={<PortalSubmissionsPage />} />
+                      <Route path="reservations" element={<PortalReservationsPage />} />
+                      <Route path="calendar" element={<PortalCalendarPage />} />
+                    </Route>
                   </Route>
 
                   <Route path="*" element={<NotFound />} />
                 </Route>
               </Route>
             </Routes>
+            </ProjectProvider>
           </AuthProvider>
         </ErrorBoundary>
       </BrowserRouter>

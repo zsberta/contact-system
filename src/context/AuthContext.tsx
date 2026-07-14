@@ -17,6 +17,7 @@ import {
 import { showSuccess, showError } from "@/utils/toast";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { useQueryClient } from "@tanstack/react-query";
 import { CsrfTokenService } from "@/services/csrf";
 
 interface AuthState {
@@ -57,6 +58,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
   const [state, setState] = useState<AuthState>(initialAuthState);
   const navigate = useNavigate();
   const { t } = useTranslation(["auth", "common"]);
+  const queryClient = useQueryClient();
 
   // Check if user is authenticated on mount
   useEffect(() => {
@@ -151,6 +153,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
         );
         // Continue anyway - the user is logged in, CSRF errors will be handled by API calls
       }
+
+      // Invalidate cached queries that may have failed with 401 before login
+      // (e.g. ProjectProvider fires getAllProjectsPaged on mount, before auth).
+      // This forces a refetch so the project selector shows "Loading..."
+      // instead of the stale "no projects" state.
+      queryClient.invalidateQueries({ queryKey: ["portal", "projects"] });
 
       showSuccess(
         t("auth:welcome_message", { name: response.user?.firstName || "User" }),

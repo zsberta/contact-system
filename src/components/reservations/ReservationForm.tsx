@@ -55,6 +55,7 @@ import {
   Clock,
   Hourglass,
   CalendarRange,
+  CalendarOff,
   FilePen,
 } from "lucide-react";
 import type {
@@ -78,6 +79,7 @@ interface ReservationFormValues {
   leadTimeMinutes: number;
   maxAdvanceDays: number;
   extraFieldsEnabled: boolean;
+  disableHungarianHolidays: boolean;
 }
 
 interface ReservationFormProps {
@@ -146,6 +148,7 @@ const ReservationForm = ({
       .min(1)
       .max(365, { message: "reservations:max_length" }),
     extraFieldsEnabled: z.boolean(),
+    disableHungarianHolidays: z.boolean(),
   });
 
   const form = useForm<ReservationFormValues, unknown, ReservationFormValues>({
@@ -165,6 +168,7 @@ const ReservationForm = ({
       leadTimeMinutes: initialData?.leadTimeMinutes ?? 60,
       maxAdvanceDays: initialData?.maxAdvanceDays ?? 90,
       extraFieldsEnabled: initialData?.extraFieldsEnabled ?? false,
+      disableHungarianHolidays: initialData?.disableHungarianHolidays ?? false,
     },
   });
 
@@ -209,6 +213,7 @@ const ReservationForm = ({
         leadTimeMinutes: values.leadTimeMinutes,
         maxAdvanceDays: values.maxAdvanceDays,
         extraFieldsEnabled: values.extraFieldsEnabled,
+        disableHungarianHolidays: values.disableHungarianHolidays,
       };
       onSubmit(payload);
     } else {
@@ -222,6 +227,7 @@ const ReservationForm = ({
         leadTimeMinutes: values.leadTimeMinutes,
         maxAdvanceDays: values.maxAdvanceDays,
         extraFieldsEnabled: values.extraFieldsEnabled,
+        disableHungarianHolidays: values.disableHungarianHolidays,
       };
       onSubmit(payload);
     }
@@ -622,6 +628,35 @@ const ReservationForm = ({
                   </div>
                   <FormDescription>
                     {t("reservations:extra_fields_enabled_help")}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {/* Disable Hungarian holidays */}
+            <FormField
+              control={form.control}
+              name="disableHungarianHolidays"
+              render={({ field }) => (
+                <FormItem>
+                  <div className="flex items-center gap-2">
+                    <FormLabel className="flex items-center gap-2 m-0">
+                      <CalendarOff className="h-4 w-4" />
+                      {t("reservations:disable_hungarian_holidays")}
+                    </FormLabel>
+                    <FormControl>
+                      <Checkbox
+                        checked={!!field.value}
+                        onCheckedChange={(checked) =>
+                          field.onChange(checked === true)
+                        }
+                        aria-label={t("reservations:disable_hungarian_holidays")}
+                      />
+                    </FormControl>
+                  </div>
+                  <FormDescription>
+                    {t("reservations:disable_hungarian_holidays_help")}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

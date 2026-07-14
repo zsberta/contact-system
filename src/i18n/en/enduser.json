@@ -13,5 +13,8 @@
   "project_payments": "Payments",
   "no_forms": "No forms have been set up on this project yet.",
   "no_reservations": "No reservations have been set up on this project yet.",
-  "no_payments": "No payments on this project."
+  "no_payments": "No payments on this project.",
+
+  "select_project": "Select project…",
+  "no_projects": "No projects assigned to you yet."
 }

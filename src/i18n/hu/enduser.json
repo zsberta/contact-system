@@ -13,5 +13,8 @@
   "project_payments": "Számlák",
   "no_forms": "Ezen a projekten még nincs beállított űrlap.",
   "no_reservations": "Ezen a projekten még nincs beállított foglalás.",
-  "no_payments": "Ezen a projekten nincs számla."
+  "no_payments": "Ezen a projekten nincs számla.",
+
+  "select_project": "Válasszon projektet…",
+  "no_projects": "Még nincs projekt hozzád rendelve."
 }
