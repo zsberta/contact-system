@@ -56,5 +56,12 @@
   "create_button": "Create",
   "save_button": "Save",
   "details": "Details",
-  "public_url": "Public URL"
+  "public_url": "Public URL",
+  "create_title": "Create FAQ Item",
+  "edit_title": "Edit FAQ Item",
+  "published_toast": "FAQ item published: {{title}}",
+  "unpublished_toast": "FAQ item unpublished: {{title}}",
+  "validation_question_required": "Question is required",
+  "validation_answer_required": "Answer is required",
+  "validation_project_required": "Project is required"
 }

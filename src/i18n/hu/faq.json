@@ -56,5 +56,12 @@
   "create_button": "Létrehozás",
   "save_button": "Mentés",
   "details": "Részletek",
-  "public_url": "Publikus URL"
+  "public_url": "Publikus URL",
+  "create_title": "GYIK tétel létrehozása",
+  "edit_title": "GYIK tétel szerkesztése",
+  "published_toast": "GYIK tétel közzétéve: {{title}}",
+  "unpublished_toast": "GYIK tétel visszavonva: {{title}}",
+  "validation_question_required": "Kérdés kötelező",
+  "validation_answer_required": "Válasz kötelező",
+  "validation_project_required": "Projekt kötelező"
 }
