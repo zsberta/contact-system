@@ -22,6 +22,10 @@ import { router as reservationEmbedRouter } from "./routes/reservation-embed.js"
 import { router as analyticsRouter } from "./routes/analytics.js";
 import { router as analyticsEmbedRouter } from "./routes/analytics-embed.js";
 import { router as submissionsRouter } from "./routes/submissions.js";
+import { router as blogRouter } from "./routes/blog.js";
+import { router as blogPublicRouter } from "./routes/blog-public.js";
+import { router as blogAttachmentsRouter } from "./routes/blog-attachments.js";
+import { router as internalRouter } from "./routes/internal.js";
 import { pool } from "./db/pool.js";
 import { assertSafeStartup } from "./lib/startup-guard.js";
 import { stop as stopEmailQueue } from "./lib/email-queue.js";
@@ -45,7 +49,7 @@ app.use(
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:"],
+        imgSrc: ["'self'", "data:", "blob:"],
         connectSrc: ["'self'"],
         frameAncestors: ["'none'"],
       },
@@ -149,6 +153,22 @@ app.use("/api/analytics", analyticsRouter);
 // Submissions page (form submissions + reservation bookings + calendar).
 app.use("/api/submissions", submissionsRouter);
 
+// Blog admin CRUD — same auth/RBAC/scope contract as /api/forms. Mutating
+// routes (POST/PUT/DELETE + publish/unpublish) are gated by requireAuth
+// inside the router; endusers have read-only access scoped to their
+// assigned projects, identical to forms.
+app.use("/api/blog", blogRouter);
+
+// Blog attachment admin endpoints (cover image upload). Mounted on
+// the same admin surface as blogRouter — the inner routes are
+// already gated by requireAuth + RBAC.
+app.use("/api/blog", blogAttachmentsRouter);
+
+// Internal surface for service-to-service callbacks. Mounted after the
+// CSRF middleware but exempted from it via middleware/csrf.js#isPublicCsrfExempt.
+// Auth is the X-Internal-Secret header (see routes/internal.js).
+app.use("/api/internal", internalRouter);
+
 // --- Embeddable form infrastructure ---------------------------------------
 // Forms have NO iframe and NO loader script (ADR 0009). The public POST
 // endpoint handles a direct submission from any host page; no CSP bypass
@@ -194,6 +214,10 @@ function applyPublicCors(req, res) {
   for (const [k, v] of Object.entries(PUBLIC_EMBED_CORS_HEADERS)) {
     res.setHeader(k, v);
   }
+  // Helmet defaults CORP to same-origin, which blocks cross-origin image
+  // loading on landing pages (different port in dev, different origin in
+  // prod). Public routes are designed for cross-origin access, so override.
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
 }
 app.use("/api/public/forms", (req, res, next) => {
   applyPublicCors(req, res);
@@ -210,6 +234,14 @@ app.use("/api/public/analytics", (req, res, next) => {
   if (req.method === "OPTIONS") return res.status(204).end();
   next();
 });
+// Blog public read API — same CORS contract as the other /api/public/*
+// surfaces (reflect origin, GET-only, no credentials). The Host-header
+// check inside the router is the actual auth.
+app.use("/api/public/blog", (req, res, next) => {
+  applyPublicCors(req, res);
+  if (req.method === "OPTIONS") return res.status(204).end();
+  next();
+});
 
 // Public submission endpoint (no auth, no CSRF). The /api/public/* prefix
 // is CSRF-exempt per middleware/csrf.js; the secret_token is the
@@ -220,6 +252,10 @@ app.use("/api/public/reservations", reservationEmbedRouter);
 // Public analytics script loader + event collect. Same CSRF-exempt +
 // per-IP rate-limit contract as the form / reservation embeds.
 app.use("/api/public/analytics", analyticsEmbedRouter);
+// Public blog read API. Host-header auth + per-IP rate limit; mounted
+// under /api/public/* to inherit the CSRF-exempt + CORS-reflect
+// contract from the middleware block above.
+app.use("/api/public/blog", blogPublicRouter);
 
 const distDir = path.join(__dirname, "dist");
 app.use(express.static(distDir));
