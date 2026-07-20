@@ -234,9 +234,7 @@ const SeoRow: React.FC<{
         {label}
       </div>
       <div className="mt-1 text-sm break-words">
-        {display || (
-          <span className="text-muted-foreground italic">&mdash;</span>
-        )}
+        {display || <span className="text-muted-foreground italic">—</span>}
       </div>
     </div>
   );
