@@ -25,6 +25,8 @@ import { router as submissionsRouter } from "./routes/submissions.js";
 import { router as blogRouter } from "./routes/blog.js";
 import { router as blogPublicRouter } from "./routes/blog-public.js";
 import { router as blogAttachmentsRouter } from "./routes/blog-attachments.js";
+import { router as faqRouter } from "./routes/faq.js";
+import { router as faqPublicRouter } from "./routes/faq-public.js";
 import { router as internalRouter } from "./routes/internal.js";
 import { pool } from "./db/pool.js";
 import { assertSafeStartup } from "./lib/startup-guard.js";
@@ -164,6 +166,9 @@ app.use("/api/blog", blogRouter);
 // already gated by requireAuth + RBAC.
 app.use("/api/blog", blogAttachmentsRouter);
 
+// FAQ admin CRUD — same auth/RBAC/scope contract as blog.
+app.use("/api/faq", faqRouter);
+
 // Internal surface for service-to-service callbacks. Mounted after the
 // CSRF middleware but exempted from it via middleware/csrf.js#isPublicCsrfExempt.
 // Auth is the X-Internal-Secret header (see routes/internal.js).
@@ -242,6 +247,11 @@ app.use("/api/public/blog", (req, res, next) => {
   if (req.method === "OPTIONS") return res.status(204).end();
   next();
 });
+app.use("/api/public/faq", (req, res, next) => {
+  applyPublicCors(req, res);
+  if (req.method === "OPTIONS") return res.status(204).end();
+  next();
+});
 
 // Public submission endpoint (no auth, no CSRF). The /api/public/* prefix
 // is CSRF-exempt per middleware/csrf.js; the secret_token is the
@@ -256,6 +266,7 @@ app.use("/api/public/analytics", analyticsEmbedRouter);
 // under /api/public/* to inherit the CSRF-exempt + CORS-reflect
 // contract from the middleware block above.
 app.use("/api/public/blog", blogPublicRouter);
+app.use("/api/public/faq", faqPublicRouter);
 
 const distDir = path.join(__dirname, "dist");
 app.use(express.static(distDir));

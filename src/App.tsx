@@ -28,6 +28,10 @@ import BlogEditPage from "./pages/BlogEditPage";
 import BlogViewPage from "./pages/BlogViewPage";
 import PortalBlogPage from "./pages/PortalBlogPage";
 import PortalBlogViewPage from "./pages/PortalBlogViewPage";
+import FaqPage from "./pages/FaqPage";
+import FaqCreatePage from "./pages/FaqCreatePage";
+import FaqEditPage from "./pages/FaqEditPage";
+import FaqViewPage from "./pages/FaqViewPage";
 import ReservationsPage from "./pages/ReservationsPage";
 import ReservationCreatePage from "./pages/ReservationCreatePage";
 import ReservationEditPage from "./pages/ReservationEditPage";
@@ -147,6 +151,10 @@ const App = () => (
                       path="/blog/edit/:id"
                       element={<BlogEditPage />}
                     />
+                    <Route path="/faq" element={<FaqPage />} />
+                    <Route path="/faq/create" element={<FaqCreatePage />} />
+                    <Route path="/faq/view/:id" element={<FaqViewPage />} />
+                    <Route path="/faq/edit/:id" element={<FaqEditPage />} />
                     <Route path="/reservations" element={<ReservationsPage />} />
                     <Route
                       path="/reservations/create"

@@ -9,6 +9,7 @@ import {
   ClipboardList,
   CalendarDays,
   Newspaper,
+  HelpCircle,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -70,6 +71,10 @@ const Sidebar = ({ onClose }: SidebarProps = {}) => {
       <NavLink to="/blog" onClick={() => onClose?.()} className={linkClass}>
         <Newspaper className="h-4 w-4" />
         <span>{t("navigation:blog")}</span>
+      </NavLink>
+      <NavLink to="/faq" onClick={() => onClose?.()} className={linkClass}>
+        <HelpCircle className="h-4 w-4" />
+        <span>{t("navigation:faq")}</span>
       </NavLink>
       <NavLink
         to="/analytics"
