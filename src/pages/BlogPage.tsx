@@ -210,7 +210,7 @@ const BlogPage: React.FC<BlogPageProps> = ({ basePath = "/blog", showCreateButto
       cell: (row: BlogPostDTO) => (
         <div className="flex items-center gap-1">
           <BlogPublishButton post={row} variant="compact" />
-          <BlogActions post={row} />
+          <BlogActions post={row} basePath={basePath} />
         </div>
       ),
     },
