@@ -49,9 +49,12 @@ interface BlogPageProps {
   /** Show the "New post" button. Defaults to true. Set to false for
    *  enduser portal views where creating posts is not allowed. */
   showCreateButton?: boolean;
+  /** Show row-level action buttons (publish toggle, edit/delete dropdown).
+   *  Defaults to true. Set to false for enduser portal views. */
+  showRowActions?: boolean;
 }
 
-const BlogPage: React.FC<BlogPageProps> = ({ basePath = "/blog", showCreateButton = true }) => {
+const BlogPage: React.FC<BlogPageProps> = ({ basePath = "/blog", showCreateButton = true, showRowActions = true }) => {
   const { t } = useTranslation(["blog", "common"]);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -204,16 +207,20 @@ const BlogPage: React.FC<BlogPageProps> = ({ basePath = "/blog", showCreateButto
           : "—",
       enableSorting: true,
     },
-    {
-      id: "actions",
-      header: t("common:actions"),
-      cell: (row: BlogPostDTO) => (
-        <div className="flex items-center gap-1">
-          <BlogPublishButton post={row} variant="compact" />
-          <BlogActions post={row} basePath={basePath} />
-        </div>
-      ),
-    },
+    ...(showRowActions
+      ? [
+          {
+            id: "actions",
+            header: t("common:actions"),
+            cell: (row: BlogPostDTO) => (
+              <div className="flex items-center gap-1">
+                <BlogPublishButton post={row} variant="compact" />
+                <BlogActions post={row} basePath={basePath} />
+              </div>
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (

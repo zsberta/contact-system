@@ -47,7 +47,7 @@ export default function PortalBlogPage() {
 
   return (
     <div className="space-y-0">
-      <BlogPage basePath="/portal/blog" showCreateButton={false} />
+      <BlogPage basePath="/portal/blog" showCreateButton={false} showRowActions={false} />
     </div>
   );
 }
