@@ -8,17 +8,12 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { useNavigate, useParams } from "react-router-dom";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, ExternalLink, ImageIcon } from "lucide-react";
+import { Loader2, ExternalLink, ImageIcon, ArrowLeft } from "lucide-react";
 import { getBlogPostById } from "@/lib/blog";
 import { BlogPostDTO } from "@/types/blog";
 
@@ -38,6 +33,7 @@ const statusBadgeVariant = (status: BlogPostDTO["status"]) => {
 export default function PortalBlogViewPage() {
   const { t } = useTranslation(["blog", "common"]);
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const postId = id && /^\d+$/.test(id) ? Number(id) : NaN;
 
   const { data: post, isLoading } = useQuery({
@@ -73,6 +69,16 @@ export default function PortalBlogViewPage() {
 
   return (
     <div className="container mx-auto p-4 max-w-5xl space-y-6">
+      {/* Back button */}
+      <Button
+        variant="outline"
+        onClick={() => navigate("/portal/blog")}
+        className="w-full sm:w-auto"
+      >
+        <ArrowLeft className="mr-2 h-4 w-4" />
+        {t("common:back", "Back")}
+      </Button>
+
       {/* Header */}
       <Card>
         <CardHeader>
