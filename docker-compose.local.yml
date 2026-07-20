@@ -53,6 +53,20 @@ services:
       BCRYPT_COST: "12"
     env_file:
       - .env
+    # Persistent storage for blog cover/inline images. Without this
+    # bind mount, files written into /app/uploads by the blog
+    # attachment route disappear every time the image is rebuilt
+    # (`docker compose up --build`) — the DB row keeps the old URL,
+    # but the file on disk is gone, so the image renders as a
+    # broken link. The mount is read-write so the nodeapp user
+    # (uid 1000 inside the container) can write into the directory.
+    volumes:
+      - ./uploads:/app/uploads
+      # Landing rebuild trigger directory. The CRM writes .flag files
+      # here on blog publish/unpublish/delete. The host-side watcher
+      # script (scripts/landing-rebuild-watcher.sh --foreground) polls
+      # this directory and runs the per-project build command.
+      - ./.landing-flags:/var/triggers/landing-rebuild
     # NOTE: db:seed is intentionally NOT chained here. See the matching comment in
     # docker-compose.yml for the full rationale (it boils down to: seed is idempotent for
     # forms/users but appends demo submissions on every run, which would double them on each

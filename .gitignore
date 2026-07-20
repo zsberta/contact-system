@@ -8,6 +8,13 @@ node_modules/
 # Build output
 dist/
 dist-ssr/
+
+# Persistent storage (bind-mounted into the app container at
+# /app/uploads so blog cover/inline images survive `docker compose
+# up --build`. Keep the directory in the repo via .gitkeep so the
+# bind mount target exists on a fresh clone.)
+uploads/
+!uploads/.gitkeep
 build/
 *.local
 
@@ -75,3 +82,4 @@ docker-compose.yml
 .aider*
 .opencode
 .playwright-cli
+.landing-flags/
