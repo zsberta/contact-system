@@ -1,6 +1,6 @@
 // ----------------------------------------------------------------------------
 // FaqEditPage — edit form for an existing FAQ (GYIK) item.
-// Fetches the item by id, then submits via updateFaqItem.
+// Each item has bilingual fields (HU + EN).
 // ----------------------------------------------------------------------------
 
 import React from "react";
@@ -42,8 +42,10 @@ const FaqEditPage: React.FC = () => {
     enabled: Number.isFinite(itemId),
   });
 
-  const [question, setQuestion] = React.useState("");
-  const [answer, setAnswer] = React.useState("");
+  const [questionHu, setQuestionHu] = React.useState("");
+  const [answerHu, setAnswerHu] = React.useState("");
+  const [questionEn, setQuestionEn] = React.useState("");
+  const [answerEn, setAnswerEn] = React.useState("");
   const [sortOrder, setSortOrder] = React.useState<number>(0);
   const [status, setStatus] = React.useState<"draft" | "published">("draft");
   const [initialized, setInitialized] = React.useState(false);
@@ -51,8 +53,10 @@ const FaqEditPage: React.FC = () => {
   // Populate form when data arrives
   React.useEffect(() => {
     if (item && !initialized) {
-      setQuestion(item.question);
-      setAnswer(item.answer);
+      setQuestionHu(item.questionHu);
+      setAnswerHu(item.answerHu);
+      setQuestionEn(item.questionEn);
+      setAnswerEn(item.answerEn);
       setSortOrder(item.sortOrder);
       setStatus(item.status);
       setInitialized(true);
@@ -62,7 +66,7 @@ const FaqEditPage: React.FC = () => {
   const updateMutation = useMutation({
     mutationFn: (data: FaqItemUpdateDTO) => updateFaqItem(itemId, data),
     onSuccess: (data: FaqItemDTO) => {
-      showSuccess(t("faq:saved_toast", { question: data.question }));
+      showSuccess(t("faq:saved_toast", { title: data.questionHu }));
       queryClient.invalidateQueries({ queryKey: ["faq"] });
       queryClient.invalidateQueries({ queryKey: ["faq", "detail", itemId] });
       navigate(`/faq/view/${data.id}`);
@@ -74,17 +78,19 @@ const FaqEditPage: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!question.trim()) {
+    if (!questionHu.trim()) {
       showError(t("faq:validation_question_required"));
       return;
     }
-    if (!answer.trim()) {
+    if (!answerHu.trim()) {
       showError(t("faq:validation_answer_required"));
       return;
     }
     updateMutation.mutate({
-      question: question.trim(),
-      answer: answer.trim(),
+      questionHu: questionHu.trim(),
+      answerHu: answerHu.trim(),
+      questionEn: questionEn.trim(),
+      answerEn: answerEn.trim(),
       sortOrder,
       status,
     });
@@ -118,14 +124,14 @@ const FaqEditPage: React.FC = () => {
           {t("common:back")}
         </Button>
         <h1 className="text-2xl font-bold tracking-tight">
-          {t("faq:edit_title", "GYIK tétel szerkesztése")}
+          {t("faq:edit_title")}
         </h1>
       </div>
 
       <form onSubmit={handleSubmit}>
         <Card>
           <CardHeader>
-            <CardTitle>{t("faq:edit_title", "GYIK tétel szerkesztése")}</CardTitle>
+            <CardTitle>{t("faq:edit_title")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Project — read-only in edit mode */}
@@ -134,31 +140,61 @@ const FaqEditPage: React.FC = () => {
               <Input value={item.projectName || ""} disabled />
             </div>
 
-            {/* Question */}
-            <div className="space-y-2">
-              <Label htmlFor="question">{t("faq:question")}</Label>
-              <Textarea
-                id="question"
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                placeholder={t("faq:question_placeholder", "Kérdezze meg...")}
-                rows={3}
-              />
+            {/* Hungarian fields */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                🇭🇺 {t("faq:hungarian")}
+              </h3>
+              <div className="space-y-2">
+                <Label htmlFor="questionHu">{t("faq:question_hu")}</Label>
+                <Textarea
+                  id="questionHu"
+                  value={questionHu}
+                  onChange={(e) => setQuestionHu(e.target.value)}
+                  placeholder={t("faq:question_placeholder")}
+                  rows={3}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="answerHu">{t("faq:answer_hu")}</Label>
+                <Textarea
+                  id="answerHu"
+                  value={answerHu}
+                  onChange={(e) => setAnswerHu(e.target.value)}
+                  placeholder={t("faq:answer_placeholder")}
+                  rows={8}
+                />
+              </div>
             </div>
 
-            {/* Answer */}
-            <div className="space-y-2">
-              <Label htmlFor="answer">{t("faq:answer")}</Label>
-              <Textarea
-                id="answer"
-                value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
-                placeholder={t("faq:answer_placeholder", "Válasz...")}
-                rows={8}
-              />
+            {/* English fields */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                🇬🇧 {t("faq:english")}
+              </h3>
+              <div className="space-y-2">
+                <Label htmlFor="questionEn">{t("faq:question_en")}</Label>
+                <Textarea
+                  id="questionEn"
+                  value={questionEn}
+                  onChange={(e) => setQuestionEn(e.target.value)}
+                  placeholder={t("faq:question_placeholder")}
+                  rows={3}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="answerEn">{t("faq:answer_en")}</Label>
+                <Textarea
+                  id="answerEn"
+                  value={answerEn}
+                  onChange={(e) => setAnswerEn(e.target.value)}
+                  placeholder={t("faq:answer_placeholder")}
+                  rows={8}
+                />
+              </div>
             </div>
 
-            {/* Sort order & status row */}
+            {/* Sort order & status */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="sortOrder">{t("faq:order")}</Label>

@@ -1,6 +1,6 @@
 // ----------------------------------------------------------------------------
 // FaqCreatePage — create form for a new FAQ (GYIK) item.
-// Supports ?projectId=N deep-link from ProjectViewPage.
+// Each item has bilingual fields (HU + EN). Supports ?projectId=N deep-link.
 // ----------------------------------------------------------------------------
 
 import React from "react";
@@ -43,16 +43,17 @@ const FaqCreatePage: React.FC = () => {
       : null;
 
   const [selectedProjectId, setSelectedProjectId] = React.useState<number | null>(initialProjectId);
-  const [question, setQuestion] = React.useState("");
-  const [answer, setAnswer] = React.useState("");
+  const [questionHu, setQuestionHu] = React.useState("");
+  const [answerHu, setAnswerHu] = React.useState("");
+  const [questionEn, setQuestionEn] = React.useState("");
+  const [answerEn, setAnswerEn] = React.useState("");
   const [sortOrder, setSortOrder] = React.useState<number>(0);
-  const [locale, setLocale] = React.useState("hu");
   const [status, setStatus] = React.useState<"draft" | "published">("draft");
 
   const createMutation = useMutation({
     mutationFn: (data: FaqItemCreateDTO) => createFaqItem(data),
     onSuccess: (data: FaqItemDTO) => {
-      showSuccess(t("faq:created_toast", { question: data.question }));
+      showSuccess(t("faq:created_toast", { title: data.questionHu }));
       queryClient.invalidateQueries({ queryKey: ["faq"] });
       navigate("/faq");
     },
@@ -67,20 +68,21 @@ const FaqCreatePage: React.FC = () => {
       showError(t("faq:validation_project_required"));
       return;
     }
-    if (!question.trim()) {
+    if (!questionHu.trim()) {
       showError(t("faq:validation_question_required"));
       return;
     }
-    if (!answer.trim()) {
+    if (!answerHu.trim()) {
       showError(t("faq:validation_answer_required"));
       return;
     }
     createMutation.mutate({
       projectId: selectedProjectId,
-      question: question.trim(),
-      answer: answer.trim(),
+      questionHu: questionHu.trim(),
+      answerHu: answerHu.trim(),
+      questionEn: questionEn.trim(),
+      answerEn: answerEn.trim(),
       sortOrder,
-      locale,
       status,
     });
   };
@@ -93,14 +95,14 @@ const FaqCreatePage: React.FC = () => {
           {t("common:back")}
         </Button>
         <h1 className="text-2xl font-bold tracking-tight">
-          {t("faq:create_title", "Újj GYIK tétel")}
+          {t("faq:create_title")}
         </h1>
       </div>
 
       <form onSubmit={handleSubmit}>
         <Card>
           <CardHeader>
-            <CardTitle>{t("faq:create_title", "Újj GYIK tétel")}</CardTitle>
+            <CardTitle>{t("faq:create_title")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Project selector */}
@@ -112,32 +114,62 @@ const FaqCreatePage: React.FC = () => {
               />
             </div>
 
-            {/* Question */}
-            <div className="space-y-2">
-              <Label htmlFor="question">{t("faq:question")}</Label>
-              <Textarea
-                id="question"
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                placeholder={t("faq:question_placeholder", "Kérdezze meg...")}
-                rows={3}
-              />
+            {/* Hungarian fields */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                🇭🇺 {t("faq:hungarian")}
+              </h3>
+              <div className="space-y-2">
+                <Label htmlFor="questionHu">{t("faq:question_hu")}</Label>
+                <Textarea
+                  id="questionHu"
+                  value={questionHu}
+                  onChange={(e) => setQuestionHu(e.target.value)}
+                  placeholder={t("faq:question_placeholder")}
+                  rows={3}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="answerHu">{t("faq:answer_hu")}</Label>
+                <Textarea
+                  id="answerHu"
+                  value={answerHu}
+                  onChange={(e) => setAnswerHu(e.target.value)}
+                  placeholder={t("faq:answer_placeholder")}
+                  rows={8}
+                />
+              </div>
             </div>
 
-            {/* Answer */}
-            <div className="space-y-2">
-              <Label htmlFor="answer">{t("faq:answer")}</Label>
-              <Textarea
-                id="answer"
-                value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
-                placeholder={t("faq:answer_placeholder", "Válasz...")}
-                rows={8}
-              />
+            {/* English fields */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                🇬🇧 {t("faq:english")}
+              </h3>
+              <div className="space-y-2">
+                <Label htmlFor="questionEn">{t("faq:question_en")}</Label>
+                <Textarea
+                  id="questionEn"
+                  value={questionEn}
+                  onChange={(e) => setQuestionEn(e.target.value)}
+                  placeholder={t("faq:question_placeholder")}
+                  rows={3}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="answerEn">{t("faq:answer_en")}</Label>
+                <Textarea
+                  id="answerEn"
+                  value={answerEn}
+                  onChange={(e) => setAnswerEn(e.target.value)}
+                  placeholder={t("faq:answer_placeholder")}
+                  rows={8}
+                />
+              </div>
             </div>
 
-            {/* Sort order & locale row */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Sort order & status */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="sortOrder">{t("faq:order")}</Label>
                 <Input
@@ -147,18 +179,6 @@ const FaqCreatePage: React.FC = () => {
                   onChange={(e) => setSortOrder(Number(e.target.value))}
                   min={0}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label>{t("faq:locale")}</Label>
-                <Select value={locale} onValueChange={setLocale}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="hu">Magyar (hu)</SelectItem>
-                    <SelectItem value="en">English (en)</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
               <div className="space-y-2">
                 <Label>{t("faq:status")}</Label>

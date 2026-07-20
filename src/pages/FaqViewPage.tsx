@@ -1,10 +1,6 @@
 // ----------------------------------------------------------------------------
 // FaqViewPage — preview-mode view of a single FAQ (GYIK) item.
-//
-// Shows the item's question, answer (rendered as HTML), status badge,
-// locale, sortOrder, project name, and dates. Dedicated Publish/
-// Unpublish and Delete buttons in the header mirror the BlogViewPage
-// and FormViewPage patterns.
+// Shows both HU and EN question/answer pairs side by side.
 // ----------------------------------------------------------------------------
 
 import React from "react";
@@ -19,7 +15,6 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -66,7 +61,7 @@ const FaqViewPage: React.FC = () => {
     mutationFn: () => deleteFaqItem(itemId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["faq"] });
-      showSuccess(t("faq:deleted_toast", { question: item?.question ?? "" }));
+      showSuccess(t("faq:deleted_toast", { title: item?.questionHu ?? "" }));
       setDeleteOpen(false);
       navigate("/faq");
     },
@@ -106,12 +101,9 @@ const FaqViewPage: React.FC = () => {
                 <Badge variant={statusBadgeVariant(item.status)}>
                   {t(`faq:status_${item.status}`)}
                 </Badge>
-                <Badge variant="outline" className="font-mono text-xs">
-                  {item.locale}
-                </Badge>
               </div>
               <CardTitle className="text-2xl break-words">
-                {item.question}
+                {item.questionHu}
               </CardTitle>
             </div>
           </div>
@@ -166,16 +158,47 @@ const FaqViewPage: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Answer — rendered as HTML */}
+      {/* Hungarian Q&A */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{t("faq:answer")}</CardTitle>
+          <CardTitle className="text-base">🇭🇺 {t("faq:hungarian")}</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div
-            className="prose prose-sm max-w-none dark:prose-invert"
-            dangerouslySetInnerHTML={{ __html: item.answer }}
-          />
+        <CardContent className="space-y-4">
+          <div>
+            <span className="text-sm font-medium text-muted-foreground">{t("faq:question_hu")}</span>
+            <p className="mt-1">{item.questionHu}</p>
+          </div>
+          <div>
+            <span className="text-sm font-medium text-muted-foreground">{t("faq:answer_hu")}</span>
+            <div
+              className="prose prose-sm max-w-none dark:prose-invert mt-1"
+              dangerouslySetInnerHTML={{ __html: item.answerHu }}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* English Q&A */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">🇬🇧 {t("faq:english")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <span className="text-sm font-medium text-muted-foreground">{t("faq:question_en")}</span>
+            <p className="mt-1">{item.questionEn || <em className="text-muted-foreground">—</em>}</p>
+          </div>
+          <div>
+            <span className="text-sm font-medium text-muted-foreground">{t("faq:answer_en")}</span>
+            {item.answerEn ? (
+              <div
+                className="prose prose-sm max-w-none dark:prose-invert mt-1"
+                dangerouslySetInnerHTML={{ __html: item.answerEn }}
+              />
+            ) : (
+              <p className="mt-1 text-muted-foreground"><em>—</em></p>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -185,7 +208,7 @@ const FaqViewPage: React.FC = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>{t("faq:delete_confirm_title")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("faq:delete_confirm_body", { question: item.question })}
+              {t("faq:delete_confirm_body", { title: item.questionHu })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

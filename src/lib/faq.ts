@@ -12,7 +12,6 @@ export type PageFaqItemDTO = Page<FaqItemDTO>;
 export interface GetAllFaqItemsParams extends QueryParams {
   projectId?: number;
   status?: "draft" | "published";
-  locale?: string;
 }
 
 export const getAllFaqItemsPaged = (

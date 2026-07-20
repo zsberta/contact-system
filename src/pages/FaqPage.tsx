@@ -1,6 +1,6 @@
 // ----------------------------------------------------------------------------
 // FAQPage — paged list of FAQ (GYIK) items. Same DataTable pattern as
-// BlogPage. Columns: question, project, locale, status, sortOrder, updatedAt.
+// BlogPage. Columns: question (HU), project, status, sortOrder, updatedAt.
 // Supports ?projectId=N deep-link filtering.
 // ----------------------------------------------------------------------------
 
@@ -51,11 +51,7 @@ const FaqPage: React.FC = () => {
       ? statusParam
       : undefined;
 
-  const localeParam = searchParams.get("locale");
-  const localeFilter =
-    localeParam && /^[a-z]{2}(-[A-Z]{2})?$/.test(localeParam)
-      ? localeParam
-      : "hu";
+
 
   const [queryParams, setQueryParams] = useState<QueryParams>({
     page: 0,
@@ -75,11 +71,10 @@ const FaqPage: React.FC = () => {
     filterType: queryParams.filterType,
     ...(projectIdFilter !== undefined ? { projectId: projectIdFilter } : {}),
     ...(statusFilter !== undefined ? { status: statusFilter } : {}),
-    ...(localeFilter !== undefined ? { locale: localeFilter } : {}),
   };
 
   const { data, isLoading } = useQuery<PageFaqItemDTO>({
-    queryKey: ["faq", queryParams, projectIdFilter, statusFilter, localeFilter],
+    queryKey: ["faq", queryParams, projectIdFilter, statusFilter],
     queryFn: () => getAllFaqItemsPaged(fetchParams),
   });
 
@@ -127,10 +122,10 @@ const FaqPage: React.FC = () => {
 
   const columns = [
     {
-      accessorKey: "question",
-      header: t("faq:question"),
+      accessorKey: "questionHu",
+      header: t("faq:question_hu"),
       cell: (row: FaqItemDTO) => (
-        <span className="font-medium">{row.question}</span>
+        <span className="font-medium truncate max-w-[300px]">{row.questionHu}</span>
       ),
       enableSorting: true,
     },
@@ -139,15 +134,7 @@ const FaqPage: React.FC = () => {
       header: t("faq:project"),
       cell: (row: FaqItemDTO) => row.projectName || "\u2014",
     },
-    {
-      accessorKey: "locale",
-      header: t("faq:locale"),
-      cell: (row: FaqItemDTO) => (
-        <Badge variant="outline" className="font-mono text-xs">
-          {row.locale}
-        </Badge>
-      ),
-    },
+
     {
       accessorKey: "sortOrder",
       header: t("faq:order"),

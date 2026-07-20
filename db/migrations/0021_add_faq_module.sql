@@ -3,6 +3,10 @@
 -- 0021: FAQ (GYIK) module — structured Q&A content for landing pages.
 --
 -- FAQ items belong to a project (multi-tenant, same as blog_posts).
+-- Each item contains both HU and EN translations in a single row,
+-- so the operator creates one item per Q&A pair and the frontend
+-- picks the right language client-side.
+--
 -- The public API returns all published items in a single call, sorted
 -- by sort_order. This is intentionally simple — FAQ is low-volume
 -- content (<50 items per project) and doesn't need the incremental
@@ -23,10 +27,11 @@ END $$;
 CREATE TABLE IF NOT EXISTS faq_items (
   id            BIGSERIAL PRIMARY KEY,
   project_id    BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  question      TEXT NOT NULL,
-  answer        TEXT NOT NULL,
+  question_hu   TEXT NOT NULL,
+  answer_hu     TEXT NOT NULL,
+  question_en   TEXT NOT NULL DEFAULT '',
+  answer_en     TEXT NOT NULL DEFAULT '',
   sort_order    INT NOT NULL DEFAULT 0,
-  locale        VARCHAR(10) NOT NULL DEFAULT 'hu',
   status        VARCHAR(20) NOT NULL DEFAULT 'draft'
                 CHECK (status IN ('draft', 'published')),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -34,13 +39,13 @@ CREATE TABLE IF NOT EXISTS faq_items (
   created_by    INT REFERENCES users(id)
 );
 
--- Index for the admin list view (project + locale + sort_order).
-CREATE INDEX IF NOT EXISTS idx_faq_items_project_locale
-  ON faq_items (project_id, locale, sort_order);
+-- Index for the admin list view (project + sort_order).
+CREATE INDEX IF NOT EXISTS idx_faq_items_project_sort
+  ON faq_items (project_id, sort_order);
 
--- Index for the public read path (project + status + locale + sort_order).
+-- Index for the public read path (project + status + sort_order).
 CREATE INDEX IF NOT EXISTS idx_faq_items_public
-  ON faq_items (project_id, status, locale, sort_order)
+  ON faq_items (project_id, status, sort_order)
   WHERE status = 'published';
 
 -- ---------------------------------------------------------------------------

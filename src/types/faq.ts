@@ -6,10 +6,11 @@ export interface FaqItemDTO {
   id: number;
   projectId: number;
   projectName: string;
-  question: string;
-  answer: string;
+  questionHu: string;
+  answerHu: string;
+  questionEn: string;
+  answerEn: string;
   sortOrder: number;
-  locale: string;
   status: FaqItemStatus;
   createdAt: string;
   updatedAt: string;
@@ -18,16 +19,19 @@ export interface FaqItemDTO {
 
 export interface FaqItemCreateDTO {
   projectId: number;
-  question: string;
-  answer: string;
+  questionHu: string;
+  answerHu: string;
+  questionEn?: string;
+  answerEn?: string;
   sortOrder?: number;
-  locale?: string;
   status?: FaqItemStatus;
 }
 
 export interface FaqItemUpdateDTO {
-  question?: string;
-  answer?: string;
+  questionHu?: string;
+  answerHu?: string;
+  questionEn?: string;
+  answerEn?: string;
   sortOrder?: number;
   status?: FaqItemStatus;
 }
@@ -39,6 +43,7 @@ export interface PublicFaqItemDTO {
   sortOrder: number;
 }
 
+// Public response — flat array of items for the requested locale.
 export interface PublicFaqResponse {
   items: PublicFaqItemDTO[];
 }

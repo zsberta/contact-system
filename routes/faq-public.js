@@ -93,6 +93,8 @@ async function resolveProjectByHost(req) {
 // GET /api/public/faq/by-domain/:domain/items
 // ---------------------------------------------------------------------------
 // Returns all published FAQ items for the project resolved by Host header.
+// Each item includes both HU and EN translations so the frontend can pick
+// the right one client-side based on the active language.
 // Response: { items: [{ question, answer, sortOrder }, ...] }
 router.get("/by-domain/:domain/items", async (req, res) => {
   const project = await resolveProjectByHost(req);
@@ -112,20 +114,23 @@ router.get("/by-domain/:domain/items", async (req, res) => {
   if (cached) {
     res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=300");
     res.setHeader("Vary", "Origin, Accept-Encoding");
-    return res.json({ items: cached });
+    return res.json(cached);
   }
 
   try {
     const { rows } = await pool.query(
-      `SELECT question, answer, sort_order
+      `SELECT question_hu, answer_hu, question_en, answer_en, sort_order
        FROM faq_items
        WHERE project_id = $1 AND status = 'published'
        ORDER BY sort_order ASC, id ASC`,
       [project.id],
     );
+
     const items = rows.map((r) => ({
-      question: r.question,
-      answer: r.answer,
+      questionHu: r.question_hu,
+      answerHu: r.answer_hu,
+      questionEn: r.question_en,
+      answerEn: r.answer_en,
       sortOrder: Number(r.sort_order),
     }));
 

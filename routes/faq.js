@@ -6,6 +6,7 @@ import { invalidateFaqCache } from "./faq-public.js";
 
 // CRUD for the FAQ (GYIK) module.
 // Pattern mirrors routes/blog.js — same auth/RBAC/scope contract.
+// Each FAQ item has bilingual fields (question_hu/answer_hu + question_en/answer_en).
 
 export const router = express.Router();
 router.use(requireAuth);
@@ -21,9 +22,7 @@ const requireProjectAccess = async (req, res, projectId) => {
 };
 
 const STATUS_VALUES = new Set(["draft", "published"]);
-const LOCALE_RE = /^[a-z]{2}(-[A-Z]{2})?$/;
-const QUESTION_MAX = 500;
-const ANSWER_MAX = 50000;
+const TEXT_MAX = 50000;
 
 function emptyToNull(v) {
   if (v === null || v === undefined) return null;
@@ -38,10 +37,11 @@ const rowToFaqItemDTO = (row) => {
     id: Number(row.id),
     projectId: Number(row.project_id),
     projectName: row.project_name ?? null,
-    question: row.question,
-    answer: row.answer,
+    questionHu: row.question_hu,
+    answerHu: row.answer_hu,
+    questionEn: row.question_en,
+    answerEn: row.answer_en,
     sortOrder: Number(row.sort_order),
-    locale: row.locale,
     status: row.status,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
@@ -51,14 +51,14 @@ const rowToFaqItemDTO = (row) => {
 
 const SORTABLE = {
   id: "id",
-  question: "question",
+  questionHu: "question_hu",
+  questionEn: "question_en",
   sortOrder: "sort_order",
   status: "status",
-  locale: "locale",
   createdAt: "created_at",
   updatedAt: "updated_at",
 };
-const SEARCH_COLUMNS = ["f.question", "f.answer"];
+const SEARCH_COLUMNS = ["f.question_hu", "f.answer_hu", "f.question_en", "f.answer_en"];
 
 function makePlaceholderAllocator(startIndex = 1) {
   let n = startIndex;
@@ -107,14 +107,6 @@ function buildStatusFilterClause(status, allocator) {
   return { sql: `f.status = ${allocator.next()}`, params: [status] };
 }
 
-function buildLocaleFilterClause(locale, allocator) {
-  if (!locale) return { sql: "", params: [] };
-  if (typeof locale !== "string" || !LOCALE_RE.test(locale)) {
-    return { sql: "", params: [], invalid: true };
-  }
-  return { sql: `f.locale = ${allocator.next()}`, params: [locale] };
-}
-
 function validateFaqItemBody(body, { partial = false } = {}) {
   const out = {};
   const errors = [];
@@ -135,44 +127,62 @@ function validateFaqItemBody(body, { partial = false } = {}) {
     errors.push("projectId is required");
   }
 
-  if (body.locale !== undefined) {
-    if (typeof body.locale !== "string" || !LOCALE_RE.test(body.locale)) {
-      errors.push("locale must match /^[a-z]{2}(-[A-Z]{2})?$/");
+  // question_hu (required)
+  const qHu = body.questionHu ?? body.question_hu;
+  if (qHu !== undefined) {
+    if (typeof qHu !== "string") {
+      errors.push("questionHu must be a string");
     } else {
-      out.locale = body.locale;
-    }
-  } else if (!partial) {
-    out.locale = "hu";
-  }
-
-  if (body.question !== undefined) {
-    if (typeof body.question !== "string") {
-      errors.push("question must be a string");
-    } else {
-      const trimmed = body.question.trim();
-      if (trimmed.length < 1 || trimmed.length > QUESTION_MAX) {
-        errors.push(`question must be 1..${QUESTION_MAX} chars`);
+      const trimmed = qHu.trim();
+      if (trimmed.length < 1 || trimmed.length > TEXT_MAX) {
+        errors.push(`questionHu must be 1..${TEXT_MAX} chars`);
       } else {
-        out.question = trimmed;
+        out.question_hu = trimmed;
       }
     }
   } else if (!partial) {
-    errors.push("question is required");
+    errors.push("questionHu is required");
   }
 
-  if (body.answer !== undefined) {
-    if (typeof body.answer !== "string") {
-      errors.push("answer must be a string");
+  // answer_hu (required)
+  const aHu = body.answerHu ?? body.answer_hu;
+  if (aHu !== undefined) {
+    if (typeof aHu !== "string") {
+      errors.push("answerHu must be a string");
     } else {
-      const trimmed = body.answer.trim();
-      if (trimmed.length < 1 || trimmed.length > ANSWER_MAX) {
-        errors.push(`answer must be 1..${ANSWER_MAX} chars`);
+      const trimmed = aHu.trim();
+      if (trimmed.length < 1 || trimmed.length > TEXT_MAX) {
+        errors.push(`answerHu must be 1..${TEXT_MAX} chars`);
       } else {
-        out.answer = trimmed;
+        out.answer_hu = trimmed;
       }
     }
   } else if (!partial) {
-    errors.push("answer is required");
+    errors.push("answerHu is required");
+  }
+
+  // question_en (optional, defaults to empty)
+  const qEn = body.questionEn ?? body.question_en;
+  if (qEn !== undefined) {
+    if (typeof qEn !== "string") {
+      errors.push("questionEn must be a string");
+    } else {
+      out.question_en = qEn.trim();
+    }
+  } else if (!partial) {
+    out.question_en = "";
+  }
+
+  // answer_en (optional, defaults to empty)
+  const aEn = body.answerEn ?? body.answer_en;
+  if (aEn !== undefined) {
+    if (typeof aEn !== "string") {
+      errors.push("answerEn must be a string");
+    } else {
+      out.answer_en = aEn.trim();
+    }
+  } else if (!partial) {
+    out.answer_en = "";
   }
 
   if (body.sortOrder !== undefined || body.sort_order !== undefined) {
@@ -231,10 +241,6 @@ router.get("/", async (req, res) => {
     const statusFilter = buildStatusFilterClause(req.query.status, allocator);
     if (statusFilter.invalid) return res.status(400).json({ errorMessage: "Invalid status" });
     if (statusFilter.sql) { conditions.push(statusFilter.sql); params.push(...statusFilter.params); }
-
-    const localeFilter = buildLocaleFilterClause(req.query.locale, allocator);
-    if (localeFilter.invalid) return res.status(400).json({ errorMessage: "Invalid locale" });
-    if (localeFilter.sql) { conditions.push(localeFilter.sql); params.push(...localeFilter.params); }
 
     const searchResult = buildWhereClause(req.query.queries, req.query.filterType, allocator);
     if (searchResult.sql) { conditions.push(searchResult.sql); params.push(...searchResult.params); }
@@ -325,10 +331,10 @@ router.post("/", async (req, res) => {
     if (denied) return denied;
 
     const { rows } = await pool.query(
-      `INSERT INTO faq_items (project_id, question, answer, sort_order, locale, status, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO faq_items (project_id, question_hu, answer_hu, question_en, answer_en, sort_order, status, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [out.project_id, out.question, out.answer, out.sort_order, out.locale, out.status, req.user?.id || null],
+      [out.project_id, out.question_hu, out.answer_hu, out.question_en, out.answer_en, out.sort_order, out.status, req.user?.id || null],
     );
     invalidateFaqCache(out.project_id);
     return res.status(201).json(rowToFaqItemDTO(rows[0]));

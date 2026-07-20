@@ -48,7 +48,7 @@ const FaqPublishButton: React.FC<FaqPublishButtonProps> = ({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["faq"] });
       queryClient.invalidateQueries({ queryKey: ["faq", "detail", item.id] });
-      showSuccess(t("faq:published_toast", { question: item.question }));
+      showSuccess(t("faq:published_toast", { title: item.questionHu }));
       setConfirmOpen(false);
     },
     onError: (err: Error) => {
@@ -61,7 +61,7 @@ const FaqPublishButton: React.FC<FaqPublishButtonProps> = ({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["faq"] });
       queryClient.invalidateQueries({ queryKey: ["faq", "detail", item.id] });
-      showSuccess(t("faq:unpublished_toast", { question: item.question }));
+      showSuccess(t("faq:unpublished_toast", { title: item.questionHu }));
       setConfirmOpen(false);
     },
     onError: (err: Error) => {
@@ -101,8 +101,8 @@ const FaqPublishButton: React.FC<FaqPublishButtonProps> = ({
               </AlertDialogTitle>
               <AlertDialogDescription>
                 {isPublished
-                  ? t("faq:unpublish_confirm_body", { question: item.question })
-                  : t("faq:publish_confirm_body", { question: item.question })}
+                  ? t("faq:unpublish_confirm_body", { title: item.questionHu })
+                  : t("faq:publish_confirm_body", { title: item.questionHu })}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -158,8 +158,8 @@ const FaqPublishButton: React.FC<FaqPublishButtonProps> = ({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {isPublished
-                ? t("faq:unpublish_confirm_body", { question: item.question })
-                : t("faq:publish_confirm_body", { question: item.question })}
+                ? t("faq:unpublish_confirm_body", { title: item.questionHu })
+                : t("faq:publish_confirm_body", { title: item.questionHu })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
