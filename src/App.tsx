@@ -208,6 +208,8 @@ const App = () => (
                       <Route path="reservations" element={<PortalReservationsPage />} />
                       <Route path="calendar" element={<PortalCalendarPage />} />
                       <Route path="blog" element={<PortalBlogPage />} />
+                      <Route path="blog/create" element={<BlogCreatePage />} />
+                      <Route path="blog/edit/:id" element={<BlogEditPage />} />
                       <Route path="blog/view/:id" element={<PortalBlogViewPage />} />
                     </Route>
                   </Route>

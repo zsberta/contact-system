@@ -66,6 +66,7 @@ const BlogViewPage: React.FC = () => {
   const postId = id && /^\d+$/.test(id) ? Number(id) : NaN;
 
   const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const isPortal = typeof window !== "undefined" && window.location.pathname.startsWith("/portal");
 
   const { data: post, isLoading } = useQuery({
     queryKey: ["blog", "detail", postId],
@@ -79,7 +80,7 @@ const BlogViewPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ["blog"] });
       showSuccess(t("blog:deleted_toast", { title: post?.title ?? "" }));
       setDeleteOpen(false);
-      navigate("/blog");
+      navigate(isPortal ? "/portal/blog" : "/blog");
     },
     onError: (err: Error) => {
       showError(err.message || t("blog:delete_failed_toast"));
@@ -148,14 +149,14 @@ const BlogViewPage: React.FC = () => {
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             <Button
               variant="outline"
-              onClick={() => navigate("/blog")}
+              onClick={() => navigate(isPortal ? "/portal/blog" : "/blog")}
               className="w-full sm:w-auto"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               {t("common:back", "Back")}
             </Button>
             <Button
-              onClick={() => navigate(`/blog/edit/${post.id}`)}
+              onClick={() => navigate(isPortal ? `/portal/blog/edit/${post.id}` : `/blog/edit/${post.id}`)}
               className="w-full sm:w-auto"
             >
               <Pencil className="mr-2 h-4 w-4" />

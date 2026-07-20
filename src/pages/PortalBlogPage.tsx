@@ -6,8 +6,8 @@
 // (via getScopedProjectIds), so we don't need to pass projectId as
 // a URL filter — the API already handles it server-side.
 //
-// Endusers have read-only access (RBAC scope is enforced server-side;
-// the FE hides publish/edit/delete actions for endusers).
+// Endusers have full CRUD access for blog posts. RBAC scope is
+// enforced server-side; the FE shows create/edit/delete actions.
 
 import { useProjectContext } from "@/context/ProjectContext";
 import BlogPage from "./BlogPage";
@@ -39,7 +39,7 @@ export default function PortalBlogPage() {
 
   return (
     <div className="space-y-0">
-      <BlogPage basePath="/portal/blog" showCreateButton={false} showRowActions={false} />
+      <BlogPage basePath="/portal/blog" />
     </div>
   );
 }

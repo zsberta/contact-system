@@ -1,8 +1,6 @@
 // ----------------------------------------------------------------------------
-// PortalBlogViewPage — read-only detail view of a single blog post for
-// endusers. Same content as BlogViewPage but without the admin action
-// buttons (publish, edit, delete). The enduser can read the post and see
-// its metadata.
+// PortalBlogViewPage — detail view of a single blog post for endusers.
+// Provides full CRUD actions: edit, publish, and delete.
 // ----------------------------------------------------------------------------
 
 import React from "react";
@@ -13,9 +11,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, ExternalLink, ImageIcon, ArrowLeft } from "lucide-react";
+import { Loader2, ExternalLink, Pencil, ImageIcon, ArrowLeft } from "lucide-react";
 import { getBlogPostById } from "@/lib/blog";
 import { BlogPostDTO } from "@/types/blog";
+import BlogPublishButton from "@/components/blog/BlogPublishButton";
+import BlogActions from "@/components/blog/BlogActions";
 
 const statusBadgeVariant = (status: BlogPostDTO["status"]) => {
   switch (status) {
@@ -69,16 +69,6 @@ export default function PortalBlogViewPage() {
 
   return (
     <div className="container mx-auto p-4 max-w-5xl space-y-6">
-      {/* Back button */}
-      <Button
-        variant="outline"
-        onClick={() => navigate("/portal/blog")}
-        className="w-full sm:w-auto"
-      >
-        <ArrowLeft className="mr-2 h-4 w-4" />
-        {t("common:back", "Back")}
-      </Button>
-
       {/* Header */}
       <Card>
         <CardHeader>
@@ -104,6 +94,18 @@ export default function PortalBlogViewPage() {
                 </CardDescription>
               )}
             </div>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <Button variant="outline" onClick={() => navigate("/portal/blog")} className="w-full sm:w-auto">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              {t("common:back", "Back")}
+            </Button>
+            <Button onClick={() => navigate(`/portal/blog/edit/${post.id}`)} className="w-full sm:w-auto">
+              <Pencil className="mr-2 h-4 w-4" />
+              {t("common:edit")}
+            </Button>
+            <BlogPublishButton post={post} />
+            <BlogActions post={post} basePath="/portal/blog" />
           </div>
         </CardHeader>
         <CardContent>
