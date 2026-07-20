@@ -1,0 +1,586 @@
+/* ============================================================================
+ * blog-prose.css — Custom typography for blog post rendering.
+ *
+ * Used in three places:
+ *   1. BlogBodyEditor (the Tiptap editor surface)
+ *   2. BlogViewPage / PortalBlogViewPage (admin preview)
+ *   3. Public landing pages (imported by the landing build)
+ *
+ * Brand theming: set `--blog-brand` and `--blog-brand-light` CSS variables
+ * on a parent element to override the default primary color. Example:
+ *   <div style={{ "--blog-brand": "212 73% 18%", "--blog-brand-light": "212 40% 96%" }}>
+ *     <article class="blog-prose">...</article>
+ *   </div>
+ *
+ * The variables use HSL space values (no hsl() wrapper) to match the
+ * shadcn/ui convention used in globals.css.
+ * ============================================================================ */
+
+:root {
+  --blog-brand: 212 73% 18%;
+  --blog-brand-light: 210 40% 96.1%;
+}
+
+/* ============================================================================
+ * Base prose container
+ * ============================================================================ */
+
+.blog-prose {
+  font-size: 1.0625rem;
+  line-height: 1.8;
+  color: hsl(var(--foreground));
+  max-width: 72ch;
+}
+
+.blog-prose > * + * {
+  margin-top: 1.5em;
+}
+
+/* Remove top margin from the first child */
+.blog-prose > *:first-child {
+  margin-top: 0;
+}
+
+/* ============================================================================
+ * Headings — BIG, distinctive, brand-colored left accent
+ * ============================================================================ */
+
+.blog-prose h1,
+.blog-prose h2,
+.blog-prose h3,
+.blog-prose h4,
+.blog-prose h5,
+.blog-prose h6 {
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: hsl(var(--foreground));
+  margin-top: 2em;
+  margin-bottom: 0.5em;
+}
+
+.blog-prose h1 {
+  font-size: 2.5rem;
+  margin-top: 0;
+}
+
+.blog-prose h2 {
+  font-size: 2rem;
+  padding-bottom: 0.3em;
+  border-bottom: 3px solid hsl(var(--blog-brand));
+  position: relative;
+}
+
+.blog-prose h2::after {
+  content: "";
+  position: absolute;
+  bottom: -3px;
+  left: 0;
+  width: 60px;
+  height: 3px;
+  background: hsl(var(--blog-brand));
+  border-radius: 2px;
+}
+
+.blog-prose h3 {
+  font-size: 1.5rem;
+  position: relative;
+  padding-left: 1rem;
+}
+
+.blog-prose h3::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.15em;
+  bottom: 0.15em;
+  width: 4px;
+  background: hsl(var(--blog-brand));
+  border-radius: 2px;
+}
+
+.blog-prose h4 {
+  font-size: 1.25rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.blog-prose h5 {
+  font-size: 1.1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: hsl(var(--muted-foreground));
+}
+
+.blog-prose h6 {
+  font-size: 1rem;
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+
+/* ============================================================================
+ * Paragraphs
+ * ============================================================================ */
+
+.blog-prose p {
+  margin-bottom: 1.25em;
+}
+
+/* ============================================================================
+ * Links — brand-colored with animated underline
+ * ============================================================================ */
+
+.blog-prose a {
+  color: hsl(var(--blog-brand));
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: color 0.15s, text-decoration-color 0.15s;
+}
+
+.blog-prose a:hover {
+  color: hsl(var(--blog-brand) / 0.8);
+  text-decoration-thickness: 2px;
+}
+
+/* ============================================================================
+ * Strong / Emphasis
+ * ============================================================================ */
+
+.blog-prose strong {
+  font-weight: 700;
+  color: hsl(var(--foreground));
+}
+
+.blog-prose em {
+  font-style: italic;
+}
+
+/* ============================================================================
+ * Blockquote — eye-catching, large, with brand accent
+ * ============================================================================ */
+
+.blog-prose blockquote {
+  position: relative;
+  margin: 2em 0;
+  padding: 1.5em 1.5em 1.5em 2em;
+  background: hsl(var(--blog-brand-light));
+  border-left: 5px solid hsl(var(--blog-brand));
+  border-radius: 0 var(--radius, 0.5rem) var(--radius, 0.5rem) 0;
+  font-size: 1.15rem;
+  font-style: italic;
+  line-height: 1.7;
+  color: hsl(var(--foreground) / 0.9);
+}
+
+.blog-prose blockquote::before {
+  content: "\201C";
+  position: absolute;
+  top: -0.15em;
+  left: 0.3em;
+  font-size: 4rem;
+  line-height: 1;
+  font-family: Georgia, "Times New Roman", serif;
+  color: hsl(var(--blog-brand) / 0.25);
+  pointer-events: none;
+}
+
+.blog-prose blockquote p {
+  margin-bottom: 0;
+}
+
+.blog-prose blockquote p + p {
+  margin-top: 0.75em;
+}
+
+.blog-prose blockquote cite,
+.blog-prose blockquote footer {
+  display: block;
+  margin-top: 0.75em;
+  font-size: 0.875rem;
+  font-style: normal;
+  color: hsl(var(--muted-foreground));
+}
+
+.blog-prose blockquote cite::before,
+.blog-prose blockquote footer::before {
+  content: "— ";
+}
+
+/* Nested blockquote */
+.blog-prose blockquote blockquote {
+  margin: 1em 0;
+  background: hsl(var(--blog-brand-light) / 0.5);
+  border-left-color: hsl(var(--blog-brand) / 0.5);
+}
+
+/* ============================================================================
+ * Lists
+ * ============================================================================ */
+
+.blog-prose ul,
+.blog-prose ol {
+  padding-left: 1.75em;
+  margin-bottom: 1.25em;
+}
+
+.blog-prose ul {
+  list-style: disc;
+}
+
+.blog-prose ol {
+  list-style: decimal;
+}
+
+.blog-prose li {
+  margin-bottom: 0.4em;
+  padding-left: 0.25em;
+}
+
+.blog-prose li::marker {
+  color: hsl(var(--blog-brand));
+  font-weight: 600;
+}
+
+/* Nested lists */
+.blog-prose li > ul,
+.blog-prose li > ol {
+  margin-top: 0.4em;
+  margin-bottom: 0;
+}
+
+/* Task list (if we add checkbox support later) */
+.blog-prose ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+
+.blog-prose ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+}
+
+.blog-prose ul[data-type="taskList"] li input[type="checkbox"] {
+  margin-top: 0.35em;
+  accent-color: hsl(var(--blog-brand));
+}
+
+/* ============================================================================
+ * Code — inline and blocks
+ * ============================================================================ */
+
+/* Inline code */
+.blog-prose :not(pre) > code {
+  font-family: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", Menlo, monospace;
+  font-size: 0.875em;
+  padding: 0.15em 0.4em;
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border));
+  border-radius: 4px;
+  color: hsl(var(--blog-brand));
+  font-weight: 500;
+  word-break: break-word;
+}
+
+/* Code block — syntax-highlighted */
+.blog-prose pre {
+  position: relative;
+  margin: 2em 0;
+  border-radius: var(--radius, 0.5rem);
+  overflow: hidden;
+  background: hsl(222.2 84% 4.9%);
+  border: 1px solid hsl(var(--border));
+}
+
+.blog-prose pre code {
+  display: block;
+  font-family: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", Menlo, monospace;
+  font-size: 0.875rem;
+  line-height: 1.7;
+  padding: 1.25em 1.5em;
+  overflow-x: auto;
+  color: hsl(210 40% 98%);
+  background: transparent;
+  border: none;
+  font-weight: 400;
+  word-break: normal;
+}
+
+/* Language label on code blocks */
+.blog-prose pre[data-language]::before {
+  content: attr(data-language);
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 0.25em 0.75em;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: hsl(var(--blog-brand));
+  background: hsl(222.2 84% 4.9% / 0.8);
+  border-bottom-left-radius: var(--radius, 0.5rem);
+  border: 1px solid hsl(210 40% 98% / 0.1);
+  border-top: none;
+  border-right: none;
+  z-index: 1;
+  backdrop-filter: blur(4px);
+}
+
+/* ============================================================================
+ * Syntax highlighting (highlight.js / lowlight)
+ *
+ * Based on a custom dark palette that matches the CRM primary. We keep
+ * token colors muted enough to stay readable against the dark pre
+ * background but distinctive enough to be useful.
+ * ============================================================================ */
+
+/* Keywords, tags */
+.blog-prose .hljs-keyword,
+.blog-prose .hljs-selector-tag,
+.blog-prose .hljs-built_in,
+.blog-prose .hljs-type {
+  color: hsl(212 73% 65%);
+  font-weight: 600;
+}
+
+/* Strings */
+.blog-prose .hljs-string,
+.blog-prose .hljs-template-variable,
+.blog-prose .hljs-addition {
+  color: hsl(150 60% 55%);
+}
+
+/* Numbers */
+.blog-prose .hljs-number,
+.blog-prose .hljs-literal {
+  color: hsl(32 95% 60%);
+}
+
+/* Functions, classes */
+.blog-prose .hljs-title,
+.blog-prose .hljs-title.function_,
+.blog-prose .hljs-title.class_,
+.blog-prose .hljs-title.class_.inherited__,
+.blog-prose .hljs-params {
+  color: hsl(262 83% 70%);
+}
+
+/* Comments */
+.blog-prose .hljs-comment,
+.blog-prose .hljs-doctag,
+.blog-prose .hljs-quote {
+  color: hsl(215 20% 55%);
+  font-style: italic;
+}
+
+/* Variables, attr */
+.blog-prose .hljs-variable,
+.blog-prose .hljs-attr,
+.blog-prose .hljs-attribute {
+  color: hsl(47 95% 60%);
+}
+
+/* Operators, punctuation */
+.blog-prose .hljs-operator,
+.blog-prose .hljs-punctuation {
+  color: hsl(210 40% 70%);
+}
+
+/* RegExp */
+.blog-prose .hljs-regexp {
+  color: hsl(350 70% 60%);
+}
+
+/* Built-ins, constants */
+.blog-prose .hljs-built_in,
+.blog-prose .hljs-literal,
+.blog-prose .hljs-constant {
+  color: hsl(212 73% 65%);
+}
+
+/* Meta, section */
+.blog-prose .hljs-meta,
+.blog-prose .hljs-section {
+  color: hsl(var(--blog-brand));
+  font-weight: 600;
+}
+
+/* Deletion */
+.blog-prose .hljs-deletion {
+  color: hsl(0 70% 60%);
+}
+
+/* ============================================================================
+ * Horizontal rule — brand-styled divider
+ * ============================================================================ */
+
+.blog-prose hr {
+  border: none;
+  height: 3px;
+  margin: 3em auto;
+  max-width: 200px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    hsl(var(--blog-brand) / 0.4),
+    hsl(var(--blog-brand)),
+    hsl(var(--blog-brand) / 0.4),
+    transparent
+  );
+  border-radius: 2px;
+}
+
+/* ============================================================================
+ * Images
+ * ============================================================================ */
+
+.blog-prose img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius, 0.5rem);
+  margin: 1.5em 0;
+  box-shadow: 0 4px 16px hsl(var(--foreground) / 0.08);
+}
+
+.blog-prose figure {
+  margin: 2em 0;
+}
+
+.blog-prose figure img {
+  margin: 0;
+}
+
+.blog-prose figcaption {
+  text-align: center;
+  font-size: 0.875rem;
+  color: hsl(var(--muted-foreground));
+  margin-top: 0.75em;
+  font-style: italic;
+}
+
+/* ============================================================================
+ * Tables
+ * ============================================================================ */
+
+.blog-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 2em 0;
+  font-size: 0.9375rem;
+  overflow: hidden;
+  border-radius: var(--radius, 0.5rem);
+  border: 1px solid hsl(var(--border));
+}
+
+.blog-prose thead {
+  background: hsl(var(--blog-brand));
+  color: hsl(var(--blog-brand-light));
+}
+
+.blog-prose th {
+  padding: 0.75em 1em;
+  text-align: left;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.blog-prose td {
+  padding: 0.75em 1em;
+  border-top: 1px solid hsl(var(--border));
+}
+
+.blog-prose tbody tr:nth-child(even) {
+  background: hsl(var(--muted) / 0.5);
+}
+
+.blog-prose tbody tr:hover {
+  background: hsl(var(--blog-brand-light));
+}
+
+/* ============================================================================
+ * Text alignment utilities (used by Tiptap TextAlign extension)
+ * ============================================================================ */
+
+.blog-prose .text-left {
+  text-align: left;
+}
+
+.blog-prose .text-center {
+  text-align: center;
+}
+
+.blog-prose .text-right {
+  text-align: right;
+}
+
+/* ============================================================================
+ * Highlight / mark
+ * ============================================================================ */
+
+.blog-prose mark {
+  background: hsl(50 100% 60% / 0.3);
+  padding: 0.1em 0.25em;
+  border-radius: 2px;
+}
+
+/* ============================================================================
+ * Editor-specific styles (applied inside the Tiptap editor surface)
+ * ============================================================================ */
+
+/* Placeholder */
+.blog-prose p.is-editor-empty:first-child::before {
+  color: hsl(var(--muted-foreground));
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Focus ring for selected nodes */
+.blog-prose .is-empty::before {
+  color: hsl(var(--muted-foreground));
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Selected node highlight */
+.blog-prose .ProseMirror-selectednode {
+  outline: 2px solid hsl(var(--blog-brand) / 0.4);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Code block in editor — matching the rendered style */
+.blog-prose pre {
+  tab-size: 2;
+}
+
+/* Resizable images */
+.blog-prose img.ProseMirror-selectednode {
+  outline: 2px solid hsl(var(--blog-brand));
+  outline-offset: 2px;
+}
+
+/* ============================================================================
+ * Dark mode overrides
+ * ============================================================================ */
+
+.dark .blog-prose pre {
+  background: hsl(222.2 84% 4.9%);
+  border-color: hsl(217.2 32.6% 17.5%);
+}
+
+.dark .blog-prose blockquote {
+  background: hsl(217.2 32.6% 17.5%);
+}
+
+.dark .blog-prose :not(pre) > code {
+  background: hsl(217.2 32.6% 17.5%);
+  border-color: hsl(217.2 32.6% 17.5%);
+}

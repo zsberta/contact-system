@@ -19,6 +19,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import "@/components/blog/blog-prose.css";
 import {
   Card,
   CardContent,
@@ -260,7 +261,7 @@ const BlogViewPage: React.FC = () => {
         </CardHeader>
         <CardContent>
           <article
-            className="prose prose-sm max-w-none"
+            className="blog-prose"
             // The HTML comes from lib/sanitize.js on save, so it's safe
             // to render directly. Any future code path that bypasses the
             // sanitizer must re-sanitize before reaching this div.

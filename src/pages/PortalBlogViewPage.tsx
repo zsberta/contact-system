@@ -16,6 +16,7 @@ import { getBlogPostById } from "@/lib/blog";
 import { BlogPostDTO } from "@/types/blog";
 import BlogPublishButton from "@/components/blog/BlogPublishButton";
 import BlogActions from "@/components/blog/BlogActions";
+import "@/components/blog/blog-prose.css";
 
 const statusBadgeVariant = (status: BlogPostDTO["status"]) => {
   switch (status) {
@@ -189,7 +190,7 @@ export default function PortalBlogViewPage() {
         </CardHeader>
         <CardContent>
           <article
-            className="prose prose-sm max-w-none"
+            className="blog-prose"
             dangerouslySetInnerHTML={{ __html: post.bodyHtml }}
           />
         </CardContent>

@@ -27,6 +27,20 @@ export interface ProjectDTO {
   createdAt: string;
   updatedAt: string;
   lastStatusChangeAt: string;
+  // Landing integration — see migration 0017 and lib/landing-rebuild.js.
+  // A project may opt out of the blog/landing integration entirely by
+  // leaving landingEnabled=false and landingRepoDir=null.
+  landingRepoDir: string | null;
+  landingBuildCommand: string;
+  landingBuildEnv: Record<string, string | number | boolean>;
+  landingDistPath: string | null;
+  landingEnabled: boolean;
+  landingLastBuildAt: string | null;
+  landingLastBuildStatus: "success" | "failed" | null;
+  landingLastBuildLog: string | null;
+  // Brand color in HSL space (e.g. "212 73% 18%"). Used for blog
+  // post theming and landing page accent colors.
+  brandColor: string | null;
 }
 
 export interface ProjectAttachmentDTO {
@@ -53,6 +67,14 @@ export interface ProjectCreateUpdateDTO {
   customerName?: string | null;
   customerPhone?: string | null;
   customerEmail?: string | null;
+  // Landing integration (optional — projects without a landing site
+  // can leave these unset).
+  landingRepoDir?: string | null;
+  landingBuildCommand?: string;
+  landingBuildEnv?: Record<string, string | number | boolean>;
+  landingDistPath?: string | null;
+  landingEnabled?: boolean;
+  brandColor?: string | null;
 }
 
 export type PageProjectDTO = Page<ProjectDTO>;

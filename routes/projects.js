@@ -89,6 +89,22 @@ function rowToProjectDTO(row) {
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
     lastStatusChangeAt: new Date(row.last_status_change_at).toISOString(),
+    // Landing configuration — see migration 0017 and lib/landing-rebuild.js.
+    // landing_build_env is a JSONB object so we can pass per-project env
+    // vars to the host-cron rebuild wrapper (e.g. LANDING_DOMAIN).
+    landingRepoDir: row.landing_repo_dir ?? null,
+    landingBuildCommand: row.landing_build_command ?? "npm run build:content-only",
+    landingBuildEnv: row.landing_build_env && typeof row.landing_build_env === "object"
+      ? row.landing_build_env
+      : {},
+    landingDistPath: row.landing_dist_path ?? null,
+    landingEnabled: row.landing_enabled === true,
+    landingLastBuildAt: row.landing_last_build_at
+      ? new Date(row.landing_last_build_at).toISOString()
+      : null,
+    landingLastBuildStatus: row.landing_last_build_status ?? null,
+    landingLastBuildLog: row.landing_last_build_log ?? null,
+    brandColor: row.brand_color ?? null,
   };
 }
 
@@ -353,6 +369,109 @@ function validateProjectBody(body, { partial = false } = {}) {
     }
   }
 
+  // ---- Landing configuration (migration 0017) ----
+  // The CRUD surface intentionally writes landing_repo_dir / landing_dist_path
+  // / landing_build_command / landing_build_env / landing_enabled as plain
+  // strings + JSONB. They are consumed by lib/landing-rebuild.js (CRM-side
+  // trigger) and the host-cron rebuild wrapper (host-side consumer).
+  //
+  // We don't try to validate that the repo path exists server-side — the
+  // operator might be entering the path before they finish the host setup,
+  // and the rebuild script will fail loudly with a clear error if the
+  // path is wrong.
+
+  if (body.landingRepoDir !== undefined || body.landing_repo_dir !== undefined) {
+    const v = emptyToNull(body.landingRepoDir ?? body.landing_repo_dir);
+    if (v !== null && (typeof v !== "string" || v.length > 1000)) {
+      errors.push("landingRepoDir must be a string up to 1000 chars or null");
+    } else {
+      out.landing_repo_dir = v;
+    }
+  }
+
+  if (body.landingBuildCommand !== undefined || body.landing_build_command !== undefined) {
+    const v = emptyToNull(body.landingBuildCommand ?? body.landing_build_command);
+    if (v !== null && (typeof v !== "string" || v.length > 1000)) {
+      errors.push("landingBuildCommand must be a string up to 1000 chars or null");
+    } else {
+      out.landing_build_command = v ?? "npm run build:content-only";
+    }
+  }
+
+  if (body.landingBuildEnv !== undefined || body.landing_build_env !== undefined) {
+    const raw = body.landingBuildEnv ?? body.landing_build_env;
+    if (raw === null) {
+      out.landing_build_env = {};
+    } else if (typeof raw !== "object" || Array.isArray(raw)) {
+      errors.push("landingBuildEnv must be a JSON object or null");
+    } else {
+      // Stringify-only-the-values check: keys are uppercase strings, values
+      // are primitive strings/numbers/booleans. Nested objects would be
+      // surprising for the host shell wrapper.
+      const cleaned = {};
+      let entryCount = 0;
+      for (const [k, val] of Object.entries(raw)) {
+        if (typeof k !== "string" || k.length > 100) {
+          errors.push(`landingBuildEnv key invalid: ${k}`);
+          continue;
+        }
+        if (val === null || val === undefined) continue;
+        if (
+          typeof val !== "string" &&
+          typeof val !== "number" &&
+          typeof val !== "boolean"
+        ) {
+          errors.push(`landingBuildEnv.${k}: only string/number/boolean allowed`);
+          continue;
+        }
+        if (typeof val === "string" && val.length > 1000) {
+          errors.push(`landingBuildEnv.${k}: value too long (max 1000 chars)`);
+          continue;
+        }
+        cleaned[k] = val;
+        entryCount++;
+      }
+      if (entryCount > 50) {
+        errors.push("landingBuildEnv: maximum 50 entries");
+      } else {
+        out.landing_build_env = cleaned;
+      }
+    }
+  }
+
+  if (body.landingDistPath !== undefined || body.landing_dist_path !== undefined) {
+    const v = emptyToNull(body.landingDistPath ?? body.landing_dist_path);
+    if (v !== null && (typeof v !== "string" || v.length > 1000)) {
+      errors.push("landingDistPath must be a string up to 1000 chars or null");
+    } else {
+      out.landing_dist_path = v;
+    }
+  }
+
+  if (body.landingEnabled !== undefined || body.landing_enabled !== undefined) {
+    const v = body.landingEnabled ?? body.landing_enabled;
+    if (typeof v !== "boolean") {
+      errors.push("landingEnabled must be a boolean");
+    } else {
+      out.landing_enabled = v;
+    }
+  }
+
+  // Note: landing_last_build_* fields are NOT editable via this endpoint.
+  // They are written by the host-cron rebuild wrapper via the dedicated
+  // /api/internal/landing-build-status endpoint (separate from CRUD).
+
+  // ---- Brand color (migration 0020) ----
+  // Stored as HSL space values (e.g. "212 73% 18%") for CSS consumption.
+  if (body.brandColor !== undefined || body.brand_color !== undefined) {
+    const v = emptyToNull(body.brandColor ?? body.brand_color);
+    if (v !== null && (typeof v !== "string" || v.length > 50)) {
+      errors.push("brandColor must be a string up to 50 chars or null");
+    } else {
+      out.brand_color = v;
+    }
+  }
+
   if (errors.length > 0) {
     return { ok: false, error: errors.join("; ") };
   }
@@ -429,7 +548,8 @@ router.get("/", requireAuth, async (req, res) => {
     const offsetParam = baseParamCount + 2;
     const dataSqlFinal = `SELECT id, name, domain_address, price, fordulonap,
                                  billing_period, status, comment, customer_name,
-                                 customer_phone, customer_email, created_at,
+                                 customer_phone, customer_email, brand_color,
+                                 created_at,
                                  updated_at, last_status_change_at
                           FROM projects
                           ${composedWhere}
@@ -493,6 +613,10 @@ router.get("/:id", requireAuth, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT id, name, domain_address, price, fordulonap, billing_period,
               status, comment, customer_name, customer_phone, customer_email,
+              landing_repo_dir, landing_build_command, landing_build_env,
+              landing_dist_path, landing_enabled, landing_last_build_at,
+              landing_last_build_status, landing_last_build_log,
+              brand_color,
               created_at, updated_at, last_status_change_at
        FROM projects WHERE id = $1`,
       [projectId],
@@ -523,10 +647,17 @@ router.post("/", requireAuth, async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO projects
         (name, domain_address, price, fordulonap, billing_period,
-         status, comment, customer_name, customer_phone, customer_email)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         status, comment, customer_name, customer_phone, customer_email,
+         landing_repo_dir, landing_build_command, landing_build_env,
+         landing_dist_path, landing_enabled, brand_color)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+               $11, $12, $13, $14, $15, $16)
        RETURNING id, name, domain_address, price, fordulonap, billing_period,
                  status, comment, customer_name, customer_phone, customer_email,
+                 landing_repo_dir, landing_build_command, landing_build_env,
+                 landing_dist_path, landing_enabled, landing_last_build_at,
+                 landing_last_build_status, landing_last_build_log,
+                 brand_color,
                  created_at, updated_at, last_status_change_at`,
       [
         v.name,
@@ -539,6 +670,12 @@ router.post("/", requireAuth, async (req, res) => {
         v.customer_name ?? null,
         v.customer_phone ?? null,
         v.customer_email ?? null,
+        v.landing_repo_dir ?? null,
+        v.landing_build_command ?? "npm run build:content-only",
+        v.landing_build_env ? JSON.stringify(v.landing_build_env) : "{}",
+        v.landing_dist_path ?? null,
+        v.landing_enabled === true,
+        v.brand_color ?? null,
       ],
     );
     return res.status(201).json(rowToProjectDTO(rows[0]));
@@ -593,8 +730,13 @@ router.put("/:id", requireAuth, async (req, res) => {
                  WHERE id = $1
                  RETURNING id, name, domain_address, price, fordulonap,
                            billing_period, status, comment, customer_name,
-                           customer_phone, customer_email, created_at,
-                           updated_at, last_status_change_at`;
+                           customer_phone, customer_email,
+                           landing_repo_dir, landing_build_command,
+                           landing_build_env, landing_dist_path,
+                           landing_enabled, landing_last_build_at,
+                           landing_last_build_status, landing_last_build_log,
+                           brand_color,
+                           created_at, updated_at, last_status_change_at`;
     const { rows, rowCount } = await pool.query(sql, params);
     if (rowCount === 0) {
       return res.status(404).json({ errorMessage: "Project not found" });
