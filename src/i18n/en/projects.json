@@ -11,7 +11,8 @@
   "back_to_projects": "Back to projects",
 
   "name": "Name",
-  "name_placeholder": "Customer-facing project name",
+  "name_placeholder": "Customer-visible project name",
+  "domain": "Domain",
   "domain_address": "Domain address",
   "domain_address_placeholder": "https://example.com",
   "price": "Price",

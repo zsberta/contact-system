@@ -8,6 +8,7 @@ import {
   BarChart3,
   ClipboardList,
   CalendarDays,
+  Newspaper,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -17,6 +18,7 @@ import { useProjectContext } from "@/context/ProjectContext";
 import { getAllFormsPaged } from "@/lib/forms";
 import { getAllReservationsPaged } from "@/lib/reservations";
 import { getAllAnalyticsConfigsPaged } from "@/lib/analytics";
+import { getAllBlogPostsPaged } from "@/lib/blog";
 
 interface SidebarProps {
   onClose?: () => void;
@@ -64,6 +66,10 @@ const Sidebar = ({ onClose }: SidebarProps = {}) => {
       >
         <CalendarClock className="h-4 w-4" />
         <span>{t("navigation:reservations")}</span>
+      </NavLink>
+      <NavLink to="/blog" onClick={() => onClose?.()} className={linkClass}>
+        <Newspaper className="h-4 w-4" />
+        <span>{t("navigation:blog")}</span>
       </NavLink>
       <NavLink
         to="/analytics"
@@ -143,9 +149,24 @@ function EnduserSidebar({
     enabled: !!projectId,
   });
 
+  // Check if the selected project has any blog posts (across statuses).
+  // The presence of any post is enough to expose the menu item — the
+  // enduser can drill into a draft view to see what's there.
+  const { data: blogData } = useQuery({
+    queryKey: ["portal", "sidebar-has-blog", projectId],
+    queryFn: () =>
+      getAllBlogPostsPaged({
+        projectId: projectId!,
+        page: 0,
+        size: 1,
+      }),
+    enabled: !!projectId,
+  });
+
   const hasForms = (formsData?.totalElements ?? 0) > 0;
   const hasReservations = (reservationsData?.totalElements ?? 0) > 0;
   const hasAnalytics = (analyticsData?.totalElements ?? 0) > 0;
+  const hasBlog = (blogData?.totalElements ?? 0) > 0;
 
   return (
     <nav className="flex flex-col gap-1 p-2">
@@ -177,6 +198,16 @@ function EnduserSidebar({
         >
           <CalendarClock className="h-4 w-4" />
           <span>{t("navigation:reservations")}</span>
+        </NavLink>
+      )}
+      {hasBlog && (
+        <NavLink
+          to="/portal/blog"
+          onClick={() => onClose?.()}
+          className={linkClass}
+        >
+          <Newspaper className="h-4 w-4" />
+          <span>{t("navigation:blog")}</span>
         </NavLink>
       )}
       {hasReservations && (

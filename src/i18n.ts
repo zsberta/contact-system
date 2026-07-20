@@ -14,6 +14,7 @@ import enReservations from "./i18n/en/reservations.json";
 import enAnalytics from "./i18n/en/analytics.json";
 import enEnduser from "./i18n/en/enduser.json";
 import enSubmissions from "./i18n/en/submissions.json";
+import enBlog from "./i18n/en/blog.json";
 
 import huAuth from "./i18n/hu/auth.json";
 import huCommon from "./i18n/hu/common.json";
@@ -28,6 +29,7 @@ import huReservations from "./i18n/hu/reservations.json";
 import huAnalytics from "./i18n/hu/analytics.json";
 import huEnduser from "./i18n/hu/enduser.json";
 import huSubmissions from "./i18n/hu/submissions.json";
+import huBlog from "./i18n/hu/blog.json";
 
 const resources = {
   en: {
@@ -44,6 +46,7 @@ const resources = {
     analytics: enAnalytics,
     enduser: enEnduser,
     submissions: enSubmissions,
+    blog: enBlog,
   },
   hu: {
     auth: huAuth,
@@ -59,6 +62,7 @@ const resources = {
     analytics: huAnalytics,
     enduser: huEnduser,
     submissions: huSubmissions,
+    blog: huBlog,
   },
 };
 
@@ -81,6 +85,7 @@ i18n.use(initReactI18next).init({
     "analytics",
     "enduser",
     "submissions",
+    "blog",
   ],
   interpolation: { escapeValue: false },
 });

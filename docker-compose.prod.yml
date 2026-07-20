@@ -1,0 +1,125 @@
+# docker-compose.prod.yml — production deployment for the Hetzner VPS.
+#
+# Differences from docker-compose.local.yml:
+#   - NODE_ENV=production (enables the startup-guard assertions in
+#     lib/startup-guard.js and db/pool.js)
+#   - COOKIE_SECURE=true (requires HTTPS termination — typically
+#     the existing nginx-proxy on the host in front of this container)
+#   - DATABASE_SSL=true with a CA cert bind-mounted from the host
+#   - APP_PUBLIC_URL set to the canonical CRM origin so blog cover
+#     image URLs resolve to a reachable host from outside the
+#     Docker network
+#   - Named Docker volume for /app/uploads so images survive image
+#     rebuilds (a bind mount would expose node_modules etc. to the
+#     host filesystem unnecessarily)
+#   - UPLOADS_DIR points inside the named volume
+#   - No host port mapping: the existing reverse-proxy (nginx-proxy)
+#     on the host reaches the app via the user-defined Docker
+#     network, not via a published host port
+#
+# Bring up:    docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+# Tail logs:   docker compose -f docker-compose.prod.yml logs -f app
+# Migrate:     docker compose -f docker-compose.prod.yml exec app npm run db:migrate
+# Tear down:   docker compose -f docker-compose.prod.yml down
+#
+# All sensitive values (POSTGRES_PASSWORD, JWT_SECRET, ADMIN_PASSWORD,
+# DATABASE_URL, etc.) come from .env — never check them into git.
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: contact-system-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: contact_system
+      POSTGRES_USER: contact
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    # Postgres listens on the internal Docker network only — the
+    # reverse-proxy on the host talks to it via the user-defined
+    # network name (see networks section below).
+    expose:
+      - "5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U contact -d contact_system"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: contact-system-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    # No `ports:` section — the app is reachable from the host's
+    # reverse-proxy via the user-defined Docker network. Publishing
+    # 3000 to the host would bypass the nginx-proxy termination and
+    # would conflict with the assumption that all traffic is HTTPS.
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      # The lib/db/pool.js and lib/startup-guard.js startup checks
+      # refuse to boot in production without DATABASE_SSL=true.
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
+      DATABASE_SSL: "true"
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (>=32 chars)}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-3600}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-604800}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?set ADMIN_EMAIL in .env}
+      # Must be >=16 chars in production (startup-guard enforces).
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env (>=16 chars)}
+      # Set COOKIE_SECURE=true because the reverse-proxy terminates
+      # TLS in front of the container. Mismatched values will be
+      # rejected at startup.
+      COOKIE_SECURE: "true"
+      COOKIE_SAMESITE: Lax
+      BCRYPT_COST: ${BCRYPT_COST:-12}
+      # Canonical CRM origin — used by routes/blog-attachments.js
+      # to build absolute URLs for newly uploaded images, and by
+      # lib/email.js for password-reset links. Strip the trailing
+      # slash if you set it; the code handles both forms.
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:?set APP_PUBLIC_URL in .env (e.g. https://crm.zsoltberta.hu)}
+      # Where blog cover / inline images live on disk inside the
+      # container. The path is bind-mounted from the named `uploads`
+      # volume below, so the directory persists across image
+      # rebuilds (replacing the dev `./uploads` bind mount that
+      # leaked onto the repo working tree).
+      UPLOADS_DIR: /app/uploads
+      # Optional: SMTP for transactional email (booking notifications,
+      # password resets). Leave unset to use the dev JSON transport,
+      # which dumps messages to stdout — fine for a single-node VPS
+      # without a real mail relay.
+      # SMTP_HOST: smtp.example.com
+      # SMTP_PORT: "587"
+      # SMTP_SECURE: "false"
+      # SMTP_USER: ...
+      # SMTP_PASSWORD: ...
+      # SMTP_FROM: no-reply@zsoltberta.hu
+    env_file:
+      - .env
+    volumes:
+      # Named volume for blog images — survives `up --build` and
+      # keeps the host filesystem clean (no ./uploads in the repo).
+      - uploads:/app/uploads
+      # Postgres CA cert — only mounted when DATABASE_SSL=true. The
+      # cert is generated by `infra/pg-init/gen-ca.sh` and lives
+      # under /etc/contact-system/pg on the host.
+      - /etc/contact-system/pg/ca.crt:/etc/contact-system/pg/ca.crt:ro
+    command: ["sh", "-c", "npm run db:migrate && node server.js"]
+
+volumes:
+  pgdata:
+  uploads:
+
+networks:
+  default:
+    # The reverse-proxy container on the host attaches to this
+    # network so it can reach contact-system-app directly. If your
+    # proxy uses a different network name (e.g. caddy_net), list
+    # it under `external: true` and add the same name here.
+    name: contact-system_default

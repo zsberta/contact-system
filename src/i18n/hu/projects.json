@@ -12,6 +12,7 @@
 
   "name": "Név",
   "name_placeholder": "Ügyfél felé látható projektnév",
+  "domain": "Domain",
   "domain_address": "Domain cím",
   "domain_address_placeholder": "https://példa.hu",
   "price": "Ár",

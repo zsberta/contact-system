@@ -16,9 +16,15 @@ const PUBLIC_AUTH_PATHS = new Set([
 // they're already gated by the snippetId capability + per-IP rate limiting.
 // Prefix-match so all child paths (e.g. /api/public/widgets/:snippetId/submissions)
 // bypass the check without each path needing to be listed individually.
+//
+// /api/internal/* is also CSRF-exempt: it's gated by a shared secret in
+// the X-Internal-Secret header, used by the host-cron rebuild wrapper
+// (no cookies, no browser session, no CSRF token to issue).
 function isPublicCsrfExempt(fullPath) {
   if (PUBLIC_AUTH_PATHS.has(fullPath)) return true;
-  return fullPath.startsWith("/api/public/");
+  if (fullPath.startsWith("/api/public/")) return true;
+  if (fullPath.startsWith("/api/internal/")) return true;
+  return false;
 }
 
 export function csrfProtection(req, res, next) {
