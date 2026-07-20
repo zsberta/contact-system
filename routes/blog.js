@@ -875,7 +875,8 @@ router.post("/:id/publish", async (req, res) => {
     const { rows } = await pool.query(
       `UPDATE blog_posts b
        SET status = 'published',
-           published_at = COALESCE(b.published_at, now())
+           published_at = COALESCE(b.published_at, now()),
+           updated_at = now()
        FROM projects p
        WHERE b.id = $1 AND b.project_id = p.id
        RETURNING b.id, b.project_id, p.domain_address, p.landing_enabled,
@@ -959,7 +960,7 @@ router.post("/:id/unpublish", async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `UPDATE blog_posts SET status = 'draft' WHERE id = $1 RETURNING id`,
+      `UPDATE blog_posts SET status = 'draft', updated_at = now() WHERE id = $1 RETURNING id`,
       [postId],
     );
     if (rows.length === 0) {
