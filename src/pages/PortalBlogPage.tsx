@@ -1,22 +1,22 @@
 // PortalBlogPage — enduser-facing blog post list for the currently
 // selected project. Thin wrapper around BlogPage that reads the
-// projectId from the project context and pushes it through the URL so
-// the BlogPage filter picks it up.
+// projectId from the project context.
+//
+// The backend scopes blog posts by the enduser's assigned projects
+// (via getScopedProjectIds), so we don't need to pass projectId as
+// a URL filter — the API already handles it server-side.
 //
 // Endusers have read-only access (RBAC scope is enforced server-side;
-// the FE just doesn't surface the publish/delete actions for posts
-// they don't own — those are still rendered, but the actions component
-// shows them as disabled when the server denies the mutation).
+// the FE hides publish/edit/delete actions for endusers).
 
 import { useProjectContext } from "@/context/ProjectContext";
 import BlogPage from "./BlogPage";
-import { useSearchParams, Navigate } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
 export default function PortalBlogPage() {
   const { selectedId: projectId, projects, isLoading } = useProjectContext();
-  const [searchParams] = useSearchParams();
 
   if (isLoading) {
     return (
@@ -35,14 +35,6 @@ export default function PortalBlogPage() {
   // portal pages.
   if (!projectId && projects && projects.length > 0) {
     return <Navigate to="/portal" replace />;
-  }
-
-  // Push projectId into the query string so BlogPage's deep-link filter
-  // picks it up. We don't override the operator's other params
-  // (status, locale).
-  const params = new URLSearchParams(searchParams);
-  if (projectId) {
-    params.set("projectId", String(projectId));
   }
 
   return (
