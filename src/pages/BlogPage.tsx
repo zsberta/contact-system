@@ -41,7 +41,17 @@ const statusBadgeVariant = (status: BlogPostStatus) => {
   }
 };
 
-const BlogPage: React.FC = () => {
+interface BlogPageProps {
+  /** Base path for navigation links. Defaults to "/blog" for admin.
+   *  Pass "/portal/blog" from PortalBlogPage so double-click navigates
+   *  to the correct route (admin vs enduser portal). */
+  basePath?: string;
+  /** Show the "New post" button. Defaults to true. Set to false for
+   *  enduser portal views where creating posts is not allowed. */
+  showCreateButton?: boolean;
+}
+
+const BlogPage: React.FC<BlogPageProps> = ({ basePath = "/blog", showCreateButton = true }) => {
   const { t } = useTranslation(["blog", "common"]);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -128,14 +138,14 @@ const BlogPage: React.FC = () => {
     [],
   );
   const handleRowDoubleClick = useCallback(
-    (row: BlogPostDTO) => navigate(`/blog/view/${row.id}`),
-    [navigate],
+    (row: BlogPostDTO) => navigate(`${basePath}/view/${row.id}`),
+    [navigate, basePath],
   );
 
   const createLink =
     projectIdFilter !== undefined
-      ? `/blog/create?projectId=${projectIdFilter}`
-      : "/blog/create";
+      ? `${basePath}/create?projectId=${projectIdFilter}`
+      : `${basePath}/create`;
 
   const columns = [
     {
@@ -211,12 +221,14 @@ const BlogPage: React.FC = () => {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
           <CardTitle>{t("blog:page_title")}</CardTitle>
-          <Button asChild size="sm">
-            <a href={createLink}>
-              <PlusCircle className="mr-2 h-4 w-4" />
-              {t("blog:create_new")}
-            </a>
-          </Button>
+          {showCreateButton && (
+            <Button asChild size="sm">
+              <a href={createLink}>
+                <PlusCircle className="mr-2 h-4 w-4" />
+                {t("blog:create_new")}
+              </a>
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           <DataTable
