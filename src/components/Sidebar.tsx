@@ -10,6 +10,7 @@ import {
   CalendarDays,
   Newspaper,
   HelpCircle,
+  Layers,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -21,6 +22,7 @@ import { getAllReservationsPaged } from "@/lib/reservations";
 import { getAllAnalyticsConfigsPaged } from "@/lib/analytics";
 import { getAllBlogPostsPaged } from "@/lib/blog";
 import { getAllFaqItemsPaged } from "@/lib/faq";
+import { getAllServiceItemsPaged } from "@/lib/service";
 
 interface SidebarProps {
   onClose?: () => void;
@@ -76,6 +78,10 @@ const Sidebar = ({ onClose }: SidebarProps = {}) => {
       <NavLink to="/faq" onClick={() => onClose?.()} className={linkClass}>
         <HelpCircle className="h-4 w-4" />
         <span>{t("navigation:faq")}</span>
+      </NavLink>
+      <NavLink to="/services" onClick={() => onClose?.()} className={linkClass}>
+        <Layers className="h-4 w-4" />
+        <span>{t("navigation:services")}</span>
       </NavLink>
       <NavLink
         to="/analytics"
@@ -187,6 +193,20 @@ function EnduserSidebar({
   const hasBlog = (blogData?.totalElements ?? 0) > 0;
   const hasFaq = (faqData?.totalElements ?? 0) > 0;
 
+  // Check if the selected project has any service items.
+  const { data: serviceData } = useQuery({
+    queryKey: ["portal", "sidebar-has-services", projectId],
+    queryFn: () =>
+      getAllServiceItemsPaged({
+        projectId: projectId!,
+        page: 0,
+        size: 1,
+      }),
+    enabled: !!projectId,
+  });
+
+  const hasServices = (serviceData?.totalElements ?? 0) > 0;
+
   return (
     <nav className="flex flex-col gap-1 p-2">
       {hasAnalytics && (
@@ -237,6 +257,16 @@ function EnduserSidebar({
         >
           <HelpCircle className="h-4 w-4" />
           <span>{t("navigation:faq")}</span>
+        </NavLink>
+      )}
+      {hasServices && (
+        <NavLink
+          to="/portal/services"
+          onClick={() => onClose?.()}
+          className={linkClass}
+        >
+          <Layers className="h-4 w-4" />
+          <span>{t("navigation:services")}</span>
         </NavLink>
       )}
       {hasReservations && (

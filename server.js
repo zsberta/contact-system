@@ -27,6 +27,8 @@ import { router as blogPublicRouter } from "./routes/blog-public.js";
 import { router as blogAttachmentsRouter } from "./routes/blog-attachments.js";
 import { router as faqRouter } from "./routes/faq.js";
 import { router as faqPublicRouter } from "./routes/faq-public.js";
+import { router as serviceRouter } from "./routes/service.js";
+import { router as servicePublicRouter } from "./routes/service-public.js";
 import { router as internalRouter } from "./routes/internal.js";
 import { pool } from "./db/pool.js";
 import { assertSafeStartup } from "./lib/startup-guard.js";
@@ -169,6 +171,9 @@ app.use("/api/blog", blogAttachmentsRouter);
 // FAQ admin CRUD — same auth/RBAC/scope contract as blog.
 app.use("/api/faq", faqRouter);
 
+// Service admin CRUD — same auth/RBAC/scope contract as FAQ.
+app.use("/api/service", serviceRouter);
+
 // Internal surface for service-to-service callbacks. Mounted after the
 // CSRF middleware but exempted from it via middleware/csrf.js#isPublicCsrfExempt.
 // Auth is the X-Internal-Secret header (see routes/internal.js).
@@ -267,6 +272,7 @@ app.use("/api/public/analytics", analyticsEmbedRouter);
 // contract from the middleware block above.
 app.use("/api/public/blog", blogPublicRouter);
 app.use("/api/public/faq", faqPublicRouter);
+app.use("/api/public/service", servicePublicRouter);
 
 const distDir = path.join(__dirname, "dist");
 app.use(express.static(distDir));

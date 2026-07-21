@@ -33,6 +33,11 @@ import FaqCreatePage from "./pages/FaqCreatePage";
 import FaqEditPage from "./pages/FaqEditPage";
 import FaqViewPage from "./pages/FaqViewPage";
 import PortalFaqPage from "./pages/PortalFaqPage";
+import ServicePage from "./pages/ServicePage";
+import ServiceCreatePage from "./pages/ServiceCreatePage";
+import ServiceEditPage from "./pages/ServiceEditPage";
+import ServiceViewPage from "./pages/ServiceViewPage";
+import PortalServicePage from "./pages/PortalServicePage";
 import ReservationsPage from "./pages/ReservationsPage";
 import ReservationCreatePage from "./pages/ReservationCreatePage";
 import ReservationEditPage from "./pages/ReservationEditPage";
@@ -156,6 +161,10 @@ const App = () => (
                     <Route path="/faq/create" element={<FaqCreatePage />} />
                     <Route path="/faq/view/:id" element={<FaqViewPage />} />
                     <Route path="/faq/edit/:id" element={<FaqEditPage />} />
+                    <Route path="/services" element={<ServicePage />} />
+                    <Route path="/services/create" element={<ServiceCreatePage />} />
+                    <Route path="/services/view/:id" element={<ServiceViewPage />} />
+                    <Route path="/services/edit/:id" element={<ServiceEditPage />} />
                     <Route path="/reservations" element={<ReservationsPage />} />
                     <Route
                       path="/reservations/create"
@@ -224,6 +233,10 @@ const App = () => (
                       <Route path="faq/create" element={<FaqCreatePage />} />
                       <Route path="faq/edit/:id" element={<FaqEditPage />} />
                       <Route path="faq/view/:id" element={<FaqViewPage />} />
+                      <Route path="services" element={<PortalServicePage />} />
+                      <Route path="services/create" element={<ServiceCreatePage />} />
+                      <Route path="services/edit/:id" element={<ServiceEditPage />} />
+                      <Route path="services/view/:id" element={<ServiceViewPage />} />
                     </Route>
                   </Route>
 
