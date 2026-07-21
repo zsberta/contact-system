@@ -172,11 +172,12 @@ const ServiceEditPage: React.FC = () => {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="priceHu">{t("service:price_hu")}</Label>
-                <Input
+                <Textarea
                   id="priceHu"
                   value={priceHu}
                   onChange={(e) => setPriceHu(e.target.value)}
                   placeholder={t("service:price_placeholder")}
+                  rows={2}
                 />
               </div>
             </div>
@@ -207,11 +208,12 @@ const ServiceEditPage: React.FC = () => {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="priceEn">{t("service:price_en")}</Label>
-                <Input
+                <Textarea
                   id="priceEn"
                   value={priceEn}
                   onChange={(e) => setPriceEn(e.target.value)}
                   placeholder={t("service:price_placeholder")}
+                  rows={2}
                 />
               </div>
             </div>
