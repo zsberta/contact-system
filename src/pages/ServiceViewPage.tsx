@@ -178,7 +178,7 @@ const ServiceViewPage: React.FC = () => {
           </div>
           <div>
             <span className="text-sm font-medium text-muted-foreground">{t("service:price_hu")}</span>
-            <p className="mt-1">{item.priceHu || <em className="text-muted-foreground">—</em>}</p>
+            <p className="mt-1 whitespace-pre-line">{item.priceHu || <em className="text-muted-foreground">—</em>}</p>
           </div>
         </CardContent>
       </Card>
@@ -206,7 +206,7 @@ const ServiceViewPage: React.FC = () => {
           </div>
           <div>
             <span className="text-sm font-medium text-muted-foreground">{t("service:price_en")}</span>
-            <p className="mt-1">{item.priceEn || <em className="text-muted-foreground">—</em>}</p>
+            <p className="mt-1 whitespace-pre-line">{item.priceEn || <em className="text-muted-foreground">—</em>}</p>
           </div>
         </CardContent>
       </Card>
