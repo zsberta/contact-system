@@ -153,7 +153,7 @@
   "no_manual_ranges": "Nincsenek kézi tiltások.",
   "disable_hungarian_holidays": "Magyar ünnepnapok automatikus tiltása",
   "disable_hungarian_holidays_help": "Bekapcsoláskor a magyarországi munkaszüneti napok automatikusan tiltásra kerülnek.",
-  "holidays_auto_section": "🇭🇺 Ünnepnapok (automatikus)",
+  "holidays_auto_section": "Ünnepnapok (automatikus)",
   "holidays_auto_toggle": "Ünnepnap engedélyezése tiltása",
   "holidays_enabled": "Magyar ünnepnapok letiltása engedélyezve",
   "holiday_new_year": "Újév",

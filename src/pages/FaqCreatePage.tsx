@@ -135,7 +135,7 @@ const FaqCreatePage: React.FC = () => {
             {/* Hungarian fields */}
             <div className="space-y-4">
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-                🇭🇺 {t("faq:hungarian")}
+                {t("faq:hungarian")}
               </h3>
               <div className="space-y-2">
                 <Label htmlFor="questionHu">{t("faq:question_hu")}</Label>
@@ -162,7 +162,7 @@ const FaqCreatePage: React.FC = () => {
             {/* English fields */}
             <div className="space-y-4">
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-                🇬🇧 {t("faq:english")}
+                {t("faq:english")}
               </h3>
               <div className="space-y-2">
                 <Label htmlFor="questionEn">{t("faq:question_en")}</Label>

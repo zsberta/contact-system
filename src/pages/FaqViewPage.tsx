@@ -162,7 +162,7 @@ const FaqViewPage: React.FC = () => {
       {/* Hungarian Q&A */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">🇭🇺 {t("faq:hungarian")}</CardTitle>
+          <CardTitle className="text-base">{t("faq:hungarian")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
@@ -182,7 +182,7 @@ const FaqViewPage: React.FC = () => {
       {/* English Q&A */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">🇬🇧 {t("faq:english")}</CardTitle>
+          <CardTitle className="text-base">{t("faq:english")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>

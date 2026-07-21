@@ -153,7 +153,7 @@
   "no_manual_ranges": "No manual blocks.",
   "disable_hungarian_holidays": "Auto-disable Hungarian public holidays",
   "disable_hungarian_holidays_help": "When enabled, Hungarian public holidays are automatically blocked for bookings.",
-  "holidays_auto_section": "🇭🇺 Holidays (auto-generated)",
+  "holidays_auto_section": "Holidays (auto-generated)",
   "holidays_auto_toggle": "Toggle holiday enabled/disabled",
   "holidays_enabled": "Hungarian holidays blocking enabled",
   "holiday_new_year": "New Year's Day",
