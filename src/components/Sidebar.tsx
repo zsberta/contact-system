@@ -20,6 +20,7 @@ import { getAllFormsPaged } from "@/lib/forms";
 import { getAllReservationsPaged } from "@/lib/reservations";
 import { getAllAnalyticsConfigsPaged } from "@/lib/analytics";
 import { getAllBlogPostsPaged } from "@/lib/blog";
+import { getAllFaqItemsPaged } from "@/lib/faq";
 
 interface SidebarProps {
   onClose?: () => void;
@@ -168,10 +169,23 @@ function EnduserSidebar({
     enabled: !!projectId,
   });
 
+  // Check if the selected project has any FAQ items.
+  const { data: faqData } = useQuery({
+    queryKey: ["portal", "sidebar-has-faq", projectId],
+    queryFn: () =>
+      getAllFaqItemsPaged({
+        projectId: projectId!,
+        page: 0,
+        size: 1,
+      }),
+    enabled: !!projectId,
+  });
+
   const hasForms = (formsData?.totalElements ?? 0) > 0;
   const hasReservations = (reservationsData?.totalElements ?? 0) > 0;
   const hasAnalytics = (analyticsData?.totalElements ?? 0) > 0;
   const hasBlog = (blogData?.totalElements ?? 0) > 0;
+  const hasFaq = (faqData?.totalElements ?? 0) > 0;
 
   return (
     <nav className="flex flex-col gap-1 p-2">
@@ -213,6 +227,16 @@ function EnduserSidebar({
         >
           <Newspaper className="h-4 w-4" />
           <span>{t("navigation:blog")}</span>
+        </NavLink>
+      )}
+      {hasFaq && (
+        <NavLink
+          to="/faq"
+          onClick={() => onClose?.()}
+          className={linkClass}
+        >
+          <HelpCircle className="h-4 w-4" />
+          <span>{t("navigation:faq")}</span>
         </NavLink>
       )}
       {hasReservations && (
