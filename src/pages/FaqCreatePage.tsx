@@ -1,6 +1,8 @@
 // ----------------------------------------------------------------------------
 // FaqCreatePage — create form for a new FAQ (GYIK) item.
-// Each item has bilingual fields (HU + EN). Supports ?projectId=N deep-link.
+// Each item has bilingual fields (HU + EN).
+// In portal mode (/?projectId=N deep-link), project is auto-set from context
+// and shown as read-only. In admin mode, a project selector modal is shown.
 // ----------------------------------------------------------------------------
 
 import React from "react";
@@ -11,6 +13,7 @@ import { showError, showSuccess } from "@/utils/toast";
 import { FaqItemCreateDTO, FaqItemDTO } from "@/types/faq";
 import { createFaqItem } from "@/lib/faq";
 import { FaqProjectSelectorModal } from "@/components/faq/FaqProjectSelectorModal";
+import { useProjectContext } from "@/context/ProjectContext";
 import type { ProjectDTO } from "@/types/project";
 import {
   Card,
@@ -36,9 +39,14 @@ const FaqCreatePage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
+
+  const isPortal = window.location.pathname.startsWith("/portal");
+  const { selectedId: contextProjectId } = useProjectContext();
+
   const projectIdParam = searchParams.get("projectId");
-  const initialProjectId =
-    projectIdParam && /^\d+$/.test(projectIdParam)
+  const initialProjectId = isPortal
+    ? contextProjectId
+    : projectIdParam && /^\d+$/.test(projectIdParam)
       ? Number(projectIdParam)
       : null;
 
@@ -55,7 +63,7 @@ const FaqCreatePage: React.FC = () => {
     onSuccess: (data: FaqItemDTO) => {
       showSuccess(t("faq:created_toast", { title: data.questionHu }));
       queryClient.invalidateQueries({ queryKey: ["faq"] });
-      navigate("/faq");
+      navigate(isPortal ? `/portal/faq/view/${data.id}` : `/faq`);
     },
     onError: (err: Error) => {
       showError(err.message || t("faq:create_failed_toast"));
@@ -87,10 +95,16 @@ const FaqCreatePage: React.FC = () => {
     });
   };
 
+  // Resolve project name for read-only display in portal mode
+  const { projects } = useProjectContext();
+  const selectedProjectName = projects?.find((p) => p.id === selectedProjectId)?.name ?? "";
+
   return (
     <div className="container mx-auto p-4 max-w-5xl space-y-6">
       <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" onClick={() => navigate("/faq")}>
+        <Button variant="outline" size="sm" onClick={() => {
+          navigate(isPortal ? "/portal/faq" : "/faq");
+        }}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           {t("common:back")}
         </Button>
@@ -105,13 +119,17 @@ const FaqCreatePage: React.FC = () => {
             <CardTitle>{t("faq:create_title")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Project selector */}
+            {/* Project selector — read-only in portal, modal in admin */}
             <div className="space-y-2">
               <Label>{t("faq:project")}</Label>
-              <FaqProjectSelectorModal
-                selectedId={selectedProjectId}
-                onSelect={(project: ProjectDTO) => setSelectedProjectId(project.id)}
-              />
+              {isPortal ? (
+                <Input value={selectedProjectName} disabled />
+              ) : (
+                <FaqProjectSelectorModal
+                  selectedId={selectedProjectId}
+                  onSelect={(project: ProjectDTO) => setSelectedProjectId(project.id)}
+                />
+              )}
             </div>
 
             {/* Hungarian fields */}
@@ -196,7 +214,9 @@ const FaqCreatePage: React.FC = () => {
 
             {/* Submit */}
             <div className="flex justify-end gap-2 pt-4">
-              <Button type="button" variant="outline" onClick={() => navigate("/faq")}>
+              <Button type="button" variant="outline" onClick={() => {
+                navigate(isPortal ? "/portal/faq" : "/faq");
+              }}>
                 {t("common:cancel")}
               </Button>
               <Button type="submit" disabled={createMutation.isPending}>

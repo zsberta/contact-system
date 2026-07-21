@@ -69,7 +69,8 @@ const FaqEditPage: React.FC = () => {
       showSuccess(t("faq:saved_toast", { title: data.questionHu }));
       queryClient.invalidateQueries({ queryKey: ["faq"] });
       queryClient.invalidateQueries({ queryKey: ["faq", "detail", itemId] });
-      navigate(`/faq/view/${data.id}`);
+      const isPortal = window.location.pathname.startsWith("/portal");
+      navigate(isPortal ? `/portal/faq/view/${data.id}` : `/faq/view/${data.id}`);
     },
     onError: (err: Error) => {
       showError(err.message || t("faq:save_failed_toast"));
@@ -119,7 +120,10 @@ const FaqEditPage: React.FC = () => {
   return (
     <div className="container mx-auto p-4 max-w-5xl space-y-6">
       <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" onClick={() => navigate(`/faq/view/${itemId}`)}>
+        <Button variant="outline" size="sm" onClick={() => {
+          const isPortal = window.location.pathname.startsWith("/portal");
+          navigate(isPortal ? `/portal/faq/view/${itemId}` : `/faq/view/${itemId}`);
+        }}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           {t("common:back")}
         </Button>
@@ -222,7 +226,10 @@ const FaqEditPage: React.FC = () => {
 
             {/* Submit */}
             <div className="flex justify-end gap-2 pt-4">
-              <Button type="button" variant="outline" onClick={() => navigate(`/faq/view/${itemId}`)}>
+              <Button type="button" variant="outline" onClick={() => {
+                const isPortal = window.location.pathname.startsWith("/portal");
+                navigate(isPortal ? `/portal/faq/view/${itemId}` : `/faq/view/${itemId}`);
+              }}>
                 {t("common:cancel")}
               </Button>
               <Button type="submit" disabled={updateMutation.isPending}>

@@ -34,7 +34,13 @@ const statusBadgeVariant = (status: FaqItemStatus) => {
   }
 };
 
-const FaqPage: React.FC = () => {
+interface FaqPageProps {
+  basePath?: string;
+  /** Project ID from context (portal mode). Used when no URL projectId is set. */
+  contextProjectId?: number | null;
+}
+
+const FaqPage: React.FC<FaqPageProps> = ({ basePath = "/faq", contextProjectId = undefined }) => {
   const { t } = useTranslation(["faq", "common"]);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -43,7 +49,7 @@ const FaqPage: React.FC = () => {
   const projectIdFilter =
     projectIdParam && /^\d+$/.test(projectIdParam)
       ? Number(projectIdParam)
-      : undefined;
+      : contextProjectId ?? undefined;
 
   const statusParam = searchParams.get("status");
   const statusFilter =
@@ -73,8 +79,10 @@ const FaqPage: React.FC = () => {
     ...(statusFilter !== undefined ? { status: statusFilter } : {}),
   };
 
+  const queryKeyProjectId = projectIdFilter ?? contextProjectId ?? null;
+
   const { data, isLoading } = useQuery<PageFaqItemDTO>({
-    queryKey: ["faq", queryParams, projectIdFilter, statusFilter],
+    queryKey: ["faq", queryParams, queryKeyProjectId, statusFilter],
     queryFn: () => getAllFaqItemsPaged(fetchParams),
   });
 
@@ -111,14 +119,14 @@ const FaqPage: React.FC = () => {
     [],
   );
   const handleRowDoubleClick = useCallback(
-    (row: FaqItemDTO) => navigate(`/faq/view/${row.id}`),
-    [navigate],
+    (row: FaqItemDTO) => navigate(`${basePath}/view/${row.id}`),
+    [navigate, basePath],
   );
 
   const createLink =
     projectIdFilter !== undefined
-      ? `/faq/create?projectId=${projectIdFilter}`
-      : "/faq/create";
+      ? `${basePath}/create?projectId=${projectIdFilter}`
+      : `${basePath}/create`;
 
   const columns = [
     {

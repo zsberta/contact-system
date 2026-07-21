@@ -231,7 +231,7 @@ function EnduserSidebar({
       )}
       {hasFaq && (
         <NavLink
-          to="/faq"
+          to="/portal/faq"
           onClick={() => onClose?.()}
           className={linkClass}
         >

@@ -32,6 +32,7 @@ import FaqPage from "./pages/FaqPage";
 import FaqCreatePage from "./pages/FaqCreatePage";
 import FaqEditPage from "./pages/FaqEditPage";
 import FaqViewPage from "./pages/FaqViewPage";
+import PortalFaqPage from "./pages/PortalFaqPage";
 import ReservationsPage from "./pages/ReservationsPage";
 import ReservationCreatePage from "./pages/ReservationCreatePage";
 import ReservationEditPage from "./pages/ReservationEditPage";
@@ -219,6 +220,10 @@ const App = () => (
                       <Route path="blog/create" element={<BlogCreatePage />} />
                       <Route path="blog/edit/:id" element={<BlogEditPage />} />
                       <Route path="blog/view/:id" element={<PortalBlogViewPage />} />
+                      <Route path="faq" element={<PortalFaqPage />} />
+                      <Route path="faq/create" element={<FaqCreatePage />} />
+                      <Route path="faq/edit/:id" element={<FaqEditPage />} />
+                      <Route path="faq/view/:id" element={<FaqViewPage />} />
                     </Route>
                   </Route>
 

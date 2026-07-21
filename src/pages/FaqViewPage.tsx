@@ -50,6 +50,7 @@ const FaqViewPage: React.FC = () => {
   const itemId = id && /^\d+$/.test(id) ? Number(id) : NaN;
 
   const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const isPortal = typeof window !== "undefined" && window.location.pathname.startsWith("/portal");
 
   const { data: item, isLoading } = useQuery({
     queryKey: ["faq", "detail", itemId],
@@ -63,7 +64,7 @@ const FaqViewPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ["faq"] });
       showSuccess(t("faq:deleted_toast", { title: item?.questionHu ?? "" }));
       setDeleteOpen(false);
-      navigate("/faq");
+      navigate(isPortal ? "/portal/faq" : "/faq");
     },
     onError: (err: Error) => {
       showError(err.message || t("faq:delete_failed_toast"));
@@ -111,14 +112,14 @@ const FaqViewPage: React.FC = () => {
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             <Button
               variant="outline"
-              onClick={() => navigate("/faq")}
+              onClick={() => navigate(isPortal ? "/portal/faq" : "/faq")}
               className="w-full sm:w-auto"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               {t("common:back")}
             </Button>
             <Button
-              onClick={() => navigate(`/faq/edit/${item.id}`)}
+              onClick={() => navigate(isPortal ? `/portal/faq/edit/${item.id}` : `/faq/edit/${item.id}`)}
               className="w-full sm:w-auto"
             >
               <Pencil className="mr-2 h-4 w-4" />
