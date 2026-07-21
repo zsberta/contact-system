@@ -114,7 +114,7 @@ router.get("/by-domain/:domain/items", async (req, res) => {
   if (cached) {
     res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=300");
     res.setHeader("Vary", "Origin, Accept-Encoding");
-    return res.json(cached);
+    return res.json({ items: cached });
   }
 
   try {
