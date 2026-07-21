@@ -171,10 +171,7 @@ const ServiceViewPage: React.FC = () => {
           </div>
           <div>
             <span className="text-sm font-medium text-muted-foreground">{t("service:description_hu")}</span>
-            <div
-              className="prose prose-sm max-w-none dark:prose-invert mt-1"
-              dangerouslySetInnerHTML={{ __html: item.descriptionHu }}
-            />
+            <p className="mt-1 whitespace-pre-line">{item.descriptionHu}</p>
           </div>
           <div>
             <span className="text-sm font-medium text-muted-foreground">{t("service:price_hu")}</span>
@@ -196,10 +193,7 @@ const ServiceViewPage: React.FC = () => {
           <div>
             <span className="text-sm font-medium text-muted-foreground">{t("service:description_en")}</span>
             {item.descriptionEn ? (
-              <div
-                className="prose prose-sm max-w-none dark:prose-invert mt-1"
-                dangerouslySetInnerHTML={{ __html: item.descriptionEn }}
-              />
+              <p className="mt-1 whitespace-pre-line">{item.descriptionEn}</p>
             ) : (
               <p className="mt-1 text-muted-foreground"><em>—</em></p>
             )}
