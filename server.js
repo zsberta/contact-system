@@ -257,6 +257,11 @@ app.use("/api/public/faq", (req, res, next) => {
   if (req.method === "OPTIONS") return res.status(204).end();
   next();
 });
+app.use("/api/public/service", (req, res, next) => {
+  applyPublicCors(req, res);
+  if (req.method === "OPTIONS") return res.status(204).end();
+  next();
+});
 
 // Public submission endpoint (no auth, no CSRF). The /api/public/* prefix
 // is CSRF-exempt per middleware/csrf.js; the secret_token is the
