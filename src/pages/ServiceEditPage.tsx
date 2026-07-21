@@ -149,7 +149,7 @@ const ServiceEditPage: React.FC = () => {
             {/* Hungarian fields */}
             <div className="space-y-4">
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-                🏭 {t("service:hungarian")}
+                {t("service:hungarian")}
               </h3>
               <div className="space-y-2">
                 <Label htmlFor="titleHu">{t("service:title_hu")}</Label>
@@ -185,7 +185,7 @@ const ServiceEditPage: React.FC = () => {
             {/* English fields */}
             <div className="space-y-4">
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-                🇬🇧 {t("service:english")}
+                {t("service:english")}
               </h3>
               <div className="space-y-2">
                 <Label htmlFor="titleEn">{t("service:title_en")}</Label>

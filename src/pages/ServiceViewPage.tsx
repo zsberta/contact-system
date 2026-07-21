@@ -162,7 +162,7 @@ const ServiceViewPage: React.FC = () => {
       {/* Hungarian section */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">🏭 {t("service:hungarian")}</CardTitle>
+          <CardTitle className="text-base">{t("service:hungarian")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
@@ -183,7 +183,7 @@ const ServiceViewPage: React.FC = () => {
       {/* English section */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">🇬🇧 {t("service:english")}</CardTitle>
+          <CardTitle className="text-base">{t("service:english")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
