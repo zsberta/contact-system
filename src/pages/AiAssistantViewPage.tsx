@@ -41,6 +41,7 @@ import {
 } from "@/lib/ai-assistant";
 import { AiKnowledgeBasePanel } from "@/components/ai-assistant/AiKnowledgeBasePanel";
 import { AiAssistantSnippetPanel } from "@/components/ai-assistant/AiAssistantSnippetPanel";
+import { AiChatPreview } from "@/components/ai-assistant/AiChatPreview";
 
 const AiAssistantViewPage: React.FC = () => {
   const { t } = useTranslation(["ai-assistant", "common"]);
@@ -343,6 +344,19 @@ const AiAssistantViewPage: React.FC = () => {
                   </div>
                 ))}
               </dl>
+            </CardContent>
+          </Card>
+
+          {/* Live Widget Preview */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                {t("ai-assistant:branding_section")}
+              </CardTitle>
+            </CardHeader>
+            <Separator />
+            <CardContent className="pt-6">
+              <AiChatPreview config={config} />
             </CardContent>
           </Card>
         </TabsContent>

@@ -29,7 +29,24 @@
   var SUPPORTED_LANGUAGES = {{SUPPORTED_LANGUAGES}};
   var TRANSLATIONS = {{TRANSLATIONS}};
 
-  var currentLang = DEFAULT_LANGUAGE;
+  var currentLang = (function () {
+    // Priority 1: data-lang attribute on the <script> tag (explicit override)
+    var scriptEl = document.currentScript;
+    if (scriptEl) {
+      var dl = scriptEl.getAttribute("data-lang");
+      if (dl && dl.length >= 2) return dl;
+    }
+    // Priority 2: <html lang="..."> attribute on the host page
+    var htmlLang = document.documentElement && document.documentElement.lang;
+    if (htmlLang && htmlLang.length >= 2) return htmlLang.slice(0, 10);
+    // Priority 3: navigator.language / navigator.languages[0]
+    if (navigator.languages && navigator.languages.length > 0) {
+      return navigator.languages[0];
+    }
+    if (navigator.language) return navigator.language;
+    // Priority 4: Fallback to assistant's default_language
+    return DEFAULT_LANGUAGE;
+  })();
   var sessionId = null;
   var messages = [];
   var isOpen = false;

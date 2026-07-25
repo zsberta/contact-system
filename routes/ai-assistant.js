@@ -44,6 +44,7 @@ import { pool } from "../db/pool.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
 import { getScopedProjectIds, appendProjectScope } from "../lib/scope.js";
 import { processDocument } from "../lib/ai-knowledge-processor.js";
+import { encrypt } from "../lib/ai-encryption.js";
 
 // Read-only for endusers. Mutations are rejected with 403.
 const isEnduser = (req) => req.user && req.user.role === "enduser";
@@ -314,7 +315,7 @@ function validateConfigBody(body, { partial = false } = {}) {
   if (body.apiKey !== undefined || body.api_key !== undefined) {
     const v = body.apiKey ?? body.api_key;
     if (typeof v === "string" && v.length > 0) {
-      out.api_key_enc = v;
+      out.api_key_enc = encrypt(v);
     }
   }
 
@@ -509,15 +510,26 @@ function generateSecretToken() {
 
 // Multer config for knowledge base uploads.
 const upload = multer({
-  dest: path.join(os.tmpdir(), "ai-assistant-uploads"),
+  dest: process.env.AI_ASSISTANT_UPLOAD_DIR || path.join(os.tmpdir(), "ai-assistant-uploads"),
   limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB hard cap; per-assistant limit enforced below
   fileFilter(_req, file, cb) {
-    const allowed = new Set([".txt", ".md", ".pdf", ".docx", ".csv"]);
+    const allowedExts = new Set([".txt", ".md", ".pdf", ".docx", ".csv"]);
+    const allowedMimes = new Set([
+      "text/plain",
+      "text/markdown",
+      "text/csv",
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/octet-stream", // fallback for generic binary
+    ]);
     const ext = "." + file.originalname.split(".").pop().toLowerCase();
-    if (allowed.has(ext)) {
+    const mimeOk = !file.mimetype || allowedMimes.has(file.mimetype);
+    const extOk = allowedExts.has(ext);
+    if (extOk && mimeOk) {
       cb(null, true);
     } else {
-      cb(new Error(`Unsupported file type: ${ext}. Allowed: ${[...allowed].join(", ")}`));
+      const reason = !extOk ? `Unsupported extension: ${ext}` : `Unsupported MIME type: ${file.mimetype}`;
+      cb(new Error(`${reason}. Allowed: ${[...allowedExts].join(", ")}`));
     }
   },
 });

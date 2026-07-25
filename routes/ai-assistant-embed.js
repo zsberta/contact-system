@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { pool } from "../db/pool.js";
 import { streamChat } from "../lib/ai-llm-client.js";
 import { searchKnowledgeBase } from "../lib/vector-search.js";
+import { decrypt } from "../lib/ai-encryption.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -113,12 +114,11 @@ function parseTranslations(row) {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: decrypt API key (placeholder — in production use AES-256-GCM)
+// Helper: decrypt API key using AES-256-GCM (via shared encryption module)
 // ---------------------------------------------------------------------------
 function decryptApiKey(enc) {
   if (!enc) return null;
-  // Placeholder: in production, decrypt using AI_ASSISTANT_ENCRYPTION_KEY env var
-  return enc;
+  return decrypt(enc);
 }
 
 // ---------------------------------------------------------------------------
@@ -259,7 +259,9 @@ router.post("/:secret_token/chat", burstLimiter, sustainedLimiter, async (req, r
   try {
     // Validate config
     const configResult = await pool.query(
-      `SELECT * FROM ai_assistant_configs WHERE secret_token = $1`,
+      `SELECT id, status, base_prompt, model, base_url, api_key_enc,
+              default_language, allowed_origins
+       FROM ai_assistant_configs WHERE secret_token = $1`,
       [secretToken],
     );
     if (configResult.rowCount === 0 || configResult.rows[0].status !== "active") {
@@ -357,6 +359,12 @@ router.post("/:secret_token/chat", burstLimiter, sustainedLimiter, async (req, r
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Session-Id", body.sessionId || "");
+    res.flushHeaders();
+
+    // Heartbeat every 15s to prevent proxy/browser timeouts
+    const heartbeat = setInterval(() => {
+      try { res.write(": heartbeat\n\n"); } catch {}
+    }, 15_000);
 
     let fullText = "";
     let tokensUsed = 0;
@@ -365,6 +373,7 @@ router.post("/:secret_token/chat", burstLimiter, sustainedLimiter, async (req, r
     const baseUrl = config.base_url;
 
     if (!apiKey) {
+      clearInterval(heartbeat);
       res.write(`data: ${JSON.stringify({ content: "AI configuration is not properly set up.", sessionId: body.sessionId })}\n\n`);
       res.write(`data: [DONE]\n\n`);
       return res.end();
@@ -375,11 +384,13 @@ router.post("/:secret_token/chat", burstLimiter, sustainedLimiter, async (req, r
       apiKey,
       model: config.model,
       messages: llmMessages,
+      timeoutMs: 30_000,
       onChunk: (text) => {
         fullText += text;
         res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
       },
       onDone: async (usage) => {
+        clearInterval(heartbeat);
         tokensUsed = usage?.total_tokens || 0;
         // Store assistant message
         await pool.query(
@@ -392,6 +403,7 @@ router.post("/:secret_token/chat", burstLimiter, sustainedLimiter, async (req, r
         res.end();
       },
       onError: (err) => {
+        clearInterval(heartbeat);
         console.error("[ai-assistant-embed] LLM error:", err.message);
         res.write(`data: ${JSON.stringify({ content: "Sorry, something went wrong. Please try again." })}\n\n`);
         res.write(`data: [DONE]\n\n`);
