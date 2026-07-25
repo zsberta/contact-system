@@ -1,18 +1,51 @@
 // routes/ai-assistant.js
-// Admin CRUD for AI assistant configs (sibling to routes/analytics.js).
-// Mount at /api/ai-assistant via server.js.
+//
+// =============================================================================
+// AI Assistant module — admin CRUD (sibling to routes/analytics.js).
+// =============================================================================
+//
+// Each project has exactly ONE ai_assistant_configs row (enforced by the
+// UNIQUE FK on project_id). The row is created lazily on first access
+// via GET /api/ai-assistant/by-project/:projectId.
+//
+// What lives here:
+//   - Admin CRUD on ai_assistant_configs (paginated list, GET, PUT, DELETE)
+//   - Lazy upsert GET /api/ai-assistant/by-project/:projectId
+//   - Snippet endpoint GET /api/ai-assistant/:id/snippet (renders the JS
+//     loader with APP_PUBLIC_URL baked in)
+//   - Knowledge base document management (list, upload, delete)
+//   - Chat session and message browsing (read-only)
+//
+// What lives in routes/ai-assistant-embed.js (mounted at /api/public/ai-assistant):
+//   - Public script.js: GET /:secret_token/script.js
+//   - Public config:    GET /:secret_token/config
+//   - Public chat:      POST /:secret_token/chat
+//   - Public language:  POST /:secret_token/language
+//
+// =============================================================================
+// SECURITY MODEL
+// =============================================================================
+// - All routes here require auth (router.use(requireAuth)). Mutations are
+//   rejected with 403 for endusers (read-only contract).
+// - Enduser scoping: endusers can only see configs on projects they're
+//   assigned to (same pattern as analytics / forms / reservations).
+// - secret_token is 22-char base64url = 16 random bytes (128 bits entropy),
+//   server-generated at create time, immutable thereafter.
+// - allowed_origins: same semantics as analytics.allowed_origins.
+// - 404 (not 403) is used to mask "unknown config" vs "config on a
+//   project you can't see" so an enduser can't probe for config ids.
 
 import express from "express";
 import crypto from "node:crypto";
 import path from "node:path";
-import fs from "node:fs/promises";
-import { fileURLToPath } from "node:url";
+import os from "node:os";
+import multer from "multer";
 import { pool } from "../db/pool.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
 import { getScopedProjectIds, appendProjectScope } from "../lib/scope.js";
+import { processDocument } from "../lib/ai-knowledge-processor.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
+// Read-only for endusers. Mutations are rejected with 403.
 const isEnduser = (req) => req.user && req.user.role === "enduser";
 const forbidEnduserMutation = (req, res) => {
   if (isEnduser(req)) {
@@ -24,15 +57,11 @@ const forbidEnduserMutation = (req, res) => {
 export const router = express.Router();
 router.use(requireAuth);
 
-// ---------------------------------------------------------------------------
-// Secret token generation — 22-char base64url = 16 random bytes (128 bits)
-// ---------------------------------------------------------------------------
-function generateSecretToken() {
-  return crypto.randomBytes(16).toString("base64url");
-}
+const STATUS_VALUES = new Set(["active", "disabled"]);
 
 // ---------------------------------------------------------------------------
-// Origin allowlist validator (identical to analytics.js)
+// Origin-allowlist validator — MUST stay byte-for-byte identical to the one
+// in routes/analytics.js (same semantics, same regexes).
 // ---------------------------------------------------------------------------
 const ALLOWED_ORIGINS_MAX = 100;
 const HOSTNAME_RE = /^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}(:[0-9]{1,5})?$/;
@@ -43,40 +72,53 @@ const LOOPBACK_IPV6 = /^\[::1?\](:[0-9]{1,5})?$/;
 const LOOPBACK_SCHEME = /^https?:\/\/(localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|\[::1?\])(:[0-9]{1,5})?$/;
 
 function validateAllowedOriginsEntry(entry, index, seen) {
-  if (typeof entry !== "string") return `allowedOrigins[${index}]: must be a string`;
+  if (typeof entry !== "string") {
+    return `allowedOrigins[${index}]: must be a string`;
+  }
   const trimmed = entry.trim().toLowerCase();
-  if (trimmed.length < 1 || trimmed.length > 253) return `allowedOrigins[${index}]: must be 1..253 chars`;
+  if (trimmed.length < 1 || trimmed.length > 253) {
+    return `allowedOrigins[${index}]: must be 1..253 chars`;
+  }
   const isBare = HOSTNAME_RE.test(trimmed);
   const isScheme = SCHEME_HOSTNAME_RE.test(trimmed);
-  const isLoopbackBare = LOOPBACK_BARE.test(trimmed) || LOOPBACK_IPV4.test(trimmed) || LOOPBACK_IPV6.test(trimmed);
+  const isLoopbackBare = LOOPBACK_BARE.test(trimmed) ||
+    LOOPBACK_IPV4.test(trimmed) || LOOPBACK_IPV6.test(trimmed);
   const isLoopbackScheme = LOOPBACK_SCHEME.test(trimmed);
   if (!isBare && !isScheme && !isLoopbackBare && !isLoopbackScheme) {
     return `allowedOrigins[${index}]: invalid origin (${entry})`;
   }
   let normalised;
-  if (isScheme || isLoopbackScheme) normalised = trimmed;
-  else normalised = `https://${trimmed}`;
-  if (seen.has(normalised)) return `allowedOrigins[${index}]: duplicate`;
+  if (isScheme || isLoopbackScheme) {
+    normalised = trimmed;
+  } else {
+    normalised = `https://${trimmed}`;
+  }
+  if (seen.has(normalised)) {
+    return `allowedOrigins[${index}]: duplicate`;
+  }
   seen.add(normalised);
   return { ok: true, value: normalised };
 }
 
-// ---------------------------------------------------------------------------
-// DTO mapping
-// ---------------------------------------------------------------------------
+// Snake_case DB row -> camelCase API DTO.
 function rowToConfigDTO(row) {
   if (!row) return null;
   let allowedOrigins = [];
   if (Array.isArray(row.allowed_origins)) {
     allowedOrigins = row.allowed_origins.filter((d) => typeof d === "string");
   } else if (typeof row.allowed_origins === "string" && row.allowed_origins.length > 0) {
-    try { allowedOrigins = JSON.parse(row.allowed_origins); } catch { allowedOrigins = []; }
+    try { allowedOrigins = JSON.parse(row.allowed_origins); }
+    catch { allowedOrigins = []; }
   }
+  allowedOrigins = Array.isArray(allowedOrigins)
+    ? allowedOrigins.filter((d) => typeof d === "string")
+    : [];
   let supportedLanguages = [];
   if (Array.isArray(row.supported_languages)) {
     supportedLanguages = row.supported_languages.filter((d) => typeof d === "string");
   } else if (typeof row.supported_languages === "string" && row.supported_languages.length > 0) {
-    try { supportedLanguages = JSON.parse(row.supported_languages); } catch { supportedLanguages = []; }
+    try { supportedLanguages = JSON.parse(row.supported_languages); }
+    catch { supportedLanguages = []; }
   }
   return {
     id: Number(row.id),
@@ -85,37 +127,49 @@ function rowToConfigDTO(row) {
     name: row.name ?? "",
     secretToken: row.secret_token,
     status: row.status,
-    aiConfigPresetId: row.ai_config_id ? Number(row.ai_config_id) : null,
-    model: row.model,
-    baseUrl: row.base_url,
-    basePrompt: row.base_prompt,
-    displayName: row.display_name,
-    primaryColor: row.primary_color,
-    secondaryColor: row.secondary_color,
-    greetingMessage: row.greeting_message,
-    avatarUrl: row.avatar_url,
-    position: row.position,
-    defaultLanguage: row.default_language,
+    // AI configuration
+    aiConfigId: row.ai_config_id != null ? Number(row.ai_config_id) : null,
+    model: row.model ?? "gpt-4o",
+    baseUrl: row.base_url ?? "",
+    basePrompt: row.base_prompt ?? "",
+    // Widget branding
+    displayName: row.display_name ?? "AI Assistant",
+    primaryColor: row.primary_color ?? "#3b82f6",
+    secondaryColor: row.secondary_color ?? "#ffffff",
+    greetingMessage: row.greeting_message ?? "",
+    avatarUrl: row.avatar_url ?? null,
+    position: row.position ?? "bottom-right",
+    // Multilanguage
+    defaultLanguage: row.default_language ?? "en",
     supportedLanguages,
+    // Security
     allowedOrigins,
-    rateLimitBurst: row.rate_limit_burst,
-    rateLimitSustained: row.rate_limit_sustained,
-    maxUploadSizeMb: row.max_upload_size_mb,
-    translations: [], // populated separately
+    rateLimitBurst: Number(row.rate_limit_burst) || 30,
+    rateLimitSustained: Number(row.rate_limit_sustained) || 500,
+    maxUploadSizeMb: Number(row.max_upload_size_mb) || 20,
+    // API key is NEVER returned in the DTO (write-only).
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
 }
 
-// ---------------------------------------------------------------------------
-// Pagination helpers
-// ---------------------------------------------------------------------------
-const SORTABLE = { id: "id", name: "name", status: "status", createdAt: "created_at", updatedAt: "updated_at" };
+// Whitelist of sortable API fields -> DB columns.
+const SORTABLE = {
+  id: "id",
+  name: "name",
+  status: "status",
+  createdAt: "created_at",
+  updatedAt: "updated_at",
+};
+
 const SEARCH_COLUMNS = ["c.name"];
 
 function makePlaceholderAllocator(startIndex = 1) {
   let n = startIndex;
-  return { next: () => `$${n++}`, current: () => n - 1 };
+  return {
+    next: () => `$${n++}`,
+    current: () => n - 1,
+  };
 }
 
 function buildWhereClause(queries, filterType, allocator) {
@@ -127,7 +181,11 @@ function buildWhereClause(queries, filterType, allocator) {
     const colSql = SEARCH_COLUMNS.map((c) => `${c} ILIKE ${ph}`).join(" OR ");
     return { sql: `(${colSql})`, params: [`%${term}%`] };
   });
-  return { clauses: built.map((b) => b.sql), params: built.flatMap((b) => b.params), sql: built.map((b) => b.sql).join(conj) };
+  return {
+    clauses: built.map((b) => b.sql),
+    params: built.flatMap((b) => b.params),
+    sql: built.map((b) => b.sql).join(conj),
+  };
 }
 
 function buildOrderClause(sortField, sortOrder) {
@@ -137,503 +195,1162 @@ function buildOrderClause(sortField, sortOrder) {
 }
 
 function buildProjectFilterClause(projectId, allocator) {
-  if (projectId === undefined || projectId === null) return { sql: "", params: [] };
+  if (projectId === undefined || projectId === null) {
+    return { sql: "", params: [] };
+  }
   const n = typeof projectId === "number" ? projectId : parseInt(projectId, 10);
   if (!Number.isFinite(n) || n <= 0) return { sql: "", params: [] };
   return { sql: `c.project_id = ${allocator.next()}`, params: [n] };
 }
 
+// Validate PUT body.
+function validateConfigBody(body, { partial = false } = {}) {
+  const out = {};
+  const errors = [];
+
+  if (body.projectId !== undefined || body.project_id !== undefined) {
+    if (partial) {
+      errors.push("projectId cannot be changed");
+    } else {
+      const v = body.projectId ?? body.project_id;
+      const n = typeof v === "number" ? v : parseInt(v, 10);
+      if (!Number.isFinite(n) || n <= 0) {
+        errors.push("projectId must be a positive integer");
+      } else {
+        out.project_id = n;
+      }
+    }
+  } else if (!partial) {
+    errors.push("projectId is required");
+  }
+
+  if (body.name !== undefined) {
+    if (typeof body.name !== "string") {
+      errors.push("name must be a string");
+    } else {
+      const trimmed = body.name.trim();
+      if (trimmed.length < 1 || trimmed.length > 200) {
+        errors.push("name must be 1..200 chars");
+      } else {
+        out.name = trimmed;
+      }
+    }
+  } else if (!partial) {
+    errors.push("name is required");
+  }
+
+  if (body.secretToken !== undefined || body.secret_token !== undefined) {
+    errors.push("secretToken cannot be set or changed");
+  }
+
+  if (body.status !== undefined) {
+    if (typeof body.status !== "string" || !STATUS_VALUES.has(body.status)) {
+      errors.push(`status must be one of ${[...STATUS_VALUES].join(", ")}`);
+    } else {
+      out.status = body.status;
+    }
+  } else if (!partial) {
+    out.status = "active";
+  }
+
+  // Allowed origins
+  if (body.allowedOrigins !== undefined || body.allowed_origins !== undefined) {
+    const raw = body.allowedOrigins ?? body.allowed_origins;
+    if (!Array.isArray(raw)) {
+      errors.push("allowedOrigins must be an array");
+    } else if (raw.length > ALLOWED_ORIGINS_MAX) {
+      errors.push(`allowedOrigins: maximum ${ALLOWED_ORIGINS_MAX} entries`);
+    } else {
+      const cleaned = [];
+      const seen = new Set();
+      for (let i = 0; i < raw.length; i++) {
+        const result = validateAllowedOriginsEntry(raw[i], i, seen);
+        if (typeof result === "string") {
+          errors.push(result);
+          continue;
+        }
+        cleaned.push(result.value);
+      }
+      if (errors.length === 0) {
+        out.allowed_origins = cleaned;
+      }
+    }
+  } else if (!partial) {
+    out.allowed_origins = [];
+  }
+
+  // AI configuration fields
+  if (body.model !== undefined) {
+    if (typeof body.model !== "string") {
+      errors.push("model must be a string");
+    } else {
+      const trimmed = body.model.trim();
+      if (trimmed.length < 1 || trimmed.length > 200) {
+        errors.push("model must be 1..200 chars");
+      } else {
+        out.model = trimmed;
+      }
+    }
+  } else if (!partial) {
+    out.model = "gpt-4o";
+  }
+
+  if (body.baseUrl !== undefined || body.base_url !== undefined) {
+    const v = body.baseUrl ?? body.base_url;
+    if (typeof v !== "string") {
+      errors.push("baseUrl must be a string");
+    } else {
+      const trimmed = v.trim();
+      if (trimmed.length < 1 || trimmed.length > 500) {
+        errors.push("baseUrl must be 1..500 chars");
+      } else {
+        out.base_url = trimmed;
+      }
+    }
+  } else if (!partial) {
+    out.base_url = "https://api.openai.com/v1";
+  }
+
+  if (body.apiKey !== undefined || body.api_key !== undefined) {
+    const v = body.apiKey ?? body.api_key;
+    if (typeof v === "string" && v.length > 0) {
+      out.api_key_enc = v;
+    }
+  }
+
+  if (body.basePrompt !== undefined || body.base_prompt !== undefined) {
+    const v = body.basePrompt ?? body.base_prompt;
+    if (typeof v !== "string") {
+      errors.push("basePrompt must be a string");
+    } else {
+      if (v.length > 10000) {
+        errors.push("basePrompt must be <= 10000 chars");
+      } else {
+        out.base_prompt = v;
+      }
+    }
+  } else if (!partial) {
+    out.base_prompt = "You are a helpful assistant.";
+  }
+
+  // Widget branding
+  if (body.displayName !== undefined || body.display_name !== undefined) {
+    const v = body.displayName ?? body.display_name;
+    if (typeof v !== "string") {
+      errors.push("displayName must be a string");
+    } else {
+      const trimmed = v.trim();
+      if (trimmed.length < 1 || trimmed.length > 200) {
+        errors.push("displayName must be 1..200 chars");
+      } else {
+        out.display_name = trimmed;
+      }
+    }
+  } else if (!partial) {
+    out.display_name = "AI Assistant";
+  }
+
+  if (body.primaryColor !== undefined || body.primary_color !== undefined) {
+    const v = body.primaryColor ?? body.primary_color;
+    if (typeof v !== "string" || !/^#[0-9a-fA-F]{3,8}$/.test(v)) {
+      errors.push("primaryColor must be a valid hex color");
+    } else {
+      out.primary_color = v;
+    }
+  } else if (!partial) {
+    out.primary_color = "#3b82f6";
+  }
+
+  if (body.secondaryColor !== undefined || body.secondary_color !== undefined) {
+    const v = body.secondaryColor ?? body.secondary_color;
+    if (typeof v !== "string" || !/^#[0-9a-fA-F]{3,8}$/.test(v)) {
+      errors.push("secondaryColor must be a valid hex color");
+    } else {
+      out.secondary_color = v;
+    }
+  } else if (!partial) {
+    out.secondary_color = "#ffffff";
+  }
+
+  if (body.greetingMessage !== undefined || body.greeting_message !== undefined) {
+    const v = body.greetingMessage ?? body.greeting_message;
+    if (typeof v !== "string") {
+      errors.push("greetingMessage must be a string");
+    } else {
+      if (v.length > 2000) {
+        errors.push("greetingMessage must be <= 2000 chars");
+      } else {
+        out.greeting_message = v;
+      }
+    }
+  } else if (!partial) {
+    out.greeting_message = "Hello! How can I help you today?";
+  }
+
+  if (body.avatarUrl !== undefined || body.avatar_url !== undefined) {
+    const v = body.avatarUrl ?? body.avatar_url;
+    if (v !== null && v !== undefined && typeof v !== "string") {
+      errors.push("avatarUrl must be a string or null");
+    } else {
+      out.avatar_url = v || null;
+    }
+  } else if (!partial) {
+    out.avatar_url = null;
+  }
+
+  if (body.position !== undefined) {
+    const valid = new Set(["bottom-right", "bottom-left"]);
+    if (typeof body.position !== "string" || !valid.has(body.position)) {
+      errors.push("position must be 'bottom-right' or 'bottom-left'");
+    } else {
+      out.position = body.position;
+    }
+  } else if (!partial) {
+    out.position = "bottom-right";
+  }
+
+  // Multilanguage
+  if (body.defaultLanguage !== undefined || body.default_language !== undefined) {
+    const v = body.defaultLanguage ?? body.default_language;
+    if (typeof v !== "string") {
+      errors.push("defaultLanguage must be a string");
+    } else {
+      const trimmed = v.trim();
+      if (trimmed.length < 2 || trimmed.length > 10) {
+        errors.push("defaultLanguage must be 2..10 chars");
+      } else {
+        out.default_language = trimmed;
+      }
+    }
+  } else if (!partial) {
+    out.default_language = "en";
+  }
+
+  if (body.supportedLanguages !== undefined || body.supported_languages !== undefined) {
+    const v = body.supportedLanguages ?? body.supported_languages;
+    if (!Array.isArray(v)) {
+      errors.push("supportedLanguages must be an array");
+    } else {
+      const cleaned = v
+        .filter((s) => typeof s === "string" && s.trim().length >= 2 && s.trim().length <= 10)
+        .map((s) => s.trim());
+      if (cleaned.length === 0) {
+        errors.push("supportedLanguages must contain at least one valid language code");
+      } else {
+        out.supported_languages = cleaned;
+      }
+    }
+  } else if (!partial) {
+    out.supported_languages = ["en"];
+  }
+
+  // Rate limits
+  if (body.rateLimitBurst !== undefined || body.rate_limit_burst !== undefined) {
+    const v = body.rateLimitBurst ?? body.rate_limit_burst;
+    const n = typeof v === "number" ? v : parseInt(v, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 10000) {
+      errors.push("rateLimitBurst must be 1..10000");
+    } else {
+      out.rate_limit_burst = Math.trunc(n);
+    }
+  } else if (!partial) {
+    out.rate_limit_burst = 30;
+  }
+
+  if (body.rateLimitSustained !== undefined || body.rate_limit_sustained !== undefined) {
+    const v = body.rateLimitSustained ?? body.rate_limit_sustained;
+    const n = typeof v === "number" ? v : parseInt(v, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 100000) {
+      errors.push("rateLimitSustained must be 1..100000");
+    } else {
+      out.rate_limit_sustained = Math.trunc(n);
+    }
+  } else if (!partial) {
+    out.rate_limit_sustained = 500;
+  }
+
+  if (body.maxUploadSizeMb !== undefined || body.max_upload_size_mb !== undefined) {
+    const v = body.maxUploadSizeMb ?? body.max_upload_size_mb;
+    const n = typeof v === "number" ? v : parseInt(v, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 100) {
+      errors.push("maxUploadSizeMb must be 1..100");
+    } else {
+      out.max_upload_size_mb = Math.trunc(n);
+    }
+  } else if (!partial) {
+    out.max_upload_size_mb = 20;
+  }
+
+  // AI config preset link
+  if (body.aiConfigId !== undefined || body.ai_config_id !== undefined) {
+    const v = body.aiConfigId ?? body.ai_config_id;
+    if (v !== null && v !== undefined) {
+      const n = typeof v === "number" ? v : parseInt(v, 10);
+      if (!Number.isFinite(n) || n <= 0) {
+        errors.push("aiConfigId must be a positive integer or null");
+      } else {
+        out.ai_config_id = n;
+      }
+    } else {
+      out.ai_config_id = null;
+    }
+  }
+
+  if (errors.length > 0) {
+    return { ok: false, error: errors.join("; ") };
+  }
+  return { ok: true, value: out };
+}
+
+// Generate the 22-char base64url secret token.
+function generateSecretToken() {
+  return crypto.randomBytes(16).toString("base64url");
+}
+
+// Multer config for knowledge base uploads.
+const upload = multer({
+  dest: path.join(os.tmpdir(), "ai-assistant-uploads"),
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB hard cap; per-assistant limit enforced below
+  fileFilter(_req, file, cb) {
+    const allowed = new Set([".txt", ".md", ".pdf", ".docx", ".csv"]);
+    const ext = "." + file.originalname.split(".").pop().toLowerCase();
+    if (allowed.has(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Unsupported file type: ${ext}. Allowed: ${[...allowed].join(", ")}`));
+    }
+  },
+});
+
+// Select columns for config queries (avoids SELECT * for forward-compat).
+const CONFIG_COLUMNS = `c.id, c.project_id, p.name AS project_name,
+  c.name, c.secret_token, c.status,
+  c.ai_config_id, c.model, c.base_url, c.base_prompt,
+  c.display_name, c.primary_color, c.secondary_color,
+  c.greeting_message, c.avatar_url, c.position,
+  c.default_language, c.supported_languages,
+  c.allowed_origins, c.rate_limit_burst,
+  c.rate_limit_sustained, c.max_upload_size_mb,
+  c.created_at, c.updated_at`;
+
 // ---------------------------------------------------------------------------
-// GET / — paged list
+// GET /api/ai-assistant — paginated list of ai_assistant_configs
 // ---------------------------------------------------------------------------
 router.get("/", async (req, res) => {
+  const page = Math.max(0, parseInt(req.query.page ?? "0", 10) || 0);
+  const size = Math.min(
+    100,
+    Math.max(1, parseInt(req.query.size ?? "10", 10) || 10),
+  );
+  const sortField = req.query.sortField || "createdAt";
+  const sortOrder = req.query.sortOrder === "asc" ? "asc" : "desc";
+  const rawQueries = req.query.queries;
+  const queries = Array.isArray(rawQueries)
+    ? rawQueries
+    : rawQueries
+      ? [rawQueries]
+      : [];
+  const filterType = req.query.filterType === "all" ? "all" : "any";
+
+  const allocator = makePlaceholderAllocator(1);
+  const projectFilter = buildProjectFilterClause(
+    req.query.projectId ?? req.query.project_id,
+    allocator,
+  );
+  const searchFilter = buildWhereClause(queries, filterType, allocator);
+
+  const scopedProjectIds = await getScopedProjectIds(req);
+  const enduserScope =
+    scopedProjectIds === null || scopedProjectIds === undefined
+      ? { sql: "", params: [] }
+      : appendProjectScope({
+          placeholderIndex: allocator.next(),
+          projectIds: scopedProjectIds,
+          tableAlias: "c",
+        });
+  const enduserScopeSql = enduserScope.sql
+    ? enduserScope.sql.replace(/^\s*AND\b/i, "")
+    : "";
+
+  const allConditions = [projectFilter.sql, searchFilter.sql, enduserScopeSql].filter(Boolean);
+  const whereSql =
+    allConditions.length > 0 ? `WHERE ${allConditions.join(" AND ")}` : "";
+  const whereParams = [
+    ...projectFilter.params,
+    ...searchFilter.params,
+    ...enduserScope.params,
+  ];
+
+  const order = buildOrderClause(sortField, sortOrder);
+  const offset = page * size;
+  const limitPh = allocator.next();
+  const offsetPh = allocator.next();
+
   try {
-    const projectIds = await getScopedProjectIds(req);
-    const page = Math.max(0, parseInt(req.query.page) || 0);
-    const size = Math.min(100, Math.max(1, parseInt(req.query.size) || 20));
-    const sortField = req.query.sortField || "createdAt";
-    const sortOrder = req.query.sortOrder || "desc";
-    const queries = req.query.queries ? (Array.isArray(req.query.queries) ? req.query.queries : [req.query.queries]) : [];
-    const filterType = req.query.filterType || "any";
-    const projectId = req.query.projectId ? parseInt(req.query.projectId) : undefined;
+    const countSql = `SELECT COUNT(*)::int AS total
+                      FROM ai_assistant_configs c
+                      JOIN projects p ON p.id = c.project_id
+                      ${whereSql}`;
+    const countResult = await pool.query(countSql, whereParams);
+    const totalElements = countResult.rows[0].total;
 
-    const allocator = makePlaceholderAllocator();
-    const where = buildWhereClause(queries, filterType, allocator);
-    const projectFilter = buildProjectFilterClause(projectId, allocator.current() + 1);
-    const scope = appendProjectScope({ placeholderIndex: allocator.current() + 1, projectIds });
+    const dataSqlFinal = `SELECT ${CONFIG_COLUMNS}
+                           FROM ai_assistant_configs c
+                           JOIN projects p ON p.id = c.project_id
+                           ${whereSql}
+                           ${order}
+                           LIMIT ${limitPh} OFFSET ${offsetPh}`;
 
-    const conditions = [];
-    const params = [];
-    if (where.sql) { conditions.push(where.sql); params.push(...where.params); }
-    if (projectFilter.sql) { conditions.push(projectFilter.sql); params.push(...projectFilter.params); }
-    if (scope.sql) { conditions.push(scope.sql); params.push(...scope.params); }
-
-    const whereClause = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
-    const orderClause = buildOrderClause(sortField, sortOrder);
-
-    const countResult = await pool.query(
-      `SELECT COUNT(*)::int AS total FROM ai_assistant_configs c ${whereClause}`,
-      params,
-    );
-    const totalElements = countResult.rows[0]?.total ?? 0;
-
-    const dataResult = await pool.query(
-      `SELECT c.*, p.name AS project_name
-       FROM ai_assistant_configs c
-       JOIN projects p ON p.id = c.project_id
-       ${whereClause}
-       ${orderClause}
-       LIMIT ${size} OFFSET ${page * size}`,
-      params,
-    );
-
-    res.json({
-      content: dataResult.rows.map(rowToConfigDTO),
-      totalElements,
-      totalPages: Math.ceil(totalElements / size),
-      page,
+    const dataResult = await pool.query(dataSqlFinal, [
+      ...whereParams,
       size,
+      offset,
+    ]);
+
+    const totalPages = Math.max(1, Math.ceil(totalElements / size));
+    const rows = dataResult.rows.map(rowToConfigDTO);
+    const sorted = !!req.query.sortField;
+
+    return res.json({
+      totalPages,
+      totalElements,
+      pageable: {
+        paged: true,
+        pageSize: size,
+        pageNumber: page,
+        unpaged: false,
+        offset,
+        sort: { sorted, unsorted: !sorted, empty: false },
+      },
+      numberOfElements: rows.length,
+      size,
+      content: rows,
+      number: page,
+      sort: { sorted, unsorted: !sorted, empty: false },
+      first: page === 0,
+      last: page === totalPages - 1,
+      empty: rows.length === 0,
     });
   } catch (err) {
-    console.error("[ai-assistant] list error:", err.message);
-    res.status(500).json({ errorMessage: "Internal server error" });
+    console.error("[ai-assistant/list]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
   }
 });
 
 // ---------------------------------------------------------------------------
-// GET /by-project/:projectId — lazy create-or-return
+// GET /api/ai-assistant/by-project/:projectId
+// Lazy upsert: returns the existing config for the project, or creates one
+// with sensible defaults if none exists.
 // ---------------------------------------------------------------------------
 router.get("/by-project/:projectId", async (req, res) => {
-  if (forbidEnduserMutation(req, res)) return;
+  const projectId = parseInt(req.params.projectId, 10);
+  if (!Number.isFinite(projectId) || projectId <= 0) {
+    return res.status(400).json({ errorMessage: "Invalid project id" });
+  }
+  if (isEnduser(req)) {
+    const allowed = Array.isArray(req.user.projectIds)
+      ? req.user.projectIds.includes(projectId)
+      : false;
+    if (!allowed) return res.status(404).json({ errorMessage: "AI assistant config not found" });
+  }
   try {
-    const projectId = parseInt(req.params.projectId, 10);
-    if (!Number.isFinite(projectId) || projectId <= 0) {
-      return res.status(400).json({ errorMessage: "Invalid project ID" });
-    }
-
-    const existing = await pool.query(
-      `SELECT c.*, p.name AS project_name
-       FROM ai_assistant_configs c
-       JOIN projects p ON p.id = c.project_id
-       WHERE c.project_id = $1`,
+    const projectCheck = await pool.query(
+      `SELECT id, name FROM projects WHERE id = $1`,
       [projectId],
     );
-    if (existing.rowCount > 0) {
-      const dto = rowToConfigDTO(existing.rows[0]);
-      // Fetch translations
-      const trans = await pool.query(
-        `SELECT * FROM ai_assistant_translations WHERE assistant_id = $1`,
-        [dto.id],
-      );
-      dto.translations = trans.rows.map((r) => ({
-        id: Number(r.id),
-        assistantId: Number(r.assistant_id),
-        language: r.language,
-        displayName: r.display_name,
-        greetingMessage: r.greeting_message,
-        placeholder: r.placeholder,
-        createdAt: new Date(r.created_at).toISOString(),
-        updatedAt: new Date(r.updated_at).toISOString(),
-      }));
-      return res.json(dto);
+    if (projectCheck.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "Project not found" });
     }
-
-    // Lazy create
+    const projectName = projectCheck.rows[0].name;
     const secretToken = generateSecretToken();
-    const result = await pool.query(
+    const insertResult = await pool.query(
       `INSERT INTO ai_assistant_configs (project_id, name, secret_token)
        VALUES ($1, $2, $3)
-       RETURNING *, (SELECT name FROM projects WHERE id = $1) AS project_name`,
-      [projectId, "AI Assistant", secretToken],
+       ON CONFLICT (project_id) DO NOTHING
+       RETURNING ${CONFIG_COLUMNS.replace(/^c\./gm, "").split(",").map((c) => "c." + c.trim()).join(", ")}`,
+      [projectId, projectName, secretToken],
     );
-    const dto = rowToConfigDTO(result.rows[0]);
-    dto.translations = [];
-    res.status(201).json(dto);
+    let row;
+    if (insertResult.rowCount > 0) {
+      row = insertResult.rows[0];
+    } else {
+      const { rows } = await pool.query(
+        `SELECT ${CONFIG_COLUMNS}
+         FROM ai_assistant_configs c
+         JOIN projects p ON p.id = c.project_id
+         WHERE c.project_id = $1`,
+        [projectId],
+      );
+      row = rows[0];
+    }
+    return res.json({ ...rowToConfigDTO(row), projectName });
   } catch (err) {
-    console.error("[ai-assistant] by-project error:", err.message);
-    res.status(500).json({ errorMessage: "Internal server error" });
+    if (err.code === "23505") {
+      try {
+        const { rows } = await pool.query(
+          `SELECT ${CONFIG_COLUMNS}
+           FROM ai_assistant_configs c
+           JOIN projects p ON p.id = c.project_id
+           WHERE c.project_id = $1`,
+          [projectId],
+        );
+        if (rows.length > 0) return res.json(rowToConfigDTO(rows[0]));
+      } catch (e2) {
+        console.error("[ai-assistant/by-project] re-read", e2.code, e2.message);
+      }
+      return res.status(409).json({ errorMessage: "Conflict, please retry" });
+    }
+    console.error("[ai-assistant/by-project]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
   }
 });
 
 // ---------------------------------------------------------------------------
-// GET /:id — single config with translations
+// GET /api/ai-assistant/:id
+// Returns config with translations included.
 // ---------------------------------------------------------------------------
 router.get("/:id", async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (!Number.isFinite(id) || id <= 0) return res.status(404).json({ errorMessage: "Not found" });
-
-    const projectIds = await getScopedProjectIds(req);
-    let scopeClause = "";
-    let params = [id];
-    if (projectIds !== null) {
-      scopeClause = `AND c.project_id = ANY($2::bigint[])`;
-      params.push(projectIds);
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ errorMessage: "Invalid id" });
+  }
+  if (isEnduser(req)) {
+    const pre = await pool.query(
+      `SELECT project_id FROM ai_assistant_configs WHERE id = $1`,
+      [id],
+    );
+    if (pre.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "AI assistant config not found" });
     }
-
-    const result = await pool.query(
-      `SELECT c.*, p.name AS project_name
+    const allowed = Array.isArray(req.user.projectIds)
+      ? req.user.projectIds.includes(Number(pre.rows[0].project_id))
+      : false;
+    if (!allowed) return res.status(404).json({ errorMessage: "AI assistant config not found" });
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT ${CONFIG_COLUMNS}
        FROM ai_assistant_configs c
        JOIN projects p ON p.id = c.project_id
-       WHERE c.id = $1 ${scopeClause}`,
-      params,
+       WHERE c.id = $1`,
+      [id],
     );
-    if (result.rowCount === 0) return res.status(404).json({ errorMessage: "Not found" });
+    if (rows.length === 0) {
+      return res.status(404).json({ errorMessage: "AI assistant config not found" });
+    }
+    const dto = rowToConfigDTO(rows[0]);
 
-    const dto = rowToConfigDTO(result.rows[0]);
-    const trans = await pool.query(
-      `SELECT * FROM ai_assistant_translations WHERE assistant_id = $1`,
-      [dto.id],
+    const { rows: translations } = await pool.query(
+      `SELECT id, assistant_id, language, display_name, greeting_message, placeholder,
+              created_at, updated_at
+       FROM ai_assistant_translations
+       WHERE assistant_id = $1
+       ORDER BY language ASC`,
+      [id],
     );
-    dto.translations = trans.rows.map((r) => ({
-      id: Number(r.id),
-      assistantId: Number(r.assistant_id),
-      language: r.language,
-      displayName: r.display_name,
-      greetingMessage: r.greeting_message,
-      placeholder: r.placeholder,
-      createdAt: new Date(r.created_at).toISOString(),
-      updatedAt: new Date(r.updated_at).toISOString(),
+    dto.translations = translations.map((t) => ({
+      id: Number(t.id),
+      assistantId: Number(t.assistant_id),
+      language: t.language,
+      displayName: t.display_name ?? null,
+      greetingMessage: t.greeting_message ?? null,
+      placeholder: t.placeholder ?? null,
+      createdAt: new Date(t.created_at).toISOString(),
+      updatedAt: new Date(t.updated_at).toISOString(),
     }));
-    res.json(dto);
+
+    return res.json(dto);
   } catch (err) {
-    console.error("[ai-assistant] get error:", err.message);
-    res.status(500).json({ errorMessage: "Internal server error" });
+    console.error("[ai-assistant/get]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
   }
 });
 
 // ---------------------------------------------------------------------------
-// PUT /:id — update config + translations
+// PUT /api/ai-assistant/:id
+// Update config including translations array. Uses a transaction.
+// Translations: delete rows with _delete: true, update rows with an id,
+// insert new rows without an id.
 // ---------------------------------------------------------------------------
 router.put("/:id", async (req, res) => {
-  if (forbidEnduserMutation(req, res)) return;
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ errorMessage: "Invalid id" });
+  }
+  const { translations, ...configBody } = req.body;
+  const validation = validateConfigBody(configBody, { partial: true });
+  if (!validation.ok) {
+    return res.status(400).json({ errorMessage: validation.error });
+  }
+  const v = validation.value;
+  const hasTranslations = Array.isArray(translations);
+
+  if (Object.keys(v).length === 0 && !hasTranslations) {
+    return res.status(400).json({ errorMessage: "No updatable fields provided" });
+  }
+
+  const client = await pool.connect();
   try {
-    const id = parseInt(req.params.id, 10);
-    if (!Number.isFinite(id) || id <= 0) return res.status(404).json({ errorMessage: "Not found" });
+    await client.query("BEGIN");
 
-    const body = req.body;
-    const sets = [];
-    const params = [];
-    let idx = 1;
-
-    if (body.name !== undefined) { sets.push(`name = $${idx++}`); params.push(String(body.name).trim()); }
-    if (body.model !== undefined) { sets.push(`model = $${idx++}`); params.push(String(body.model).trim()); }
-    if (body.baseUrl !== undefined) { sets.push(`base_url = $${idx++}`); params.push(String(body.baseUrl).trim()); }
-    if (body.apiKey !== undefined && body.apiKey !== "") { sets.push(`api_key_enc = $${idx++}`); params.push(String(body.apiKey)); }
-    if (body.basePrompt !== undefined) { sets.push(`base_prompt = $${idx++}`); params.push(String(body.basePrompt)); }
-    if (body.displayName !== undefined) { sets.push(`display_name = $${idx++}`); params.push(String(body.displayName)); }
-    if (body.primaryColor !== undefined) { sets.push(`primary_color = $${idx++}`); params.push(String(body.primaryColor)); }
-    if (body.secondaryColor !== undefined) { sets.push(`secondary_color = $${idx++}`); params.push(String(body.secondaryColor)); }
-    if (body.greetingMessage !== undefined) { sets.push(`greeting_message = $${idx++}`); params.push(String(body.greetingMessage)); }
-    if (body.avatarUrl !== undefined) { sets.push(`avatar_url = $${idx++}`); params.push(body.avatarUrl || null); }
-    if (body.position !== undefined) { sets.push(`position = $${idx++}`); params.push(String(body.position)); }
-    if (body.defaultLanguage !== undefined) { sets.push(`default_language = $${idx++}`); params.push(String(body.defaultLanguage)); }
-    if (body.supportedLanguages !== undefined) { sets.push(`supported_languages = $${idx++}`); params.push(body.supportedLanguages); }
-    if (body.status !== undefined) { sets.push(`status = $${idx++}`); params.push(String(body.status)); }
-    if (body.rateLimitBurst !== undefined) { sets.push(`rate_limit_burst = $${idx++}`); params.push(parseInt(body.rateLimitBurst) || 30); }
-    if (body.rateLimitSustained !== undefined) { sets.push(`rate_limit_sustained = $${idx++}`); params.push(parseInt(body.rateLimitSustained) || 500); }
-    if (body.maxUploadSizeMb !== undefined) { sets.push(`max_upload_size_mb = $${idx++}`); params.push(parseInt(body.maxUploadSizeMb) || 20); }
-    if (body.aiConfigPresetId !== undefined) { sets.push(`ai_config_id = $${idx++}`); params.push(body.aiConfigPresetId || null); }
-
-    // Allowed origins
-    if (body.allowedOrigins !== undefined) {
-      const cleaned = Array.isArray(body.allowedOrigins) ? body.allowedOrigins : [];
-      const seen = new Set();
-      const valid = [];
-      for (let i = 0; i < cleaned.length; i++) {
-        const result = validateAllowedOriginsEntry(cleaned[i], i, seen);
-        if (result.ok) valid.push(result.value);
+    // Update config fields (if any)
+    if (Object.keys(v).length > 0) {
+      const setClauses = [];
+      const params = [id];
+      let p = 2;
+      for (const [col, val] of Object.entries(v)) {
+        setClauses.push(`${col} = $${p}`);
+        params.push(val);
+        p++;
       }
-      if (cleaned.length > ALLOWED_ORIGINS_MAX) {
-        return res.status(400).json({ errorMessage: `Max ${ALLOWED_ORIGINS_MAX} origins allowed` });
+      setClauses.push("updated_at = now()");
+
+      const sql = `UPDATE ai_assistant_configs
+                   SET ${setClauses.join(", ")}
+                   WHERE id = $1
+                   RETURNING id`;
+      const { rowCount } = await client.query(sql, params);
+      if (rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ errorMessage: "AI assistant config not found" });
       }
-      sets.push(`allowed_origins = $${idx++}`); params.push(valid);
     }
 
-    if (sets.length === 0 && !body.translations) {
-      return res.status(400).json({ errorMessage: "No fields to update" });
-    }
-
-    // Use transaction for config + translations
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-
-      if (sets.length > 0) {
-        params.push(id);
+    // Handle translations array (if provided)
+    if (hasTranslations) {
+      // 1. Delete rows marked with _delete: true
+      const toDelete = translations
+        .filter((t) => t._delete === true && t.id)
+        .map((t) => Number(t.id));
+      if (toDelete.length > 0) {
         await client.query(
-          `UPDATE ai_assistant_configs SET ${sets.join(", ")} WHERE id = $${idx}`,
-          params,
+          `DELETE FROM ai_assistant_translations WHERE id = ANY($1::bigint[]) AND assistant_id = $2`,
+          [toDelete, id],
         );
       }
 
-      // Handle translations
-      if (Array.isArray(body.translations)) {
-        for (const t of body.translations) {
-          if (t._delete && t.id) {
-            await client.query(`DELETE FROM ai_assistant_translations WHERE id = $1 AND assistant_id = $2`, [t.id, id]);
-          } else if (t.id) {
-            await client.query(
-              `UPDATE ai_assistant_translations SET display_name = $1, greeting_message = $2, placeholder = $3 WHERE id = $4 AND assistant_id = $5`,
-              [t.displayName || null, t.greetingMessage || null, t.placeholder || null, t.id, id],
-            );
-          } else if (t.language) {
-            await client.query(
-              `INSERT INTO ai_assistant_translations (assistant_id, language, display_name, greeting_message, placeholder)
-               VALUES ($1, $2, $3, $4, $5)
-               ON CONFLICT (assistant_id, language) DO UPDATE SET display_name = $3, greeting_message = $4, placeholder = $5`,
-              [id, t.language, t.displayName || null, t.greetingMessage || null, t.placeholder || null],
-            );
-          }
-        }
+      // 2. Update rows with an id (that aren't marked for deletion)
+      const toUpdate = translations.filter((t) => t.id && !t._delete);
+      for (const t of toUpdate) {
+        await client.query(
+          `UPDATE ai_assistant_translations
+           SET display_name = $1, greeting_message = $2, placeholder = $3, language = $4, updated_at = NOW()
+           WHERE id = $5 AND assistant_id = $6`,
+          [
+            t.displayName ?? t.display_name ?? null,
+            t.greetingMessage ?? t.greeting_message ?? null,
+            t.placeholder ?? null,
+            t.language,
+            Number(t.id),
+            id,
+          ],
+        );
       }
 
-      await client.query("COMMIT");
-    } catch (txErr) {
-      await client.query("ROLLBACK");
-      throw txErr;
-    } finally {
-      client.release();
+      // 3. Insert new rows without an id
+      const toInsert = translations.filter((t) => !t.id && !t._delete && t.language);
+      for (const t of toInsert) {
+        await client.query(
+          `INSERT INTO ai_assistant_translations
+             (assistant_id, language, display_name, greeting_message, placeholder)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (assistant_id, language) DO UPDATE SET
+             display_name = EXCLUDED.display_name,
+             greeting_message = EXCLUDED.greeting_message,
+             placeholder = EXCLUDED.placeholder,
+             updated_at = NOW()`,
+          [
+            id,
+            t.language,
+            t.displayName ?? t.display_name ?? null,
+            t.greetingMessage ?? t.greeting_message ?? null,
+            t.placeholder ?? null,
+          ],
+        );
+      }
     }
 
-    // Return updated config
-    const result = await pool.query(
-      `SELECT c.*, p.name AS project_name FROM ai_assistant_configs c JOIN projects p ON p.id = c.project_id WHERE c.id = $1`,
+    await client.query("COMMIT");
+
+    // Re-read the full config with translations for the response.
+    const { rows: joined } = await pool.query(
+      `SELECT ${CONFIG_COLUMNS}
+       FROM ai_assistant_configs c
+       JOIN projects p ON p.id = c.project_id
+       WHERE c.id = $1`,
       [id],
     );
-    if (result.rowCount === 0) return res.status(404).json({ errorMessage: "Not found" });
+    if (joined.length === 0) {
+      return res.status(404).json({ errorMessage: "AI assistant config not found" });
+    }
+    const dto = rowToConfigDTO(joined[0]);
 
-    const dto = rowToConfigDTO(result.rows[0]);
-    const trans = await pool.query(`SELECT * FROM ai_assistant_translations WHERE assistant_id = $1`, [id]);
-    dto.translations = trans.rows.map((r) => ({
-      id: Number(r.id), assistantId: Number(r.assistant_id), language: r.language,
-      displayName: r.display_name, greetingMessage: r.greeting_message, placeholder: r.placeholder,
-      createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
+    const { rows: tr } = await pool.query(
+      `SELECT id, assistant_id, language, display_name, greeting_message, placeholder,
+              created_at, updated_at
+       FROM ai_assistant_translations
+       WHERE assistant_id = $1
+       ORDER BY language ASC`,
+      [id],
+    );
+    dto.translations = tr.map((t) => ({
+      id: Number(t.id),
+      assistantId: Number(t.assistant_id),
+      language: t.language,
+      displayName: t.display_name ?? null,
+      greetingMessage: t.greeting_message ?? null,
+      placeholder: t.placeholder ?? null,
+      createdAt: new Date(t.created_at).toISOString(),
+      updatedAt: new Date(t.updated_at).toISOString(),
     }));
-    res.json(dto);
+
+    return res.json(dto);
   } catch (err) {
-    console.error("[ai-assistant] update error:", err.message);
-    res.status(500).json({ errorMessage: "Internal server error" });
+    await client.query("ROLLBACK");
+    if (err.code === "23514") {
+      return res.status(400).json({ errorMessage: "Invalid field value" });
+    }
+    console.error("[ai-assistant/update]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  } finally {
+    client.release();
   }
 });
 
 // ---------------------------------------------------------------------------
-// DELETE /:id
+// DELETE /api/ai-assistant/:id
+// Hard delete. CASCADE wipes translations, knowledge base, chunks, sessions,
+// and messages.
 // ---------------------------------------------------------------------------
 router.delete("/:id", async (req, res) => {
-  if (forbidEnduserMutation(req, res)) return;
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ errorMessage: "Invalid id" });
+  }
   try {
-    const id = parseInt(req.params.id, 10);
-    if (!Number.isFinite(id) || id <= 0) return res.status(404).json({ errorMessage: "Not found" });
-    const result = await pool.query(`DELETE FROM ai_assistant_configs WHERE id = $1`, [id]);
-    if (result.rowCount === 0) return res.status(404).json({ errorMessage: "Not found" });
-    res.status(204).end();
+    const { rowCount } = await pool.query(
+      `DELETE FROM ai_assistant_configs WHERE id = $1`,
+      [id],
+    );
+    if (rowCount === 0) {
+      return res.status(404).json({ errorMessage: "AI assistant config not found" });
+    }
+    return res.status(204).send();
   } catch (err) {
-    console.error("[ai-assistant] delete error:", err.message);
-    res.status(500).json({ errorMessage: "Internal server error" });
+    console.error("[ai-assistant/delete]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
   }
 });
 
 // ---------------------------------------------------------------------------
-// GET /:id/snippet — render embed snippet
+// GET /api/ai-assistant/:id/snippet
+// Returns the generated <script> tag for embedding the AI assistant widget.
 // ---------------------------------------------------------------------------
 router.get("/:id/snippet", async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (!Number.isFinite(id) || id <= 0) return res.status(404).json({ errorMessage: "Not found" });
-
-    const result = await pool.query(
-      `SELECT secret_token, default_language, allowed_origins FROM ai_assistant_configs WHERE id = $1`,
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ errorMessage: "Invalid id" });
+  }
+  if (isEnduser(req)) {
+    const pre = await pool.query(
+      `SELECT project_id FROM ai_assistant_configs WHERE id = $1`,
       [id],
     );
-    if (result.rowCount === 0) return res.status(404).json({ errorMessage: "Not found" });
-
-    const row = result.rows[0];
-    const appUrl = process.env.APP_PUBLIC_URL || `${req.protocol}://${req.headers.host}`;
-    const scriptUrl = `${appUrl}/api/public/ai-assistant/${row.secret_token}/script.js`;
-    const html = `<script src="${scriptUrl}" data-lang="${row.default_language}" defer></script>`;
-
-    let allowedOrigins = [];
-    if (Array.isArray(row.allowed_origins)) allowedOrigins = row.allowed_origins;
-    else if (typeof row.allowed_origins === "string" && row.allowed_origins.length > 0) {
-      try { allowedOrigins = JSON.parse(row.allowed_origins); } catch { allowedOrigins = []; }
+    if (pre.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "AI assistant config not found" });
     }
-
-    res.json({ html, scriptUrl, secretToken: row.secret_token, origin: appUrl, defaultLanguage: row.default_language, allowedOrigins });
+    const allowed = Array.isArray(req.user.projectIds)
+      ? req.user.projectIds.includes(Number(pre.rows[0].project_id))
+      : false;
+    if (!allowed) return res.status(404).json({ errorMessage: "AI assistant config not found" });
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT name, secret_token, default_language, allowed_origins
+       FROM ai_assistant_configs WHERE id = $1`,
+      [id],
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ errorMessage: "AI assistant config not found" });
+    }
+    const config = rows[0];
+    const origin =
+      process.env.APP_PUBLIC_URL ||
+      `${req.protocol}://${req.headers.host}`;
+    const scriptUrl = `${origin}/api/public/ai-assistant/${config.secret_token}/script.js`;
+    const defaultLanguage = config.default_language || "en";
+    const snippet = [
+      `<!-- AI Assistant "${config.name}" -->`,
+      `<script src="${scriptUrl}" data-lang="${defaultLanguage}" defer></script>`,
+    ].join("\n");
+    return res.json({
+      html: snippet,
+      scriptUrl,
+      secretToken: config.secret_token,
+      defaultLanguage,
+      origin,
+      allowedOrigins: Array.isArray(config.allowed_origins)
+        ? config.allowed_origins.filter((s) => typeof s === "string")
+        : [],
+    });
   } catch (err) {
-    console.error("[ai-assistant] snippet error:", err.message);
-    res.status(500).json({ errorMessage: "Internal server error" });
+    console.error("[ai-assistant/snippet]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
   }
 });
 
 // ---------------------------------------------------------------------------
-// GET /:id/knowledge — list knowledge base documents
+// GET /api/ai-assistant/:id/knowledge
+// List knowledge base documents for this assistant.
 // ---------------------------------------------------------------------------
 router.get("/:id/knowledge", async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (!Number.isFinite(id) || id <= 0) return res.status(404).json({ errorMessage: "Not found" });
-    const result = await pool.query(
-      `SELECT * FROM ai_knowledge_base WHERE assistant_id = $1 ORDER BY created_at DESC`,
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ errorMessage: "Invalid id" });
+  }
+  if (isEnduser(req)) {
+    const pre = await pool.query(
+      `SELECT project_id FROM ai_assistant_configs WHERE id = $1`,
       [id],
     );
-    res.json(result.rows.map((r) => ({
-      id: Number(r.id), assistantId: Number(r.assistant_id), filename: r.filename,
-      originalFilename: r.original_filename, fileType: r.file_type,
-      fileSizeBytes: Number(r.file_size_bytes), status: r.status,
-      errorMessage: r.error_message, chunkCount: r.chunk_count,
-      createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
-    })));
+    if (pre.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "AI assistant config not found" });
+    }
+    const allowed = Array.isArray(req.user.projectIds)
+      ? req.user.projectIds.includes(Number(pre.rows[0].project_id))
+      : false;
+    if (!allowed) return res.status(404).json({ errorMessage: "AI assistant config not found" });
+  }
+  try {
+    const configCheck = await pool.query(
+      `SELECT id FROM ai_assistant_configs WHERE id = $1`,
+      [id],
+    );
+    if (configCheck.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "AI assistant config not found" });
+    }
+    const { rows } = await pool.query(
+      `SELECT id, assistant_id, filename, original_filename, file_type,
+              file_size_bytes, status, error_message, chunk_count,
+              created_at, updated_at
+       FROM ai_knowledge_base
+       WHERE assistant_id = $1
+       ORDER BY created_at DESC`,
+      [id],
+    );
+    return res.json(
+      rows.map((r) => ({
+        id: Number(r.id),
+        assistantId: Number(r.assistant_id),
+        filename: r.filename,
+        originalFilename: r.original_filename,
+        fileType: r.file_type,
+        fileSizeBytes: Number(r.file_size_bytes),
+        status: r.status,
+        errorMessage: r.error_message ?? null,
+        chunkCount: Number(r.chunk_count),
+        createdAt: new Date(r.created_at).toISOString(),
+        updatedAt: new Date(r.updated_at).toISOString(),
+      })),
+    );
   } catch (err) {
-    console.error("[ai-assistant] knowledge list error:", err.message);
-    res.status(500).json({ errorMessage: "Internal server error" });
+    console.error("[ai-assistant/knowledge-list]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
   }
 });
 
 // ---------------------------------------------------------------------------
-// POST /:id/knowledge — upload document (multipart/form-data)
+// POST /api/ai-assistant/:id/knowledge
+// Upload a document for the RAG knowledge base. Uses multer for multipart.
 // ---------------------------------------------------------------------------
 router.post("/:id/knowledge", async (req, res) => {
-  if (forbidEnduserMutation(req, res)) return;
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
+
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ errorMessage: "Invalid id" });
+  }
+
+  // Verify assistant exists and get upload limits.
+  let maxUploadSizeMb = 20;
   try {
-    const id = parseInt(req.params.id, 10);
-    if (!Number.isFinite(id) || id <= 0) return res.status(404).json({ errorMessage: "Not found" });
-
-    // Check assistant exists and get upload limit
-    const configResult = await pool.query(`SELECT max_upload_size_mb FROM ai_assistant_configs WHERE id = $1`, [id]);
-    if (configResult.rowCount === 0) return res.status(404).json({ errorMessage: "Not found" });
-    const maxUploadMb = configResult.rows[0].max_upload_size_mb || 20;
-
-    // Manual multipart parsing (avoids express-fileupload dependency for now)
-    // The FE sends FormData with a single "file" field
-    if (!req.files || !req.files.file) {
-      return res.status(400).json({ errorMessage: "No file uploaded" });
-    }
-
-    const file = req.files.file;
-    const maxSize = maxUploadMb * 1024 * 1024;
-    if (file.size > maxSize) {
-      return res.status(400).json({ errorMessage: `File exceeds max size of ${maxUploadMb}MB` });
-    }
-
-    const ALLOWED_TYPES = new Set([".pdf", ".txt", ".md", ".docx", ".csv"]);
-    const ext = "." + file.name.split(".").pop().toLowerCase();
-    if (!ALLOWED_TYPES.has(ext)) {
-      return res.status(400).json({ errorMessage: "Unsupported file type" });
-    }
-
-    // Store file
-    const uploadsDir = path.join(__dirname, "..", "uploads", "ai-knowledge", String(id));
-    await fs.mkdir(uploadsDir, { recursive: true });
-    const storedName = `${crypto.randomBytes(8).toString("hex")}${ext}`;
-    const filePath = path.join(uploadsDir, storedName);
-    await file.mv(filePath);
-
-    // Insert record
-    const insertResult = await pool.query(
-      `INSERT INTO ai_knowledge_base (assistant_id, filename, original_filename, file_type, file_size_bytes)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [id, storedName, file.name, ext.slice(1), file.size],
+    const { rows } = await pool.query(
+      `SELECT id, max_upload_size_mb FROM ai_assistant_configs WHERE id = $1`,
+      [id],
     );
-    const doc = insertResult.rows[0];
+    if (rows.length === 0) {
+      return res.status(404).json({ errorMessage: "AI assistant config not found" });
+    }
+    maxUploadSizeMb = Number(rows[0].max_upload_size_mb) || 20;
+  } catch (err) {
+    console.error("[ai-assistant/knowledge-upload/check]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
 
-    // Process asynchronously (don't await — fire and forget)
-    const { processDocument } = await import("../lib/ai-knowledge-processor.js");
+  // Run multer via middleware-style call.
+  const multerUpload = upload.single("file");
+  try {
+    await new Promise((resolve, reject) => {
+      multerUpload(req, res, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  } catch (err) {
+    if (err instanceof multer.MulterError) {
+      return res.status(400).json({ errorMessage: `Upload error: ${err.message}` });
+    }
+    return res.status(400).json({ errorMessage: err.message || "Upload failed" });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ errorMessage: "No file provided" });
+  }
+
+  // Validate file size against per-assistant limit.
+  const sizeBytes = req.file.size;
+  const maxSizeBytes = maxUploadSizeMb * 1024 * 1024;
+  if (sizeBytes > maxSizeBytes) {
+    const fs = await import("node:fs/promises");
+    await fs.unlink(req.file.path).catch(() => {});
+    return res.status(400).json({
+      errorMessage: `File too large. Maximum size is ${maxUploadSizeMb} MB`,
+    });
+  }
+
+  const fileType = "." + req.file.originalname.split(".").pop().toLowerCase();
+  const filename = `${id}_${Date.now()}_${req.file.originalname}`;
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO ai_knowledge_base
+         (assistant_id, filename, original_filename, file_type, file_size_bytes, status)
+       VALUES ($1, $2, $3, $4, $5, 'processing')
+       RETURNING id, assistant_id, filename, original_filename, file_type,
+                 file_size_bytes, status, error_message, chunk_count,
+                 created_at, updated_at`,
+      [id, filename, req.file.originalname, fileType, sizeBytes],
+    );
+    const doc = rows[0];
+
+    // Fire-and-forget: process the document in the background.
     processDocument({
       documentId: Number(doc.id),
       assistantId: id,
-      filePath,
-      fileType: ext.slice(1),
+      filePath: req.file.path,
+      fileType,
     }).catch((err) => {
-      console.error("[ai-assistant] document processing error:", err.message);
+      console.error("[ai-assistant/knowledge-upload/process]", err.message);
     });
 
-    res.status(201).json({
-      id: Number(doc.id), assistantId: Number(doc.assistant_id), filename: doc.filename,
-      originalFilename: doc.original_filename, fileType: doc.file_type,
-      fileSizeBytes: Number(doc.file_size_bytes), status: doc.status,
-      errorMessage: doc.error_message, chunkCount: doc.chunk_count,
-      createdAt: new Date(doc.created_at).toISOString(), updatedAt: new Date(doc.updated_at).toISOString(),
+    return res.status(201).json({
+      id: Number(doc.id),
+      assistantId: Number(doc.assistant_id),
+      filename: doc.filename,
+      originalFilename: doc.original_filename,
+      fileType: doc.file_type,
+      fileSizeBytes: Number(doc.file_size_bytes),
+      status: doc.status,
+      errorMessage: doc.error_message ?? null,
+      chunkCount: Number(doc.chunk_count),
+      createdAt: new Date(doc.created_at).toISOString(),
+      updatedAt: new Date(doc.updated_at).toISOString(),
     });
   } catch (err) {
-    console.error("[ai-assistant] knowledge upload error:", err.message);
-    res.status(500).json({ errorMessage: "Internal server error" });
+    console.error("[ai-assistant/knowledge-upload]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
   }
 });
 
 // ---------------------------------------------------------------------------
-// DELETE /:id/knowledge/:docId — delete document + chunks
+// DELETE /api/ai-assistant/:id/knowledge/:docId
+// Delete a knowledge base document and its chunks (CASCADE).
 // ---------------------------------------------------------------------------
 router.delete("/:id/knowledge/:docId", async (req, res) => {
-  if (forbidEnduserMutation(req, res)) return;
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
+
+  const id = parseInt(req.params.id, 10);
+  const docId = parseInt(req.params.docId, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ errorMessage: "Invalid id" });
+  }
+  if (!Number.isFinite(docId) || docId <= 0) {
+    return res.status(400).json({ errorMessage: "Invalid document id" });
+  }
+
   try {
-    const docId = parseInt(req.params.docId, 10);
-    if (!Number.isFinite(docId) || docId <= 0) return res.status(404).json({ errorMessage: "Not found" });
-    const result = await pool.query(`DELETE FROM ai_knowledge_base WHERE id = $1`, [docId]);
-    if (result.rowCount === 0) return res.status(404).json({ errorMessage: "Not found" });
-    res.status(204).end();
+    const { rowCount } = await pool.query(
+      `DELETE FROM ai_knowledge_base WHERE id = $1 AND assistant_id = $2`,
+      [docId, id],
+    );
+    if (rowCount === 0) {
+      return res.status(404).json({ errorMessage: "Document not found" });
+    }
+    return res.status(204).send();
   } catch (err) {
-    console.error("[ai-assistant] knowledge delete error:", err.message);
-    res.status(500).json({ errorMessage: "Internal server error" });
+    console.error("[ai-assistant/knowledge-delete]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
   }
 });
 
 // ---------------------------------------------------------------------------
-// GET /:id/sessions — paged chat sessions
+// GET /api/ai-assistant/:id/sessions
+// Paged list of chat sessions for this assistant.
 // ---------------------------------------------------------------------------
 router.get("/:id/sessions", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ errorMessage: "Invalid id" });
+  }
+  if (isEnduser(req)) {
+    const pre = await pool.query(
+      `SELECT project_id FROM ai_assistant_configs WHERE id = $1`,
+      [id],
+    );
+    if (pre.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "AI assistant config not found" });
+    }
+    const allowed = Array.isArray(req.user.projectIds)
+      ? req.user.projectIds.includes(Number(pre.rows[0].project_id))
+      : false;
+    if (!allowed) return res.status(404).json({ errorMessage: "AI assistant config not found" });
+  }
+  const page = Math.max(0, parseInt(req.query.page ?? "0", 10) || 0);
+  const size = Math.min(
+    100,
+    Math.max(1, parseInt(req.query.size ?? "20", 10) || 20),
+  );
+  const offset = page * size;
+
   try {
-    const id = parseInt(req.params.id, 10);
-    if (!Number.isFinite(id) || id <= 0) return res.status(404).json({ errorMessage: "Not found" });
-    const page = Math.max(0, parseInt(req.query.page) || 0);
-    const size = Math.min(100, Math.max(1, parseInt(req.query.size) || 20));
+    const configCheck = await pool.query(
+      `SELECT id FROM ai_assistant_configs WHERE id = $1`,
+      [id],
+    );
+    if (configCheck.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "AI assistant config not found" });
+    }
 
     const countResult = await pool.query(
-      `SELECT COUNT(*)::int AS total FROM ai_chat_sessions WHERE assistant_id = $1`, [id],
+      `SELECT COUNT(*)::int AS total FROM ai_chat_sessions WHERE assistant_id = $1`,
+      [id],
     );
-    const totalElements = countResult.rows[0]?.total ?? 0;
+    const totalElements = countResult.rows[0].total;
 
-    const result = await pool.query(
-      `SELECT s.*, (SELECT COUNT(*)::int FROM ai_chat_messages WHERE session_id = s.id) AS message_count
-       FROM ai_chat_sessions s
-       WHERE s.assistant_id = $1
-       ORDER BY s.created_at DESC
+    const { rows } = await pool.query(
+      `SELECT id, assistant_id, session_id, visitor_id, language,
+              ip_address, user_agent, created_at, updated_at
+       FROM ai_chat_sessions
+       WHERE assistant_id = $1
+       ORDER BY created_at DESC
        LIMIT $2 OFFSET $3`,
-      [id, size, page * size],
+      [id, size, offset],
     );
 
-    res.json({
-      content: result.rows.map((r) => ({
-        id: Number(r.id), assistantId: Number(r.assistant_id), sessionId: r.session_id,
-        visitorId: r.visitor_id, language: r.language, messageCount: r.message_count,
-        createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
+    const totalPages = Math.max(1, Math.ceil(totalElements / size));
+    return res.json({
+      totalPages,
+      totalElements,
+      pageable: {
+        paged: true,
+        pageSize: size,
+        pageNumber: page,
+        unpaged: false,
+        offset,
+        sort: { sorted: true, unsorted: false, empty: false },
+      },
+      numberOfElements: rows.length,
+      size,
+      content: rows.map((r) => ({
+        id: Number(r.id),
+        assistantId: Number(r.assistant_id),
+        sessionId: r.session_id,
+        visitorId: r.visitor_id ?? null,
+        language: r.language,
+        ipAddress: r.ip_address ?? null,
+        userAgent: r.user_agent ?? null,
+        createdAt: new Date(r.created_at).toISOString(),
+        updatedAt: new Date(r.updated_at).toISOString(),
       })),
-      totalElements, totalPages: Math.ceil(totalElements / size), page, size,
+      number: page,
+      sort: { sorted: true, unsorted: false, empty: false },
+      first: page === 0,
+      last: page === totalPages - 1,
+      empty: rows.length === 0,
     });
   } catch (err) {
-    console.error("[ai-assistant] sessions error:", err.message);
-    res.status(500).json({ errorMessage: "Internal server error" });
+    console.error("[ai-assistant/sessions]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
   }
 });
 
 // ---------------------------------------------------------------------------
-// GET /:id/sessions/:sessionId — messages for a session
+// GET /api/ai-assistant/:id/sessions/:sessionId
+// Get messages for a specific chat session.
 // ---------------------------------------------------------------------------
 router.get("/:id/sessions/:sessionId", async (req, res) => {
-  try {
-    const sessionId = parseInt(req.params.sessionId, 10);
-    if (!Number.isFinite(sessionId) || sessionId <= 0) return res.status(404).json({ errorMessage: "Not found" });
-    const result = await pool.query(
-      `SELECT * FROM ai_chat_messages WHERE session_id = $1 ORDER BY created_at ASC`,
-      [sessionId],
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ errorMessage: "Invalid id" });
+  }
+  if (isEnduser(req)) {
+    const pre = await pool.query(
+      `SELECT project_id FROM ai_assistant_configs WHERE id = $1`,
+      [id],
     );
-    res.json(result.rows.map((r) => ({
-      id: Number(r.id), sessionId: Number(r.session_id), role: r.role, content: r.content,
-      language: r.language, tokensUsed: r.tokens_used, ragSources: r.rag_sources,
-      createdAt: new Date(r.created_at).toISOString(),
-    })));
+    if (pre.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "AI assistant config not found" });
+    }
+    const allowed = Array.isArray(req.user.projectIds)
+      ? req.user.projectIds.includes(Number(pre.rows[0].project_id))
+      : false;
+    if (!allowed) return res.status(404).json({ errorMessage: "AI assistant config not found" });
+  }
+
+  const sessionId = parseInt(req.params.sessionId, 10);
+  if (!Number.isFinite(sessionId) || sessionId <= 0) {
+    return res.status(400).json({ errorMessage: "Invalid session id" });
+  }
+
+  try {
+    const sessionCheck = await pool.query(
+      `SELECT id FROM ai_chat_sessions WHERE id = $1 AND assistant_id = $2`,
+      [sessionId, id],
+    );
+    if (sessionCheck.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "Session not found" });
+    }
+
+    const { rows } = await pool.query(
+      `SELECT id, session_id, assistant_id, role, content, language,
+              tokens_used, rag_sources, created_at
+       FROM ai_chat_messages
+       WHERE session_id = $1 AND assistant_id = $2
+       ORDER BY created_at ASC`,
+      [sessionId, id],
+    );
+
+    return res.json(
+      rows.map((r) => ({
+        id: Number(r.id),
+        sessionId: Number(r.session_id),
+        assistantId: Number(r.assistant_id),
+        role: r.role,
+        content: r.content,
+        language: r.language,
+        tokensUsed: Number(r.tokens_used),
+        ragSources: r.rag_sources ?? null,
+        createdAt: new Date(r.created_at).toISOString(),
+      })),
+    );
   } catch (err) {
-    console.error("[ai-assistant] messages error:", err.message);
-    res.status(500).json({ errorMessage: "Internal server error" });
+    console.error("[ai-assistant/session-messages]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
   }
 });
