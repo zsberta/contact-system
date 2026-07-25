@@ -679,12 +679,19 @@ router.get("/by-project/:projectId", async (req, res) => {
       `INSERT INTO ai_assistant_configs (project_id, name, secret_token)
        VALUES ($1, $2, $3)
        ON CONFLICT (project_id) DO NOTHING
-       RETURNING ${CONFIG_COLUMNS.replace(/^c\./gm, "").split(",").map((c) => "c." + c.trim()).join(", ")}`,
+       RETURNING id, project_id, name, secret_token, status,
+                 ai_config_id, model, base_url, base_prompt,
+                 display_name, primary_color, secondary_color,
+                 greeting_message, avatar_url, position,
+                 default_language, supported_languages,
+                 allowed_origins, rate_limit_burst,
+                 rate_limit_sustained, max_upload_size_mb,
+                 created_at, updated_at`,
       [projectId, projectName, secretToken],
     );
     let row;
     if (insertResult.rowCount > 0) {
-      row = insertResult.rows[0];
+      row = { ...insertResult.rows[0], project_name: projectName };
     } else {
       const { rows } = await pool.query(
         `SELECT ${CONFIG_COLUMNS}
