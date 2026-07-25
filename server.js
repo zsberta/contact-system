@@ -29,6 +29,9 @@ import { router as faqRouter } from "./routes/faq.js";
 import { router as faqPublicRouter } from "./routes/faq-public.js";
 import { router as serviceRouter } from "./routes/service.js";
 import { router as servicePublicRouter } from "./routes/service-public.js";
+import { router as aiAssistantRouter } from "./routes/ai-assistant.js";
+import { router as aiAssistantEmbedRouter } from "./routes/ai-assistant-embed.js";
+import { router as aiConfigPresetsRouter } from "./routes/ai-config-presets.js";
 import { router as internalRouter } from "./routes/internal.js";
 import { pool } from "./db/pool.js";
 import { assertSafeStartup } from "./lib/startup-guard.js";
@@ -174,6 +177,10 @@ app.use("/api/faq", faqRouter);
 // Service admin CRUD — same auth/RBAC/scope contract as FAQ.
 app.use("/api/service", serviceRouter);
 
+// AI Assistant module — admin CRUD, public embed (chat + widget), and config presets.
+app.use("/api/ai-assistant", aiAssistantRouter);
+app.use("/api/ai-config-presets", aiConfigPresetsRouter);
+
 // Internal surface for service-to-service callbacks. Mounted after the
 // CSRF middleware but exempted from it via middleware/csrf.js#isPublicCsrfExempt.
 // Auth is the X-Internal-Secret header (see routes/internal.js).
@@ -262,6 +269,11 @@ app.use("/api/public/service", (req, res, next) => {
   if (req.method === "OPTIONS") return res.status(204).end();
   next();
 });
+app.use("/api/public/ai-assistant", (req, res, next) => {
+  applyPublicCors(req, res);
+  if (req.method === "OPTIONS") return res.status(204).end();
+  next();
+});
 
 // Public submission endpoint (no auth, no CSRF). The /api/public/* prefix
 // is CSRF-exempt per middleware/csrf.js; the secret_token is the
@@ -278,6 +290,7 @@ app.use("/api/public/analytics", analyticsEmbedRouter);
 app.use("/api/public/blog", blogPublicRouter);
 app.use("/api/public/faq", faqPublicRouter);
 app.use("/api/public/service", servicePublicRouter);
+app.use("/api/public/ai-assistant", aiAssistantEmbedRouter);
 
 const distDir = path.join(__dirname, "dist");
 app.use(express.static(distDir));

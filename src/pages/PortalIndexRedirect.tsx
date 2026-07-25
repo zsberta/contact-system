@@ -18,6 +18,7 @@ import { useProjectContext } from "@/context/ProjectContext";
 import { getAllFormsPaged } from "@/lib/forms";
 import { getAllReservationsPaged } from "@/lib/reservations";
 import { getAllAnalyticsConfigsPaged } from "@/lib/analytics";
+import { getAllAiAssistantConfigsPaged } from "@/lib/ai-assistant";
 
 export default function PortalIndexRedirect() {
   const navigate = useNavigate();
@@ -60,19 +61,33 @@ export default function PortalIndexRedirect() {
     enabled: !!projectId,
   });
 
+  const { data: aiData, isPending: aiPending } = useQuery({
+    queryKey: ["portal", "sidebar-has-ai-assistant", projectId],
+    queryFn: () =>
+      getAllAiAssistantConfigsPaged({
+        projectId: projectId!,
+        page: 0,
+        size: 1,
+      }),
+    enabled: !!projectId,
+  });
+
   useEffect(() => {
     if (projectsLoading || !projectId) return;
     // Wait for every query to settle (success OR error) before deciding.
     // Without this guard, formsData can resolve first and we'd redirect
     // to /portal/submissions even when analytics is enabled.
-    if (formsPending || reservationsPending || analyticsPending) return;
+    if (formsPending || reservationsPending || analyticsPending || aiPending) return;
 
     const hasAnalytics = (analyticsData?.totalElements ?? 0) > 0;
+    const hasAiAssistant = (aiData?.totalElements ?? 0) > 0;
     const hasForms = (formsData?.totalElements ?? 0) > 0;
     const hasReservations = (reservationsData?.totalElements ?? 0) > 0;
 
     if (hasAnalytics) {
       navigate("/portal/analytics", { replace: true });
+    } else if (hasAiAssistant) {
+      navigate("/portal/ai-assistant", { replace: true });
     } else if (hasForms) {
       navigate("/portal/submissions", { replace: true });
     } else if (hasReservations) {

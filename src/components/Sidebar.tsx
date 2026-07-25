@@ -11,6 +11,7 @@ import {
   Newspaper,
   HelpCircle,
   Layers,
+  Bot,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -20,6 +21,7 @@ import { useProjectContext } from "@/context/ProjectContext";
 import { getAllFormsPaged } from "@/lib/forms";
 import { getAllReservationsPaged } from "@/lib/reservations";
 import { getAllAnalyticsConfigsPaged } from "@/lib/analytics";
+import { getAllAiAssistantConfigsPaged } from "@/lib/ai-assistant";
 import { getAllBlogPostsPaged } from "@/lib/blog";
 import { getAllFaqItemsPaged } from "@/lib/faq";
 import { getAllServiceItemsPaged } from "@/lib/service";
@@ -90,6 +92,14 @@ const Sidebar = ({ onClose }: SidebarProps = {}) => {
       >
         <BarChart3 className="h-4 w-4" />
         <span>{t("navigation:analytics")}</span>
+      </NavLink>
+      <NavLink
+        to="/ai-assistant"
+        onClick={() => onClose?.()}
+        className={linkClass}
+      >
+        <Bot className="h-4 w-4" />
+        <span>{t("navigation:ai_assistant")}</span>
       </NavLink>
       <NavLink
         to="/submissions"
@@ -207,6 +217,20 @@ function EnduserSidebar({
 
   const hasServices = (serviceData?.totalElements ?? 0) > 0;
 
+  // Check if the selected project has an AI assistant.
+  const { data: aiData } = useQuery({
+    queryKey: ["portal", "sidebar-has-ai-assistant", projectId],
+    queryFn: () =>
+      getAllAiAssistantConfigsPaged({
+        projectId: projectId!,
+        page: 0,
+        size: 1,
+      }),
+    enabled: !!projectId,
+  });
+
+  const hasAiAssistant = (aiData?.totalElements ?? 0) > 0;
+
   return (
     <nav className="flex flex-col gap-1 p-2">
       {hasAnalytics && (
@@ -217,6 +241,16 @@ function EnduserSidebar({
         >
           <BarChart3 className="h-4 w-4" />
           <span>{t("navigation:analytics")}</span>
+        </NavLink>
+      )}
+      {hasAiAssistant && (
+        <NavLink
+          to="/portal/ai-assistant"
+          onClick={() => onClose?.()}
+          className={linkClass}
+        >
+          <Bot className="h-4 w-4" />
+          <span>{t("navigation:ai_assistant")}</span>
         </NavLink>
       )}
       {hasForms && (

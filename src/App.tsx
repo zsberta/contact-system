@@ -52,6 +52,9 @@ import SubmissionsPage from "./pages/SubmissionsPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import AnalyticsEditPage from "./pages/AnalyticsEditPage";
 import AnalyticsViewPage from "./pages/AnalyticsViewPage";
+import AiAssistantPage from "./pages/AiAssistantPage";
+import AiAssistantEditPage from "./pages/AiAssistantEditPage";
+import AiAssistantViewPage from "./pages/AiAssistantViewPage";
 import SetPasswordPage from "./pages/SetPasswordPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
@@ -60,6 +63,7 @@ import PortalSubmissionsPage from "./pages/PortalSubmissionsPage";
 import PortalReservationsPage from "./pages/PortalReservationsPage";
 import PortalCalendarPage from "./pages/PortalCalendarPage";
 import PortalAnalyticsPage from "./pages/PortalAnalyticsPage";
+import PortalAiAssistantPage from "./pages/PortalAiAssistantPage";
 import PortalIndexRedirect from "./pages/PortalIndexRedirect";
 import { AuthProvider } from "./context/AuthContext";
 import { ProjectProvider } from "./context/ProjectContext";
@@ -207,6 +211,15 @@ const App = () => (
                       path="/analytics/edit/:id"
                       element={<AnalyticsEditPage />}
                     />
+                    <Route path="/ai-assistant" element={<AiAssistantPage />} />
+                    <Route
+                      path="/ai-assistant/view/:id"
+                      element={<AiAssistantViewPage />}
+                    />
+                    <Route
+                      path="/ai-assistant/edit/:id"
+                      element={<AiAssistantEditPage />}
+                    />
                   </Route>
 
                   {/* Shared routes — accessible by both admins and endusers. */}
@@ -222,6 +235,7 @@ const App = () => (
                     <Route path="/portal" element={<EnduserPortalLayout />}>
                       <Route index element={<PortalIndexRedirect />} />
                       <Route path="analytics" element={<PortalAnalyticsPage />} />
+                      <Route path="ai-assistant" element={<PortalAiAssistantPage />} />
                       <Route path="submissions" element={<PortalSubmissionsPage />} />
                       <Route path="reservations" element={<PortalReservationsPage />} />
                       <Route path="calendar" element={<PortalCalendarPage />} />
