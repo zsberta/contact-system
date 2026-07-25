@@ -1,0 +1,76 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: contact-system-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: contact_system
+      POSTGRES_USER: contact
+      # Override in your real .env or via Docker secrets. The literal below is the local dev default.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    # Postgres is bound to the internal Docker network only — not exposed to the host.
+    # To run psql from the host for debugging, use:
+    #   docker exec -it contact-system-db psql -U contact -d contact_system
+    expose:
+      - "5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U contact -d contact_system"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: contact-system-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "80:3000"
+    environment:
+      # This compose file is for LOCAL DEVELOPMENT, not production.
+      # NODE_ENV=development skips the DATABASE_SSL / COOKIE_SECURE / password-length
+      # guards in lib/startup-guard.js and db/pool.js. For a production deploy, write a
+      # separate docker-compose.prod.yml that:
+      #   - sets NODE_ENV=production
+      #   - mounts a Postgres CA cert and sets DATABASE_SSL=true
+      #   - sets COOKIE_SECURE=true (behind a real TLS terminator)
+      #   - uses a real 16+ char ADMIN_PASSWORD
+      NODE_ENV: development
+      PORT: "3000"
+      DATABASE_URL: postgres://contact:${POSTGRES_PASSWORD}@db:5432/contact_system
+      JWT_SECRET: ${JWT_SECRET:?set in .env}
+      JWT_ACCESS_TTL: "3600"
+      JWT_REFRESH_TTL: "604800"
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?set in .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set in .env}
+      COOKIE_SECURE: "false"
+      BCRYPT_COST: "12"
+    env_file:
+      - .env
+    # Persistent storage for blog cover/inline images. Without this
+    # bind mount, files written into /app/uploads by the blog
+    # attachment route disappear every time the image is rebuilt
+    # (`docker compose up --build`) — the DB row keeps the old URL,
+    # but the file on disk is gone, so the image renders as a
+    # broken link. The mount is read-write so the nodeapp user
+    # (uid 1000 inside the container) can write into the directory.
+    volumes:
+      - ./uploads:/app/uploads
+    # NOTE: db:seed is intentionally NOT chained here. See the matching comment in
+    # docker-compose.yml for the full rationale (it boils down to: seed is idempotent for
+    # forms/users but appends demo submissions on every run, which would double them on each
+    # `docker compose up`). Use `npm run db:fresh` for a clean seeded state.
+    command: ["sh", "-c", "npm run db:migrate && node server.js"]
+
+volumes:
+  pgdata:
+
+networks:
+  default:
+    driver: bridge
