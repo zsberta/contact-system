@@ -28,114 +28,55 @@
 
 ---
 
-## CRITICAL Issues (must fix)
+## ~~CRITICAL Issues~~ All Fixed ✅
 
-### 1. ❌ API key encryption is a placeholder
+### 1. ✅ API key encryption (FIXED in `a036be2`)
 
-**Plan requirement (section Security > API key encryption):**
-> API keys stored as `api_key_enc` using AES-256-GCM encryption at rest. Decrypted only at the point of use.
+Implemented AES-256-GCM encryption via `lib/ai-encryption.js`:
+- Admin route encrypts API keys before INSERT/UPDATE
+- Embed route decrypts before calling the LLM
+- Legacy plaintext keys supported via graceful fallback
+- Key derived from `AI_ASSISTANT_ENCRYPTION_KEY` env var via PBKDF2
 
-**What exists:**
-- `routes/ai-assistant.js` line 317: stores the raw API key directly into `api_key_enc` column — no encryption.
-- `routes/ai-assistant-embed.js` line 118-121: `decryptApiKey()` is a no-op placeholder:
-  ```js
-  function decryptApiKey(enc) {
-    return enc || "";
-    // Placeholder: in production, decrypt using AI_ASSISTANT_ENCRYPTION_KEY env var
-  }
-  ```
+### 2. ✅ LLM timeout changed to 30s (FIXED in `a036be2`)
 
-**Impact:** API keys are stored in plaintext in the database. If the DB is compromised, all API keys are exposed.
-
-**Fix needed:**
-- Add AES-256-GCM encrypt/decrypt functions using `AI_ASSISTANT_ENCRYPTION_KEY` env var (as specified in the plan).
-- Encrypt in the admin route before INSERT/UPDATE.
-- Decrypt in the embed route before calling the LLM.
-- Use `crypto.createCipheriv`/`crypto.createDecipheriv` with a 256-bit key derived via scrypt or pbkdf2 from the env var.
-
-### 2. ❌ LLM timeout is 60s, plan specifies 30s
-
-**Plan requirement (section Security > Chat endpoint):**
-> Response timeout: 30 seconds (LLM call)
-
-**What exists:**
-- `lib/ai-llm-client.js` line 37: default `timeoutMs = 60_000`
-- `routes/ai-assistant-embed.js` line 373: calls `streamChat()` without passing `timeoutMs`, so it uses the 60s default.
-
-**Fix needed:** Pass `timeoutMs: 30_000` in the `streamChat()` call, or change the default in `ai-llm-client.js` to 30000.
+Passes `timeoutMs: 30_000` to `streamChat()`.
 
 ---
 
-## HIGH Issues (should fix)
+## ~~HIGH Issues~~ All Fixed ✅
 
-### 3. ⚠️ No SSE heartbeat
+### 3. ✅ SSE heartbeat added (FIXED in `a036be2`)
 
-**Plan requirement:**
-> SSE streaming with heartbeat every 15 seconds to prevent timeouts.
+15s heartbeat interval writes `: heartbeat\n\n` to the SSE stream, cleared on done/error.
 
-**What exists:** No heartbeat interval is set up in the SSE chat endpoint. If the LLM takes >30s to generate a response, the connection may be dropped by proxies/browsers.
+### 4. ✅ Widget language detection order fixed (FIXED in `a036be2`)
 
-**Fix needed:** Start a `setInterval` that writes `: heartbeat\n\n` every 15s, clear it on stream completion.
-
-### 4. ⚠️ Widget doesn't follow the language detection priority order
-
-**Plan requirement (section Widget > Language detection order):**
+Now follows the plan's priority chain:
 1. `data-lang` attribute on `<script>` tag
-2. `<html lang="...">` attribute on host page
+2. `<html lang="...">` on host page
 3. `navigator.language` / `navigator.languages[0]`
-4. Fallback to assistant's `default_language`
+4. Fallback to `DEFAULT_LANGUAGE`
 
-**What exists:** The widget sets `currentLang = DEFAULT_LANGUAGE` (server-baked default) at init, then `watchDataLang()` sets up a MutationObserver that only reacts to *future changes* of `data-lang`. It never checks:
-- The initial `data-lang` value on the script tag
-- `<html lang="...">`
-- `navigator.language`
+### 5. ✅ AiChatPreview.tsx created (FIXED in `a036be2`)
 
-**Fix needed:** Before setting `currentLang`, run the detection chain:
-```js
-var scriptEl = document.currentScript;
-var initialLang =
-  (scriptEl && scriptEl.getAttribute("data-lang")) ||
-  document.documentElement.lang ||
-  (navigator.languages && navigator.languages[0]) ||
-  DEFAULT_LANGUAGE;
-currentLang = initialLang;
-```
-
-### 5. ⚠️ Missing `AiChatPreview.tsx` component
-
-**Plan requirement (components table):**
-> `AiChatPreview.tsx` — Live preview of the chat widget (admin preview)
-
-This component is listed in the plan but was not created. It would let admins preview the chat widget directly in the CRM admin UI.
-
-**Impact:** Low-Medium. The widget can still be tested via the embed URL. But it's a missing deliverable from the plan.
+Admin live preview component showing the widget with current branding settings. Integrated into `AiAssistantViewPage` Details tab.
 
 ---
 
-## MEDIUM Issues (nice to fix)
+## ~~MEDIUM Issues~~ All Fixed ✅
 
-### 6. ⚠️ Config endpoint SELECT * in chat query
+### 6. ✅ Config endpoint SELECT * replaced (FIXED in `a036be2`)
 
-`routes/ai-assistant-embed.js` line 262:
-```sql
-SELECT * FROM ai_assistant_configs WHERE secret_token = $1
-```
-This pulls all columns including `api_key_enc` into memory. While it's only used server-side (never sent to the client), it's unnecessary data exposure in the Node.js process. The admin route intentionally avoids `SELECT *` (line 526+). The chat endpoint should select only the columns it needs.
+Chat endpoint now selects only: `id, status, base_prompt, model, base_url, api_key_enc, default_language, allowed_origins`.
 
-### 7. ⚠️ File uploaded to `os.tmpdir()` instead of a dedicated uploads directory
+### 7. ✅ Upload directory configurable (FIXED in `a036be2`)
 
-`routes/ai-assistant.js` line 512:
-```js
-dest: path.join(os.tmpdir(), "ai-assistant-uploads"),
-```
-The plan says "Files stored outside the web root with randomized filenames." While `os.tmpdir()` is technically outside the web root, it's not a dedicated directory. On Linux `/tmp` may be RAM-backed and lost on reboot. Should use a configurable upload directory.
+Uses `AI_ASSISTANT_UPLOAD_DIR` env var, falls back to `os.tmpdir()/ai-assistant-uploads`.
 
-### 8. ⚠️ No file type validation on MIME type (plan mentions MIME whitelist)
+### 8. ✅ MIME type validation added (FIXED in `a036be2`)
 
-**Plan requirement:**
-> Whitelist of allowed MIME types: `application/pdf`, `text/plain`, `text/markdown`, `text/csv`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document`
-
-**What exists:** Only extension-based validation (`.txt`, `.md`, `.pdf`, `.docx`, `.csv`). No MIME type check. This is acceptable but doesn't match the plan exactly.
+Both extension and MIME type are validated. Allowed MIME types: `text/plain`, `text/markdown`, `text/csv`, `application/pdf`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document`, `application/octet-stream`.
 
 ---
 
@@ -199,7 +140,7 @@ The plan says "Files stored outside the web root with randomized filenames." Whi
 - [x] `AiAssistantEditPage.tsx` — edit form
 - [x] `PortalAiAssistantPage.tsx` — portal page
 
-### Frontend Components (8/9 — 1 missing)
+### Frontend Components (9/9)
 - [x] `AiAssistantActions.tsx` — row-level actions
 - [x] `AiAssistantConfigForm.tsx` — form with 6 sections + preset save/load
 - [x] `AiAssistantViewShell.tsx` — loading/error shell
@@ -208,7 +149,7 @@ The plan says "Files stored outside the web root with randomized filenames." Whi
 - [x] `AiLanguageConfig.tsx` — language selector + translations editor
 - [x] `AiChatSessionsPanel.tsx` — session viewer
 - [x] `ProjectAiAssistant.tsx` — project card
-- [ ] `AiChatPreview.tsx` — **MISSING** (admin chat preview)
+- [x] `AiChatPreview.tsx` — admin chat preview (integrated in ViewPage Details tab)
 
 ### Integrations
 - [x] `server.js` — 3 route mounts + CORS middleware for embed route
@@ -253,13 +194,6 @@ The plan says "Files stored outside the web root with randomized filenames." Whi
 
 ---
 
-## Recommended Fix Order
+## ~~Recommended Fix Order~~ All Complete ✅
 
-1. **API key encryption** (CRITICAL) — implement AES-256-GCM encrypt/decrypt
-2. **LLM timeout** (CRITICAL) — change to 30s
-3. **SSE heartbeat** (HIGH) — add 15s heartbeat
-4. **Widget language detection** (HIGH) — add html lang + navigator.language fallback
-5. **AiChatPreview** (HIGH) — create the missing component
-6. Config endpoint SELECT * cleanup (MEDIUM)
-7. Upload directory configuration (MEDIUM)
-8. MIME type validation (MEDIUM)
+All 8 issues fixed in commit `a036be2` (2025-07-25). TypeScript compile and Vite build both pass cleanly. `.env.example` updated with `AI_ASSISTANT_ENCRYPTION_KEY`, `AI_ASSISTANT_UPLOAD_DIR`, and rate limit env vars.
