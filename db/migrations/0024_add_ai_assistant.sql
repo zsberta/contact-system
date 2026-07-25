@@ -45,9 +45,18 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 
 -- ---------------------------------------------------------------------------
--- Enable pgvector extension (idempotent)
+-- Enable pgvector extension (optional — RAG vector search requires it)
+-- If the extension is not installed, tables still create successfully but
+-- the embedding column and IVFFlat index are skipped. Install pgvector and
+-- re-run the migration (or run the ALTER below manually) to add them.
 -- ---------------------------------------------------------------------------
-CREATE EXTENSION IF NOT EXISTS vector;
+DO $$
+BEGIN
+  CREATE EXTENSION IF NOT EXISTS vector;
+  RAISE NOTICE '0024: pgvector extension enabled';
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE '0024: pgvector extension not available — vector columns/indexes skipped: %', SQLERRM;
+END $$;
 
 -- ---------------------------------------------------------------------------
 -- AI config presets (reusable across assistants)
@@ -186,7 +195,7 @@ CREATE TABLE IF NOT EXISTS ai_knowledge_chunks (
   assistant_id    BIGINT NOT NULL REFERENCES ai_assistant_configs(id) ON DELETE CASCADE,
   chunk_index     INT NOT NULL,
   content         TEXT NOT NULL,
-  embedding       VECTOR(1536),
+  embedding       TEXT,  -- will be ALTERed to VECTOR(1536) if pgvector is available
   token_count     INT NOT NULL DEFAULT 0,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -194,11 +203,26 @@ CREATE TABLE IF NOT EXISTS ai_knowledge_chunks (
 CREATE INDEX IF NOT EXISTS idx_ai_knowledge_chunks_assistant
   ON ai_knowledge_chunks (assistant_id);
 
--- IVFFlat index for cosine similarity search. Lists = 100 is a reasonable
--- default for up to ~100k vectors. Rebuild with more lists if the corpus
--- grows significantly.
-CREATE INDEX IF NOT EXISTS idx_ai_knowledge_chunks_embedding
-  ON ai_knowledge_chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+-- If pgvector is available, upgrade the embedding column to VECTOR type
+-- and create the IVFFlat index for cosine similarity search.
+DO $$
+BEGIN
+  -- Check if vector type exists (i.e. pgvector extension is loaded)
+  IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'vector') THEN
+    -- Change column type from TEXT to VECTOR(1536)
+    ALTER TABLE ai_knowledge_chunks
+      ALTER COLUMN embedding TYPE vector(1536) USING embedding::vector;
+
+    -- IVFFlat index for cosine similarity. Lists=100 is a reasonable
+    -- default for up to ~100k vectors.
+    CREATE INDEX IF NOT EXISTS idx_ai_knowledge_chunks_embedding
+      ON ai_knowledge_chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+
+    RAISE NOTICE '0024: pgvector embedding column and IVFFlat index created';
+  ELSE
+    RAISE NOTICE '0024: pgvector not available — embedding stored as TEXT, no vector index';
+  END IF;
+END $$;
 
 -- ---------------------------------------------------------------------------
 -- Chat sessions
