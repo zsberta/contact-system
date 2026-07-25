@@ -48,23 +48,51 @@ const sustainedLimiter = rateLimit({
 });
 
 // ---------------------------------------------------------------------------
-// Origin check helper (same as analytics-embed.js)
+// Origin-allowlist matcher — same algorithm as routes/analytics-embed.js
+// (byte-for-byte identical to the one in routes/form-embed.js). The
+// duplication is deliberate: each route validates independently.
 // ---------------------------------------------------------------------------
 function isOriginAllowed(requestOrigin, allowedOrigins) {
-  if (!requestOrigin || allowedOrigins.length === 0) return true;
+  if (typeof requestOrigin !== "string" || requestOrigin.length === 0) {
+    return false;
+  }
+  const hasScheme = /^https?:\/\//i.test(requestOrigin);
+  const urlish = hasScheme ? requestOrigin : `http://${requestOrigin}`;
+  let req;
   try {
-    const url = new URL(requestOrigin);
-    const host = url.hostname;
-    for (const allowed of allowedOrigins) {
-      if (allowed.startsWith("*.")) {
-        const suffix = allowed.slice(1); // ".example.com"
-        if (host.endsWith(suffix) || host === allowed.slice(2)) return true;
-      } else {
-        const allowedHost = allowed.replace(/^https?:\/\//, "");
-        if (host === allowedHost) return true;
+    const u = new URL(urlish);
+    req = u.host.toLowerCase();
+  } catch {
+    req = requestOrigin
+      .replace(/\/$/, "")
+      .replace(/^https?:\/\//i, "")
+      .toLowerCase();
+  }
+  for (let i = 0; i < allowedOrigins.length; i++) {
+    const entry = allowedOrigins[i];
+    if (typeof entry !== "string") return false;
+    const e = entry.replace(/\/$/, "").toLowerCase();
+    const entryHasScheme = /^https?:\/\//i.test(e);
+    const eUrlish = entryHasScheme ? e : `http://${e}`;
+    let entryHost;
+    try {
+      const eu = new URL(eUrlish);
+      entryHost = eu.host.toLowerCase();
+    } catch {
+      entryHost = e.replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+    }
+    if (entryHost === req) return true;
+    if (e.indexOf("*.") !== -1) {
+      const starIdx = e.indexOf("*.");
+      const suffix = e.slice(starIdx + 2);
+      const suffixHost = suffix.replace(/^https?:\/\//i, "").split(":")[0];
+      const reqHost = req.split(":")[0];
+      if (reqHost === suffixHost) continue; // apex — wildcard does NOT match
+      if (reqHost.length > suffixHost.length && reqHost.endsWith("." + suffixHost)) {
+        return true;
       }
     }
-  } catch { /* invalid origin */ }
+  }
   return false;
 }
 

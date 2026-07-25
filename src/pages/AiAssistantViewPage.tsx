@@ -40,6 +40,7 @@ import {
   updateAiAssistantConfig,
 } from "@/lib/ai-assistant";
 import { AiKnowledgeBasePanel } from "@/components/ai-assistant/AiKnowledgeBasePanel";
+import { AiAssistantSnippetPanel } from "@/components/ai-assistant/AiAssistantSnippetPanel";
 
 const AiAssistantViewPage: React.FC = () => {
   const { t } = useTranslation(["ai-assistant", "common"]);
@@ -355,29 +356,10 @@ const AiAssistantViewPage: React.FC = () => {
         </TabsContent>
 
         <TabsContent value="snippet">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="space-y-4">
-                <div>
-                  <p className="text-sm font-medium">
-                    {t("ai-assistant:snippet_title")}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {t("ai-assistant:snippet_description")}
-                  </p>
-                </div>
-                <pre className="overflow-x-auto rounded-md bg-muted p-4 text-xs font-mono">
-                  <code>{`<script src="/ai-assistant/${config.id}/widget.js" data-token="${config.secretToken}" data-lang="${config.defaultLanguage}"></script>`}</code>
-                </pre>
-                <p className="text-xs text-muted-foreground">
-                  {t("ai-assistant:snippet_help")}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {t("ai-assistant:snippet_language_override")}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+          <AiAssistantSnippetPanel
+            configId={config.id}
+            allowedOrigins={config.allowedOrigins}
+          />
         </TabsContent>
       </Tabs>
 
