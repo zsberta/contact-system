@@ -27,7 +27,7 @@ export function AiChatPreview({ config }: AiChatPreviewProps) {
     <div className="relative h-[420px] rounded-lg border bg-gray-100 overflow-hidden">
       {/* Label */}
       <div className="absolute top-2 left-2 z-10 rounded bg-black/60 px-2 py-0.5 text-[10px] text-white">
-        {t("ai_assistant_details")} — {t("ai_assistant:branding_section")}
+        {t("ai-assistant:ai_assistant_details")} — {t("ai-assistant:branding_section")}
       </div>
 
       {/* Simulated page background */}
@@ -95,7 +95,7 @@ export function AiChatPreview({ config }: AiChatPreviewProps) {
           >
             <input
               readOnly
-              placeholder={t("ai_assistant:translation_placeholder", "Type a message...")}
+              placeholder={t("ai-assistant:translation_placeholder", "Type a message...")}
               className="flex-1 rounded-full border px-3 py-1.5 text-sm outline-none"
               style={{ borderColor: "#dee2e6" }}
             />

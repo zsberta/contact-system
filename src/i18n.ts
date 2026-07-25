@@ -17,6 +17,7 @@ import enSubmissions from "./i18n/en/submissions.json";
 import enBlog from "./i18n/en/blog.json";
 import enFaq from "./i18n/en/faq.json";
 import enService from "./i18n/en/service.json";
+import enAiAssistant from "./i18n/en/ai-assistant.json";
 
 import huAuth from "./i18n/hu/auth.json";
 import huCommon from "./i18n/hu/common.json";
@@ -34,6 +35,7 @@ import huSubmissions from "./i18n/hu/submissions.json";
 import huBlog from "./i18n/hu/blog.json";
 import huFaq from "./i18n/hu/faq.json";
 import huService from "./i18n/hu/service.json";
+import huAiAssistant from "./i18n/hu/ai-assistant.json";
 
 const resources = {
   en: {
@@ -53,6 +55,7 @@ const resources = {
     blog: enBlog,
     faq: enFaq,
     service: enService,
+    "ai-assistant": enAiAssistant,
   },
   hu: {
     auth: huAuth,
@@ -71,6 +74,7 @@ const resources = {
     blog: huBlog,
     faq: huFaq,
     service: huService,
+    "ai-assistant": huAiAssistant,
   },
 };
 
@@ -96,6 +100,7 @@ i18n.use(initReactI18next).init({
     "blog",
     "faq",
     "service",
+    "ai-assistant",
   ],
   interpolation: { escapeValue: false },
 });
