@@ -281,6 +281,7 @@ router.post("/:secret_token/chat", burstLimiter, sustainedLimiter, async (req, r
     const lang = typeof body.lang === "string" && body.lang.length >= 2 && body.lang.length <= 10
       ? body.lang.slice(0, 10) : config.default_language || "en";
     let sessionId = null;
+    let externalSessionId = body.sessionId || null;
 
     if (body.sessionId && typeof body.sessionId === "string") {
       const sessionResult = await pool.query(
@@ -289,6 +290,7 @@ router.post("/:secret_token/chat", burstLimiter, sustainedLimiter, async (req, r
       );
       if (sessionResult.rowCount > 0) {
         sessionId = sessionResult.rows[0].id;
+        externalSessionId = body.sessionId;
         // Update language
         await pool.query(`UPDATE ai_chat_sessions SET language = $1 WHERE id = $2`, [lang, sessionId]);
       }
@@ -302,6 +304,7 @@ router.post("/:secret_token/chat", burstLimiter, sustainedLimiter, async (req, r
         [assistantId, newSessionId, null, lang, req.ip, (req.headers["user-agent"] || "").slice(0, 500)],
       );
       sessionId = sessionResult.rows[0].id;
+      externalSessionId = newSessionId;
     }
 
     // Store user message
@@ -358,7 +361,7 @@ router.post("/:secret_token/chat", burstLimiter, sustainedLimiter, async (req, r
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Session-Id", body.sessionId || "");
+    res.setHeader("X-Session-Id", externalSessionId || "");
     res.flushHeaders();
 
     // Heartbeat every 15s to prevent proxy/browser timeouts
@@ -374,7 +377,7 @@ router.post("/:secret_token/chat", burstLimiter, sustainedLimiter, async (req, r
 
     if (!apiKey) {
       clearInterval(heartbeat);
-      res.write(`data: ${JSON.stringify({ content: "AI configuration is not properly set up.", sessionId: body.sessionId })}\n\n`);
+      res.write(`data: ${JSON.stringify({ content: "AI configuration is not properly set up.", sessionId: externalSessionId })}\n\n`);
       res.write(`data: [DONE]\n\n`);
       return res.end();
     }
@@ -398,7 +401,7 @@ router.post("/:secret_token/chat", burstLimiter, sustainedLimiter, async (req, r
            VALUES ($1, $2, 'assistant', $3, $4, $5, $6)`,
           [sessionId, assistantId, fullText, lang, tokensUsed, JSON.stringify(ragSources.length > 0 ? ragSources : null)],
         );
-        res.write(`data: ${JSON.stringify({ sessionId: body.sessionId, done: true })}\n\n`);
+        res.write(`data: ${JSON.stringify({ sessionId: externalSessionId, done: true })}\n\n`);
         res.write(`data: [DONE]\n\n`);
         res.end();
       },

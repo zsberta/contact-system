@@ -335,8 +335,8 @@
       body: body,
     })
       .then(function (res) {
-        if (!res.ok) throw new Error("Chat request failed");
         sessionId = res.headers.get("X-Session-Id") || sessionId;
+        if (!res.ok) throw new Error("Chat request failed");
         var reader = res.body.getReader();
         var decoder = new TextDecoder();
         var fullText = "";
