@@ -57,6 +57,44 @@
   var inputEl = null;
   var greetingSent = false;
 
+  // --- Lightweight Markdown renderer (chat-safe, XSS-proof) ---
+  function renderMarkdown(text) {
+    if (!text) return "";
+    // 1. HTML-escape everything
+    var s = text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    // 2. Inline formatting (before block processing)
+    // Bold
+    s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    // Italic
+    s = s.replace(/\*([^*]+?)\*/g, "<em>$1</em>");
+    // Inline code
+    s = s.replace(/`([^`]+?)`/g, "<code>$1</code>");
+    // 3. Split into lines, detect bullet lists
+    var lines = s.split("\n");
+    var out = [];
+    var inList = false;
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      var bulletMatch = line.match(/^\s*[-\u2022]\s+(.*)/);
+      if (bulletMatch) {
+        if (!inList) { out.push("<ul>"); inList = true; }
+        out.push("<li>" + bulletMatch[1] + "</li>");
+      } else {
+        if (inList) { out.push("</ul>"); inList = false; }
+        if (line.trim() === "") {
+          out.push("<br>");
+        } else {
+          out.push(line + "<br>");
+        }
+      }
+    }
+    if (inList) out.push("</ul>");
+    return out.join("\n");
+  }
+
   // --- Translation helpers ---
   function getTranslation(key, lang) {
     lang = lang || currentLang;
@@ -237,7 +275,11 @@
     div.className = "ai-chat-message ai-chat-message-" + role + " ai-chat-msg-enter";
     var bubble = document.createElement("div");
     bubble.className = "ai-chat-bubble";
-    bubble.textContent = content;
+    if (role === "assistant") {
+      bubble.innerHTML = renderMarkdown(content);
+    } else {
+      bubble.textContent = content;
+    }
     div.appendChild(bubble);
     messagesContainer.appendChild(div);
     scrollToBottom();
@@ -305,9 +347,8 @@
             if (result.done) {
               isStreaming = false;
               typing.bubble.classList.remove("ai-chat-bubble-typing");
-              typing.bubble.textContent = fullText;
+              typing.bubble.innerHTML = renderMarkdown(fullText);
               typing.bubble.classList.add("ai-chat-msg-enter");
-              // Update the message in the array
               messages[messages.length - 1].content = fullText;
               return;
             }
@@ -324,7 +365,7 @@
                       started = true;
                     }
                     fullText += data.content;
-                    typing.bubble.textContent = fullText;
+                    typing.bubble.innerHTML = renderMarkdown(fullText);
                     scrollToBottom();
                   }
                   if (data.sessionId) {
@@ -518,9 +559,16 @@
       ".ai-chat-msg-enter { animation: ai-msg-in 0.3s cubic-bezier(0.4,0,0.2,1) forwards; }" +
       ".ai-chat-bubble {" +
       "  max-width: 80%; padding: 10px 14px; border-radius: 18px; font-size: 14px;" +
-      "  line-height: 1.45; word-break: break-word; white-space: pre-wrap;" +
+      "  line-height: 1.45; word-break: break-word;" +
       "  box-shadow: 0 1px 2px rgba(0,0,0,0.06);" +
       "}" +
+      ".ai-chat-message-user .ai-chat-bubble { white-space: pre-wrap; }" +
+      ".ai-chat-message-assistant .ai-chat-bubble { white-space: normal; }" +
+      ".ai-chat-bubble strong { font-weight: 600; }" +
+      ".ai-chat-bubble em { font-style: italic; }" +
+      ".ai-chat-bubble code { background: rgba(0,0,0,0.06); padding: 1px 5px; border-radius: 4px; font-size: 13px; font-family: inherit; }" +
+      ".ai-chat-bubble ul { margin: 6px 0; padding-left: 20px; }" +
+      ".ai-chat-bubble li { margin: 3px 0; }" +
       ".ai-chat-message-user .ai-chat-bubble {" +
       "  background: " + PRIMARY_COLOR + "; color: #fff; border-bottom-right-radius: 4px;" +
       "  box-shadow: 0 2px 8px " + PRIMARY_COLOR + "33;" +
