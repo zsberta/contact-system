@@ -95,14 +95,50 @@
     return out.join("\n");
   }
 
+  // --- Built-in UI translations (widget chrome, not assistant content) ---
+  var BUILTIN_TRANSLATIONS = {
+    en: { online: "Online", placeholder: "Type a message...", poweredBy: "Powered by", send: "Send", error: "Sorry, something went wrong. Please try again." },
+    hu: { online: "Online", placeholder: "Írj üzenetet...", poweredBy: "Üzemelteti", send: "Küldés", error: "Elnézést, valami hiba történt. Kérlek, próbáld újra." },
+    de: { online: "Online", placeholder: "Nachricht eingeben...", poweredBy: "Bereitgestellt von", send: "Senden" },
+    fr: { online: "En ligne", placeholder: "Écrivez un message...", poweredBy: "Propulsé par", send: "Envoyer" },
+    es: { online: "En línea", placeholder: "Escribe un mensaje...", poweredBy: "Desarrollado por", send: "Enviar" },
+    it: { online: "Online", placeholder: "Scrivi un messaggio...", poweredBy: "Offerto da", send: "Invia" },
+    pt: { online: "Online", placeholder: "Digite uma mensagem...", poweredBy: "Desenvolvido por", send: "Enviar" },
+    nl: { online: "Online", placeholder: "Typ een bericht...", poweredBy: "Mogelijk gemaakt door", send: "Verzenden" },
+    pl: { online: "Online", placeholder: "Napisz wiadomość...", poweredBy: "Na podstawie", send: "Wyślij" },
+    cs: { online: "Online", placeholder: "Napište zprávu...", poweredBy: "Vytvořil", send: "Odeslat" },
+    ro: { online: "Online", placeholder: "Scrie un mesaj...", poweredBy: "Oferit de", send: "Trimite" },
+    sk: { online: "Online", placeholder: "Napíšte správu...", poweredBy: "Vytvoril", send: "Odoslať" },
+    hr: { online: "Online", placeholder: "Napišite poruku...", poweredBy: "Omogućio", send: "Pošalji" },
+    sl: { online: "Online", placeholder: "Napišite sporočilo...", poweredBy: "Omogoča", send: "Pošlji" },
+    sr: { online: "У мрежи", placeholder: "Напишите поруку...", poweredBy: "Омогућио", send: "Пошаљи" },
+    uk: { online: "Онлайн", placeholder: "Напишіть повідомлення...", poweredBy: "Створено", send: "Надіслати" },
+    ru: { online: "Онлайн", placeholder: "Введите сообщение...", poweredBy: "При поддержке", send: "Отправить" },
+    tr: { online: "Çevrimiçi", placeholder: "Bir mesaj yazın...", poweredBy: "Sunan", send: "Gönder" },
+    zh: { online: "在线", placeholder: "输入消息...", poweredBy: "由", send: "发送" },
+    ja: { online: "オンライン", placeholder: "メッセージを入力...", poweredBy: "提供", send: "送信" },
+    ko: { online: "온라인", placeholder: "메시지를 입력하세요...", poweredBy: "제공", send: "보내기" },
+  };
+
   // --- Translation helpers ---
   function getTranslation(key, lang) {
     lang = lang || currentLang;
-    if (!TRANSLATIONS || !Array.isArray(TRANSLATIONS)) return null;
-    for (var i = 0; i < TRANSLATIONS.length; i++) {
-      if (TRANSLATIONS[i].language === lang && TRANSLATIONS[i][key]) {
-        return TRANSLATIONS[i][key];
+    // 1. Check server-provided translations (admin-configured per-assistant)
+    if (TRANSLATIONS && Array.isArray(TRANSLATIONS)) {
+      for (var i = 0; i < TRANSLATIONS.length; i++) {
+        if (TRANSLATIONS[i].language === lang && TRANSLATIONS[i][key]) {
+          return TRANSLATIONS[i][key];
+        }
       }
+    }
+    // 2. Fall back to built-in UI translations
+    var shortLang = (lang || "").slice(0, 2).toLowerCase();
+    if (BUILTIN_TRANSLATIONS[shortLang] && BUILTIN_TRANSLATIONS[shortLang][key]) {
+      return BUILTIN_TRANSLATIONS[shortLang][key];
+    }
+    // 3. Fall back to English
+    if (shortLang !== "en" && BUILTIN_TRANSLATIONS.en && BUILTIN_TRANSLATIONS.en[key]) {
+      return BUILTIN_TRANSLATIONS.en[key];
     }
     return null;
   }
@@ -187,7 +223,7 @@
     var sendBtn = document.createElement("button");
     sendBtn.className = "ai-chat-send";
     sendBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
-    sendBtn.setAttribute("aria-label", "Send");
+    sendBtn.setAttribute("aria-label", getTranslation("send") || "Send");
     inputArea.appendChild(inputEl);
     inputArea.appendChild(sendBtn);
     chatContainer.appendChild(inputArea);
@@ -196,7 +232,7 @@
     var copyright = document.createElement("div");
     copyright.className = "ai-chat-copyright";
     copyright.innerHTML =
-      'Powered by <a href="https://zsoltberta.hu" target="_blank" rel="noopener">Zsolt Berta</a>';
+      escHtml(getTranslation("poweredBy") || "Powered by") + ' <a href="https://zsoltberta.hu" target="_blank" rel="noopener">Zsolt Berta</a>';
     chatContainer.appendChild(copyright);
 
     // Send on click
@@ -384,7 +420,7 @@
       .catch(function (err) {
         isStreaming = false;
         typing.bubble.classList.remove("ai-chat-bubble-typing");
-        typing.bubble.textContent = "Sorry, something went wrong. Please try again.";
+        typing.bubble.textContent = getTranslation("error") || "Sorry, something went wrong. Please try again.";
         console.error("[ai-assistant]", err);
       });
   }
@@ -398,7 +434,12 @@
     if (widgetRoot) {
       var titleEl = widgetRoot.querySelector(".ai-chat-title");
       if (titleEl) titleEl.textContent = getDisplayName();
+      var statusEl = widgetRoot.querySelector(".ai-chat-status");
+      if (statusEl) statusEl.textContent = getOnlineText();
       if (inputEl) inputEl.placeholder = getPlaceholder();
+      var copyrightEl = widgetRoot.querySelector(".ai-chat-copyright");
+      if (copyrightEl) copyrightEl.innerHTML =
+        escHtml(getTranslation("poweredBy") || "Powered by") + ' <a href="https://zsoltberta.hu" target="_blank" rel="noopener">Zsolt Berta</a>';
     }
 
     // If no user messages yet, replace the greeting

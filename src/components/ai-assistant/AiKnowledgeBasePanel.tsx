@@ -73,7 +73,7 @@ const statusIcon = (status: AiKnowledgeBaseDocument["status"]) => {
 export function AiKnowledgeBasePanel({
   configId,
 }: AiKnowledgeBasePanelProps) {
-  const { t } = useTranslation(["ai-assistant", "common"]);
+  const { t, i18n } = useTranslation(["ai-assistant", "common"]);
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -235,7 +235,7 @@ export function AiKnowledgeBasePanel({
                       </span>
                       <span>·</span>
                       <span>
-                        {new Date(doc.createdAt).toLocaleString()}
+                        {new Date(doc.createdAt).toLocaleString(i18n.language)}
                       </span>
                     </div>
                     {doc.errorMessage && (

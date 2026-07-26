@@ -115,7 +115,7 @@
   "upload_progress": "Feldolgozás...",
   "upload_ready": "Kész",
   "upload_error": "Hiba",
-  "upload_chunks": "darab",
+  "upload_chunks": "tömb",
   "delete_document": "Törlés",
   "delete_document_confirm": "Dokumentum és összes töredék törlése? Ez nem vonható vissza.",
   "document_deleted": "Dokumentum törölve",
