@@ -126,7 +126,7 @@
       '<span class="ai-chat-status">' + getOnlineText() + '</span>' +
       '</div>' +
       "</div>" +
-      '<button class="ai-chat-close" aria-label="Close">&times;</button>';
+      '<button class="ai-chat-close" aria-label="Close"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>';
     chatContainer.appendChild(header);
 
     header.querySelector(".ai-chat-close").addEventListener("click", function () {
@@ -496,9 +496,10 @@
       ".ai-chat-status { font-size: 11px; opacity: 0.8; display: flex; align-items: center; gap: 4px; }" +
       ".ai-chat-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #4ade80; display: inline-block; animation: ai-fade-in 1s ease; }" +
       ".ai-chat-close {" +
-      "  background: none; border: none; color: #fff; font-size: 22px; cursor: pointer;" +
-      "  padding: 4px; line-height: 1; opacity: 0.7; transition: opacity 0.2s, transform 0.2s;" +
+      "  background: none; border: none; color: #fff; cursor: pointer;" +
+      "  opacity: 0.7; transition: opacity 0.2s, transform 0.2s;" +
       "  border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;" +
+      "  transform-origin: center center;" +
       "}" +
       ".ai-chat-close:hover { opacity: 1; transform: rotate(90deg); }" +
 
