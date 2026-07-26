@@ -60,6 +60,7 @@
   // --- Translation helpers ---
   function getTranslation(key, lang) {
     lang = lang || currentLang;
+    if (!TRANSLATIONS || !Array.isArray(TRANSLATIONS)) return null;
     for (var i = 0; i < TRANSLATIONS.length; i++) {
       if (TRANSLATIONS[i].language === lang && TRANSLATIONS[i][key]) {
         return TRANSLATIONS[i][key];
@@ -108,19 +109,22 @@
 
     // Chat container
     chatContainer = document.createElement("div");
-    chatContainer.className = "ai-chat-container";
-    chatContainer.style.display = "none";
+    chatContainer.className = "ai-chat-container ai-chat-hidden";
     shadow.appendChild(chatContainer);
 
     // Chat header
     var header = document.createElement("div");
     header.className = "ai-chat-header";
+    var avatarHtml = AVATAR_URL
+      ? '<img class="ai-chat-avatar" src="' + escHtml(AVATAR_URL) + '" alt="" />'
+      : '<div class="ai-chat-avatar-placeholder">' + escHtml(getDisplayName().charAt(0)) + '</div>';
     header.innerHTML =
       '<div class="ai-chat-header-info">' +
-      (AVATAR_URL
-        ? '<img class="ai-chat-avatar" src="' + AVATAR_URL + '" alt="" />'
-        : '<div class="ai-chat-avatar-placeholder">AI</div>') +
+      avatarHtml +
+      '<div class="ai-chat-header-text">' +
       '<span class="ai-chat-title">' + escHtml(getDisplayName()) + "</span>" +
+      '<span class="ai-chat-status">' + getOnlineText() + '</span>' +
+      '</div>' +
       "</div>" +
       '<button class="ai-chat-close" aria-label="Close">&times;</button>';
     chatContainer.appendChild(header);
@@ -144,7 +148,7 @@
     inputEl.maxLength = 2000;
     var sendBtn = document.createElement("button");
     sendBtn.className = "ai-chat-send";
-    sendBtn.innerHTML = "&#10148;";
+    sendBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
     sendBtn.setAttribute("aria-label", "Send");
     inputArea.appendChild(inputEl);
     inputArea.appendChild(sendBtn);
@@ -187,6 +191,10 @@
     }, 500);
   }
 
+  function getOnlineText() {
+    return getTranslation("status_active", currentLang) || "Online";
+  }
+
   function sendGreeting() {
     if (greetingSent) return;
     greetingSent = true;
@@ -196,10 +204,27 @@
   function toggleChat(open) {
     isOpen = open;
     if (chatContainer) {
-      chatContainer.style.display = open ? "flex" : "none";
+      if (open) {
+        chatContainer.classList.remove("ai-chat-hidden");
+        chatContainer.classList.add("ai-chat-visible");
+      } else {
+        chatContainer.classList.remove("ai-chat-visible");
+        chatContainer.classList.add("ai-chat-hidden");
+      }
+    }
+    // Toggle FAB icon between chat and close
+    var fab = widgetRoot && widgetRoot.querySelector(".ai-chat-fab");
+    if (fab) {
+      if (open) {
+        fab.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+        fab.classList.add("ai-chat-fab-active");
+      } else {
+        fab.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>';
+        fab.classList.remove("ai-chat-fab-active");
+      }
     }
     if (open && inputEl) {
-      inputEl.focus();
+      setTimeout(function () { inputEl.focus(); }, 300);
       scrollToBottom();
     }
   }
@@ -209,13 +234,25 @@
     if (!messagesContainer) return;
 
     var div = document.createElement("div");
-    div.className = "ai-chat-message ai-chat-message-" + role;
+    div.className = "ai-chat-message ai-chat-message-" + role + " ai-chat-msg-enter";
     var bubble = document.createElement("div");
     bubble.className = "ai-chat-bubble";
     bubble.textContent = content;
     div.appendChild(bubble);
     messagesContainer.appendChild(div);
     scrollToBottom();
+  }
+
+  function createTypingIndicator() {
+    var div = document.createElement("div");
+    div.className = "ai-chat-message ai-chat-message-assistant ai-chat-msg-enter";
+    var bubble = document.createElement("div");
+    bubble.className = "ai-chat-bubble ai-chat-bubble-typing";
+    bubble.innerHTML = '<span class="ai-typing-dot"></span><span class="ai-typing-dot"></span><span class="ai-typing-dot"></span>';
+    div.appendChild(bubble);
+    messagesContainer.appendChild(div);
+    scrollToBottom();
+    return { div: div, bubble: bubble };
   }
 
   function scrollToBottom() {
@@ -239,15 +276,8 @@
     addMessage("user", text);
     inputEl.value = "";
 
-    // Create assistant placeholder
-    var placeholder = document.createElement("div");
-    placeholder.className = "ai-chat-message ai-chat-message-assistant";
-    var bubble = document.createElement("div");
-    bubble.className = "ai-chat-bubble ai-chat-bubble-loading";
-    bubble.textContent = "...";
-    placeholder.appendChild(bubble);
-    messagesContainer.appendChild(placeholder);
-    scrollToBottom();
+    // Create typing indicator
+    var typing = createTypingIndicator();
 
     isStreaming = true;
 
@@ -268,12 +298,15 @@
         var reader = res.body.getReader();
         var decoder = new TextDecoder();
         var fullText = "";
+        var started = false;
 
         function read() {
           return reader.read().then(function (result) {
             if (result.done) {
               isStreaming = false;
-              bubble.classList.remove("ai-chat-bubble-loading");
+              typing.bubble.classList.remove("ai-chat-bubble-typing");
+              typing.bubble.textContent = fullText;
+              typing.bubble.classList.add("ai-chat-msg-enter");
               // Update the message in the array
               messages[messages.length - 1].content = fullText;
               return;
@@ -285,8 +318,13 @@
                 try {
                   var data = JSON.parse(lines[i].slice(6));
                   if (data.content) {
+                    if (!started) {
+                      typing.bubble.innerHTML = "";
+                      typing.bubble.classList.remove("ai-chat-bubble-typing");
+                      started = true;
+                    }
                     fullText += data.content;
-                    bubble.textContent = fullText;
+                    typing.bubble.textContent = fullText;
                     scrollToBottom();
                   }
                   if (data.sessionId) {
@@ -304,8 +342,8 @@
       })
       .catch(function (err) {
         isStreaming = false;
-        bubble.textContent = "Sorry, something went wrong. Please try again.";
-        bubble.classList.remove("ai-chat-bubble-loading");
+        typing.bubble.classList.remove("ai-chat-bubble-typing");
+        typing.bubble.textContent = "Sorry, something went wrong. Please try again.";
         console.error("[ai-assistant]", err);
       });
   }
@@ -338,24 +376,20 @@
     } else if (hasUserMessages) {
       // Send a system message about language switch
       addMessage("system", "The visitor switched language to " + lang + ".");
-      // Also notify the server
-      if (sessionId) {
-        fetch(BASE_URL + "/api/public/ai-assistant/" + SECRET_TOKEN + "/language", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId: sessionId, lang: lang }),
-        }).catch(function () {});
-      }
+      fetch(BASE_URL + "/api/public/ai-assistant/" + SECRET_TOKEN + "/language", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: sessionId, lang: lang }),
+      }).catch(function () {});
     }
   }
 
-  // --- Public API ---
+  // --- Global API ---
   window.__aiAssistant = {
     setLanguage: setLanguage,
-    getVersion: function () { return "1.0.0"; },
   };
 
-  // --- Custom event listener ---
+  // Listen for CustomEvent language changes
   document.addEventListener("ai-assistant:language-change", function (e) {
     if (e.detail && e.detail.lang) {
       setLanguage(e.detail.lang);
@@ -364,7 +398,17 @@
 
   // --- MutationObserver on data-lang attribute ---
   function watchDataLang() {
-    var scriptEl = document.querySelector('script[src*="ai-assistant/' + SECRET_TOKEN + '"]');
+    var scriptEl = document.getElementById("ai-assistant-widget");
+    if (!scriptEl) {
+      // Try to find by src attribute
+      var scripts = document.querySelectorAll('script[src*="/ai-assistant/"]');
+      for (var i = 0; i < scripts.length; i++) {
+        if (scripts[i].getAttribute("data-lang") !== null) {
+          scriptEl = scripts[i];
+          break;
+        }
+      }
+    }
     if (!scriptEl) return;
     var observer = new MutationObserver(function (mutations) {
       for (var i = 0; i < mutations.length; i++) {
@@ -374,90 +418,185 @@
         }
       }
     });
-    observer.observe(scriptEl, { attributes: true });
+    observer.observe(scriptEl, { attributes: true, attributeFilter: ["data-lang"] });
   }
 
   // --- Styles ---
   function getStyles() {
+    var posRight = POSITION === "bottom-left" ? "auto" : "10px";
+    var posLeft = POSITION === "bottom-left" ? "10px" : "auto";
+    var posStyle = "right: " + posRight + "; left: " + posLeft + ";";
+
     return (
-      ":host { all: initial; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }" +
-      ".ai-chat-container {" +
-      "  position: fixed; " + (POSITION === "bottom-left" ? "left: 20px;" : "right: 20px;") +
-      "  bottom: 80px; width: 380px; max-width: calc(100vw - 40px); height: 520px; max-height: calc(100vh - 120px);" +
-      "  background: " + SECONDARY_COLOR + "; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.18);" +
-      "  display: flex; flex-direction: column; overflow: hidden; z-index: 2147483647;" +
-      "  border: 1px solid rgba(0,0,0,0.08);" +
+      // Reset
+      ":host { all: initial; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }" +
+
+      // --- Keyframes ---
+      "@keyframes ai-fab-pulse {" +
+      "  0% { box-shadow: 0 4px 16px rgba(0,0,0,0.2); }" +
+      "  50% { box-shadow: 0 4px 16px rgba(0,0,0,0.2), 0 0 0 8px " + PRIMARY_COLOR + "22; }" +
+      "  100% { box-shadow: 0 4px 16px rgba(0,0,0,0.2); }" +
       "}" +
+      "@keyframes ai-panel-in {" +
+      "  from { opacity: 0; transform: translateY(16px) scale(0.96); }" +
+      "  to { opacity: 1; transform: translateY(0) scale(1); }" +
+      "}" +
+      "@keyframes ai-panel-out {" +
+      "  from { opacity: 1; transform: translateY(0) scale(1); }" +
+      "  to { opacity: 0; transform: translateY(16px) scale(0.96); }" +
+      "}" +
+      "@keyframes ai-msg-in {" +
+      "  from { opacity: 0; transform: translateY(8px); }" +
+      "  to { opacity: 1; transform: translateY(0); }" +
+      "}" +
+      "@keyframes ai-typing-bounce {" +
+      "  0%, 60%, 100% { transform: translateY(0); }" +
+      "  30% { transform: translateY(-4px); }" +
+      "}" +
+      "@keyframes ai-fade-in {" +
+      "  from { opacity: 0; }" +
+      "  to { opacity: 1; }" +
+      "}" +
+
+      // --- Chat panel ---
+      ".ai-chat-container {" +
+      "  position: fixed; " + posStyle +
+      "  bottom: 80px; width: 380px; max-width: calc(100vw - 20px); height: 520px; max-height: calc(100vh - 100px);" +
+      "  background: " + SECONDARY_COLOR + "; border-radius: 16px;" +
+      "  box-shadow: 0 12px 48px rgba(0,0,0,0.15), 0 2px 8px rgba(0,0,0,0.08);" +
+      "  display: flex; flex-direction: column; overflow: hidden; z-index: 2147483647;" +
+      "  border: 1px solid rgba(0,0,0,0.06);" +
+      "  transition: opacity 0.3s cubic-bezier(0.4,0,0.2,1), transform 0.3s cubic-bezier(0.4,0,0.2,1);" +
+      "}" +
+      ".ai-chat-hidden {" +
+      "  opacity: 0; pointer-events: none; transform: translateY(16px) scale(0.96);" +
+      "}" +
+      ".ai-chat-visible {" +
+      "  opacity: 1; pointer-events: auto; transform: translateY(0) scale(1);" +
+      "  animation: ai-panel-in 0.35s cubic-bezier(0.4,0,0.2,1) forwards;" +
+      "}" +
+
+      // --- Header ---
       ".ai-chat-header {" +
-      "  background: " + PRIMARY_COLOR + "; color: #fff; padding: 14px 16px;" +
+      "  background: linear-gradient(135deg, " + PRIMARY_COLOR + ", " + PRIMARY_COLOR + "dd); color: #fff; padding: 14px 16px;" +
       "  display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;" +
       "}" +
       ".ai-chat-header-info { display: flex; align-items: center; gap: 10px; }" +
+      ".ai-chat-header-text { display: flex; flex-direction: column; gap: 1px; }" +
       ".ai-chat-avatar, .ai-chat-avatar-placeholder {" +
-      "  width: 32px; height: 32px; border-radius: 50%; object-fit: cover;" +
+      "  width: 36px; height: 36px; border-radius: 50%; object-fit: cover;" +
+      "  border: 2px solid rgba(255,255,255,0.3);" +
       "}" +
       ".ai-chat-avatar-placeholder {" +
       "  background: rgba(255,255,255,0.2); display: flex; align-items: center;" +
-      "  justify-content: center; font-size: 12px; font-weight: 600; color: #fff;" +
+      "  justify-content: center; font-size: 14px; font-weight: 600; color: #fff;" +
+      "  backdrop-filter: blur(4px);" +
       "}" +
-      ".ai-chat-title { font-size: 15px; font-weight: 600; }" +
+      ".ai-chat-title { font-size: 15px; font-weight: 600; line-height: 1.2; }" +
+      ".ai-chat-status { font-size: 11px; opacity: 0.8; display: flex; align-items: center; gap: 4px; }" +
+      ".ai-chat-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #4ade80; display: inline-block; animation: ai-fade-in 1s ease; }" +
       ".ai-chat-close {" +
       "  background: none; border: none; color: #fff; font-size: 22px; cursor: pointer;" +
-      "  padding: 0 4px; line-height: 1; opacity: 0.8;" +
+      "  padding: 4px; line-height: 1; opacity: 0.7; transition: opacity 0.2s, transform 0.2s;" +
+      "  border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;" +
       "}" +
-      ".ai-chat-close:hover { opacity: 1; }" +
+      ".ai-chat-close:hover { opacity: 1; transform: rotate(90deg); }" +
+
+      // --- Messages ---
       ".ai-chat-messages {" +
       "  flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px;" +
+      "  scroll-behavior: smooth;" +
       "}" +
+      ".ai-chat-messages::-webkit-scrollbar { width: 4px; }" +
+      ".ai-chat-messages::-webkit-scrollbar-track { background: transparent; }" +
+      ".ai-chat-messages::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 2px; }" +
       ".ai-chat-message { display: flex; }" +
       ".ai-chat-message-user { justify-content: flex-end; }" +
       ".ai-chat-message-assistant { justify-content: flex-start; }" +
       ".ai-chat-message-system { justify-content: center; }" +
+      ".ai-chat-msg-enter { animation: ai-msg-in 0.3s cubic-bezier(0.4,0,0.2,1) forwards; }" +
       ".ai-chat-bubble {" +
-      "  max-width: 80%; padding: 10px 14px; border-radius: 16px; font-size: 14px;" +
+      "  max-width: 80%; padding: 10px 14px; border-radius: 18px; font-size: 14px;" +
       "  line-height: 1.45; word-break: break-word; white-space: pre-wrap;" +
+      "  box-shadow: 0 1px 2px rgba(0,0,0,0.06);" +
       "}" +
       ".ai-chat-message-user .ai-chat-bubble {" +
       "  background: " + PRIMARY_COLOR + "; color: #fff; border-bottom-right-radius: 4px;" +
+      "  box-shadow: 0 2px 8px " + PRIMARY_COLOR + "33;" +
       "}" +
       ".ai-chat-message-assistant .ai-chat-bubble {" +
       "  background: #f1f3f5; color: #1a1a1a; border-bottom-left-radius: 4px;" +
       "}" +
       ".ai-chat-message-system .ai-chat-bubble {" +
       "  background: transparent; color: #868e96; font-size: 12px; font-style: italic; padding: 4px 8px;" +
+      "  box-shadow: none;" +
       "}" +
-      ".ai-chat-bubble-loading { opacity: 0.6; }" +
+
+      // --- Typing indicator ---
+      ".ai-chat-bubble-typing {" +
+      "  display: inline-flex; align-items: center; gap: 4px; padding: 12px 16px;" +
+      "  background: #f1f3f5; min-width: 48px; justify-content: center;" +
+      "}" +
+      ".ai-typing-dot {" +
+      "  width: 7px; height: 7px; border-radius: 50%; background: #adb5bd;" +
+      "  animation: ai-typing-bounce 1.2s ease-in-out infinite;" +
+      "}" +
+      ".ai-typing-dot:nth-child(2) { animation-delay: 0.15s; }" +
+      ".ai-typing-dot:nth-child(3) { animation-delay: 0.3s; }" +
+
+      // --- Input area ---
       ".ai-chat-input-area {" +
-      "  padding: 12px; border-top: 1px solid #e9ecef; display: flex; gap: 8px; flex-shrink: 0;" +
+      "  padding: 12px; border-top: 1px solid #f0f0f0; display: flex; gap: 8px; flex-shrink: 0;" +
       "  background: " + SECONDARY_COLOR + ";" +
       "}" +
       ".ai-chat-input {" +
-      "  flex: 1; border: 1px solid #dee2e6; border-radius: 20px; padding: 10px 16px;" +
+      "  flex: 1; border: 1.5px solid #e9ecef; border-radius: 24px; padding: 10px 16px;" +
       "  font-size: 14px; outline: none; background: #fff; color: #1a1a1a;" +
+      "  transition: border-color 0.2s, box-shadow 0.2s; font-family: inherit;" +
       "}" +
-      ".ai-chat-input:focus { border-color: " + PRIMARY_COLOR + "; }" +
+      ".ai-chat-input:focus { border-color: " + PRIMARY_COLOR + "; box-shadow: 0 0 0 3px " + PRIMARY_COLOR + "15; }" +
+      ".ai-chat-input::placeholder { color: #adb5bd; }" +
       ".ai-chat-send {" +
       "  width: 40px; height: 40px; border-radius: 50%; border: none; background: " + PRIMARY_COLOR + ";" +
-      "  color: #fff; font-size: 16px; cursor: pointer; display: flex; align-items: center;" +
-      "  justify-content: center; flex-shrink: 0;" +
+      "  color: #fff; cursor: pointer; display: flex; align-items: center;" +
+      "  justify-content: center; flex-shrink: 0; transition: transform 0.15s, box-shadow 0.15s;" +
+      "  box-shadow: 0 2px 8px " + PRIMARY_COLOR + "33;" +
       "}" +
-      ".ai-chat-send:hover { opacity: 0.9; }" +
+      ".ai-chat-send:hover { transform: scale(1.08); box-shadow: 0 4px 12px " + PRIMARY_COLOR + "44; }" +
+      ".ai-chat-send:active { transform: scale(0.95); }" +
+
+      // --- Copyright ---
       ".ai-chat-copyright {" +
       "  text-align: center; padding: 6px; font-size: 11px; color: #adb5bd; flex-shrink: 0;" +
       "  border-top: 1px solid #f1f3f5; background: " + SECONDARY_COLOR + ";" +
       "}" +
-      ".ai-chat-copyright a { color: " + PRIMARY_COLOR + "; text-decoration: none; }" +
-      ".ai-chat-copyright a:hover { text-decoration: underline; }" +
+      ".ai-chat-copyright a { color: " + PRIMARY_COLOR + "; text-decoration: none; transition: opacity 0.2s; }" +
+      ".ai-chat-copyright a:hover { opacity: 0.8; }" +
+
+      // --- FAB ---
       ".ai-chat-fab {" +
-      "  position: fixed; " + (POSITION === "bottom-left" ? "left: 20px;" : "right: 20px;") +
+      "  position: fixed; " + posStyle +
       "  bottom: 20px; width: 56px; height: 56px; border-radius: 50%; border: none;" +
       "  background: " + PRIMARY_COLOR + "; color: #fff; cursor: pointer; z-index: 2147483646;" +
       "  box-shadow: 0 4px 16px rgba(0,0,0,0.2); display: flex; align-items: center;" +
-      "  justify-content: center; transition: transform 0.2s;" +
+      "  justify-content: center; transition: transform 0.3s cubic-bezier(0.4,0,0.2,1), box-shadow 0.3s;" +
+      "  animation: ai-fab-pulse 3s ease-in-out infinite;" +
       "}" +
-      ".ai-chat-fab:hover { transform: scale(1.08); }" +
+      ".ai-chat-fab:hover { transform: scale(1.1); }" +
+      ".ai-chat-fab:active { transform: scale(0.95); }" +
+      ".ai-chat-fab-active {" +
+      "  animation: none; border-radius: 16px;" +
+      "  transform: rotate(0deg); transition: transform 0.3s, border-radius 0.3s, box-shadow 0.3s;" +
+      "}" +
+      ".ai-chat-fab-active:hover { transform: scale(1.08); }" +
+
+      // --- Mobile ---
       "@media (max-width: 480px) {" +
-      "  .ai-chat-container { width: calc(100vw - 20px); height: calc(100vh - 100px); bottom: 70px; right: 10px; left: 10px; }" +
+      "  .ai-chat-container {" +
+      "    width: calc(100vw - 20px); height: calc(100vh - 90px); bottom: 70px;" +
+      "    right: 10px !important; left: 10px !important; border-radius: 14px;" +
+      "  }" +
+      "  .ai-chat-fab { bottom: 16px; width: 52px; height: 52px; right: 10px !important; left: auto !important; }" +
       "}"
     );
   }

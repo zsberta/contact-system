@@ -293,6 +293,8 @@ app.use("/api/public/service", servicePublicRouter);
 app.use("/api/public/ai-assistant", aiAssistantEmbedRouter);
 
 const distDir = path.join(__dirname, "dist");
+const uploadsDir = process.env.UPLOADS_DIR || path.join(__dirname, "uploads");
+app.use("/uploads", express.static(uploadsDir));
 app.use(express.static(distDir));
 app.get("*", (req, res, next) => {
   if (req.path.startsWith("/api/")) return next();

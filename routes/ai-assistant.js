@@ -1219,6 +1219,148 @@ router.delete("/:id/knowledge/:docId", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/ai-assistant/:id/avatar
+// Upload a custom avatar image for the chat widget.
+// ---------------------------------------------------------------------------
+const AVATAR_UPLOAD_DIR = process.env.AI_ASSISTANT_AVATAR_DIR || "/app/uploads/ai-assistant-avatars";
+
+const avatarUpload = multer({
+  dest: AVATAR_UPLOAD_DIR,
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2 MB max for avatar
+  fileFilter(_req, file, cb) {
+    const allowed = new Set(["image/webp", "image/png", "image/jpeg", "image/avif"]);
+    const allowedExt = new Set([".webp", ".png", ".jpg", ".jpeg", ".avif"]);
+    const ext = "." + file.originalname.split(".").pop().toLowerCase();
+    const mimeOk = !file.mimetype || allowed.has(file.mimetype);
+    const extOk = allowedExt.has(ext);
+    if (extOk && mimeOk) {
+      cb(null, true);
+    } else {
+      cb(new Error("Unsupported image type. Allowed: webp, png, jpg, avif"));
+    }
+  },
+});
+
+router.post("/:id/avatar", async (req, res) => {
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
+
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ errorMessage: "Invalid id" });
+  }
+
+  const avatarMulterUpload = avatarUpload.single("file");
+  try {
+    await new Promise((resolve, reject) => {
+      avatarMulterUpload(req, res, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  } catch (err) {
+    if (err instanceof multer.MulterError) {
+      return res.status(400).json({ errorMessage: `Upload error: ${err.message}` });
+    }
+    return res.status(400).json({ errorMessage: err.message || "Upload failed" });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ errorMessage: "No file provided" });
+  }
+
+  // Verify assistant exists
+  try {
+    const { rowCount } = await pool.query(
+      `SELECT id FROM ai_assistant_configs WHERE id = $1`,
+      [id],
+    );
+    if (rowCount === 0) {
+      const fs2 = await import("node:fs/promises");
+      await fs2.unlink(req.file.path).catch(() => {});
+      return res.status(404).json({ errorMessage: "AI assistant config not found" });
+    }
+  } catch (err) {
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+
+  // Rename file to a stable name and build the URL
+  const ext = "." + req.file.originalname.split(".").pop().toLowerCase();
+  const storedName = `assistant_${id}_avatar${ext}`;
+  const storedPath = path.join(AVATAR_UPLOAD_DIR, storedName);
+  const fs3 = await import("node:fs/promises");
+
+  try {
+    await fs3.mkdir(AVATAR_UPLOAD_DIR, { recursive: true });
+    await fs3.rename(req.file.path, storedPath);
+  } catch {
+    try {
+      await fs3.copyFile(req.file.path, storedPath);
+      await fs3.unlink(req.file.path).catch(() => {});
+    } catch (moveErr) {
+      console.error("[ai-assistant/avatar] file move error:", moveErr.message);
+      return res.status(500).json({ errorMessage: "Failed to store avatar file" });
+    }
+  }
+
+  const appUrl = process.env.APP_PUBLIC_URL || `${req.protocol}://${req.headers.host}`;
+  const avatarUrl = `${appUrl}/uploads/ai-assistant-avatars/${storedName}`;
+
+  try {
+    await pool.query(
+      `UPDATE ai_assistant_configs SET avatar_url = $1, updated_at = NOW() WHERE id = $2`,
+      [avatarUrl, id],
+    );
+  } catch (err) {
+    console.error("[ai-assistant/avatar] db update:", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+
+  return res.json({ avatarUrl });
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/ai-assistant/:id/avatar
+// Remove the custom avatar image.
+// ---------------------------------------------------------------------------
+router.delete("/:id/avatar", async (req, res) => {
+  const guard = forbidEnduserMutation(req, res);
+  if (guard) return guard;
+
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ errorMessage: "Invalid id" });
+  }
+
+  try {
+    const { rows, rowCount } = await pool.query(
+      `SELECT avatar_url FROM ai_assistant_configs WHERE id = $1`,
+      [id],
+    );
+    if (rowCount === 0) {
+      return res.status(404).json({ errorMessage: "AI assistant config not found" });
+    }
+
+    const avatarUrl = rows[0].avatar_url;
+    if (avatarUrl) {
+      const filename = avatarUrl.split("/").pop();
+      const filePath = path.join(AVATAR_UPLOAD_DIR, filename);
+      const fs4 = await import("node:fs/promises");
+      await fs4.unlink(filePath).catch(() => {});
+    }
+
+    await pool.query(
+      `UPDATE ai_assistant_configs SET avatar_url = NULL, updated_at = NOW() WHERE id = $1`,
+      [id],
+    );
+    return res.status(204).send();
+  } catch (err) {
+    console.error("[ai-assistant/avatar-delete]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/ai-assistant/:id/sessions
 // Paged list of chat sessions for this assistant.
 // ---------------------------------------------------------------------------

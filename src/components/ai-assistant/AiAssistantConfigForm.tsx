@@ -66,6 +66,9 @@ import {
 } from "@/lib/ai-config-presets";
 import { showError, showSuccess } from "@/utils/toast";
 import { AiLanguageConfig } from "./AiLanguageConfig";
+import { uploadAvatar, deleteAvatar } from "@/lib/ai-assistant";
+import { Upload, X, Loader2, ImageIcon } from "lucide-react";
+import { useRef } from "react";
 
 interface AiAssistantConfigFormProps {
   initialData: AiAssistantConfigDTO | null;
@@ -607,9 +610,10 @@ const AiAssistantConfigForm = ({
                 <FormItem>
                   <FormLabel>{t("ai-assistant:avatar_url")}</FormLabel>
                   <FormControl>
-                    <Input
-                      placeholder={t("ai-assistant:avatar_url_placeholder")}
-                      {...field}
+                    <AvatarUploader
+                      value={field.value || ""}
+                      onChange={field.onChange}
+                      assistantId={initialData?.id}
                     />
                   </FormControl>
                   <FormDescription>
@@ -870,3 +874,101 @@ const AiAssistantConfigForm = ({
 };
 
 export default AiAssistantConfigForm;
+
+// ---------------------------------------------------------------------------
+// AvatarUploader — inline image upload for the assistant's widget avatar.
+// Uploads to POST /api/ai-assistant/:id/avatar, shows preview, supports delete.
+// ---------------------------------------------------------------------------
+function AvatarUploader({
+  value,
+  onChange,
+  assistantId,
+}: {
+  value: string;
+  onChange: (url: string | null) => void;
+  assistantId?: number;
+}) {
+  const { t } = useTranslation(["ai-assistant", "common"]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !assistantId) return;
+
+    setUploading(true);
+    try {
+      const result = await uploadAvatar(assistantId, file);
+      onChange(result.avatarUrl);
+      showSuccess(t("ai-assistant:avatar_url") + " uploaded");
+    } catch (err: any) {
+      showError(err.message || "Upload failed");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!assistantId) {
+      onChange(null);
+      return;
+    }
+    try {
+      await deleteAvatar(assistantId);
+      onChange(null);
+    } catch (err: any) {
+      showError(err.message || "Delete failed");
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-4">
+      {/* Preview */}
+      <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full border bg-muted flex items-center justify-center">
+        {value ? (
+          <>
+            <img src={value} alt="Avatar" className="h-full w-full object-cover" />
+            <button
+              type="button"
+              onClick={handleDelete}
+              className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-white shadow-sm hover:bg-destructive/90"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </>
+        ) : (
+          <ImageIcon className="h-6 w-6 text-muted-foreground" />
+        )}
+      </div>
+
+      {/* Upload button */}
+      <div className="flex-1">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/webp,image/png,image/jpeg,image/avif"
+          className="hidden"
+          onChange={handleUpload}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={uploading || !assistantId}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {uploading ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Upload className="mr-2 h-4 w-4" />
+          )}
+          {value ? "Change" : "Upload"}
+        </Button>
+        <p className="mt-1 text-xs text-muted-foreground">
+          PNG, JPG, WebP. Max 2 MB.
+        </p>
+      </div>
+    </div>
+  );
+}

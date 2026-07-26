@@ -114,3 +114,26 @@ export const getChatMessages = (
     `/ai-assistant/${assistantId}/sessions/${sessionId}/messages`,
   );
 };
+
+// Avatar upload
+export const uploadAvatar = async (
+  assistantId: number,
+  file: File,
+): Promise<{ avatarUrl: string }> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<{ avatarUrl: string }>(
+    `/ai-assistant/${assistantId}/avatar`,
+    {
+      method: "POST",
+      body: formData,
+      headers: {},
+    },
+  );
+};
+
+export const deleteAvatar = (assistantId: number): Promise<void> => {
+  return apiFetch<void>(`/ai-assistant/${assistantId}/avatar`, {
+    method: "DELETE",
+  });
+};
