@@ -25,6 +25,7 @@ COPY lib ./lib
 COPY routes ./routes
 COPY middleware ./middleware
 COPY scripts ./scripts
+COPY public ./public
 
 RUN addgroup -S nodeapp && adduser -S nodeapp -G nodeapp && chown -R nodeapp:nodeapp /app
 USER nodeapp
