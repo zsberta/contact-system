@@ -1,7 +1,7 @@
 // FE lib for the AI Assistant module. Mirrors src/lib/analytics.ts shape.
 // All calls go through apiFetch (auth, CSRF, JSON encoding handled).
 
-import { apiFetch, buildQueryString } from "@/lib/api";
+import { apiFetch, apiUpload, buildQueryString } from "@/lib/api";
 import type { Page, QueryParams } from "@/types/common";
 import type {
   AiAssistantConfigDTO,
@@ -75,14 +75,9 @@ export const uploadKnowledgeBaseDocument = async (
 ): Promise<AiKnowledgeBaseDocument> => {
   const formData = new FormData();
   formData.append("file", file);
-  return apiFetch<AiKnowledgeBaseDocument>(
+  return apiUpload<AiKnowledgeBaseDocument>(
     `/ai-assistant/${assistantId}/knowledge`,
-    {
-      method: "POST",
-      body: formData,
-      // Don't set Content-Type — browser sets multipart boundary automatically
-      headers: {},
-    },
+    formData,
   );
 };
 
@@ -122,13 +117,9 @@ export const uploadAvatar = async (
 ): Promise<{ avatarUrl: string }> => {
   const formData = new FormData();
   formData.append("file", file);
-  return apiFetch<{ avatarUrl: string }>(
+  return apiUpload<{ avatarUrl: string }>(
     `/ai-assistant/${assistantId}/avatar`,
-    {
-      method: "POST",
-      body: formData,
-      headers: {},
-    },
+    formData,
   );
 };
 
