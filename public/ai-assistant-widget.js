@@ -36,6 +36,21 @@
       var dl = scriptEl.getAttribute("data-lang");
       if (dl && dl.length >= 2) return dl;
     }
+    // Priority 1b: Scan existing <script> tags for the one loading this widget
+    // (document.currentScript is null when loaded dynamically)
+    var scripts = document.querySelectorAll("script[data-lang]");
+    for (var i = 0; i < scripts.length; i++) {
+      var src = scripts[i].getAttribute("src") || "";
+      if (src.indexOf(SECRET_TOKEN) !== -1) {
+        var dl2 = scripts[i].getAttribute("data-lang");
+        if (dl2 && dl2.length >= 2) return dl2;
+      }
+    }
+    // Priority 1c: Any script tag with data-lang that hasn't loaded yet
+    if (scripts.length > 0) {
+      var dl3 = scripts[0].getAttribute("data-lang");
+      if (dl3 && dl3.length >= 2) return dl3;
+    }
     // Priority 2: <html lang="..."> attribute on the host page
     var htmlLang = document.documentElement && document.documentElement.lang;
     if (htmlLang && htmlLang.length >= 2) return htmlLang.slice(0, 10);
