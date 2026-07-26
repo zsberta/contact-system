@@ -85,6 +85,14 @@ export function AiKnowledgeBasePanel({
     queryKey: ["ai-assistant", configId, "knowledge"],
     queryFn: () => getKnowledgeBaseDocuments(configId),
     enabled: !!configId,
+    refetchInterval: (query) => {
+      // Poll every 2 seconds while any document is still processing
+      const docs = query.state.data;
+      if (Array.isArray(docs) && docs.some((d) => d.status === "processing")) {
+        return 2000;
+      }
+      return false;
+    },
   });
 
   const uploadMutation = useMutation({
