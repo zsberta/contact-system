@@ -98,7 +98,7 @@
   // --- Built-in UI translations (widget chrome, not assistant content) ---
   var BUILTIN_TRANSLATIONS = {
     en: { online: "Online", placeholder: "Type a message...", poweredBy: "Powered by", send: "Send", error: "Sorry, something went wrong. Please try again." },
-    hu: { online: "Online", placeholder: "Írj üzenetet...", poweredBy: "Üzemelteti", send: "Küldés", error: "Elnézést, valami hiba történt. Kérlek, próbáld újra." },
+    hu: { online: "Azonnal elérhető", placeholder: "Írj üzenetet...", poweredBy: "Üzemelteti", send: "Küldés", error: "Elnézést, valami hiba történt. Kérlek, próbáld újra." },
     de: { online: "Online", placeholder: "Nachricht eingeben...", poweredBy: "Bereitgestellt von", send: "Senden" },
     fr: { online: "En ligne", placeholder: "Écrivez un message...", poweredBy: "Propulsé par", send: "Envoyer" },
     es: { online: "En línea", placeholder: "Escribe un mensaje...", poweredBy: "Desarrollado por", send: "Enviar" },
@@ -227,13 +227,6 @@
     inputArea.appendChild(inputEl);
     inputArea.appendChild(sendBtn);
     chatContainer.appendChild(inputArea);
-
-    // Copyright
-    var copyright = document.createElement("div");
-    copyright.className = "ai-chat-copyright";
-    copyright.innerHTML =
-      escHtml(getTranslation("poweredBy") || "Powered by") + ' <a href="https://zsoltberta.hu" target="_blank" rel="noopener">Zsolt Berta</a>';
-    chatContainer.appendChild(copyright);
 
     // Send on click
     sendBtn.addEventListener("click", sendMessage);
@@ -437,9 +430,6 @@
       var statusEl = widgetRoot.querySelector(".ai-chat-status");
       if (statusEl) statusEl.textContent = getOnlineText();
       if (inputEl) inputEl.placeholder = getPlaceholder();
-      var copyrightEl = widgetRoot.querySelector(".ai-chat-copyright");
-      if (copyrightEl) copyrightEl.innerHTML =
-        escHtml(getTranslation("poweredBy") || "Powered by") + ' <a href="https://zsoltberta.hu" target="_blank" rel="noopener">Zsolt Berta</a>';
     }
 
     // If no user messages yet, replace the greeting
@@ -654,14 +644,6 @@
       "}" +
       ".ai-chat-send:hover { transform: scale(1.08); box-shadow: 0 4px 12px " + PRIMARY_COLOR + "44; }" +
       ".ai-chat-send:active { transform: scale(0.95); }" +
-
-      // --- Copyright ---
-      ".ai-chat-copyright {" +
-      "  text-align: center; padding: 6px; font-size: 11px; color: #adb5bd; flex-shrink: 0;" +
-      "  border-top: 1px solid #f1f3f5; background: " + SECONDARY_COLOR + ";" +
-      "}" +
-      ".ai-chat-copyright a { color: " + PRIMARY_COLOR + "; text-decoration: none; transition: opacity 0.2s; }" +
-      ".ai-chat-copyright a:hover { opacity: 0.8; }" +
 
       // --- FAB ---
       ".ai-chat-fab {" +

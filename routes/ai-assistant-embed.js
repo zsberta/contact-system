@@ -184,7 +184,7 @@ router.get("/:secret_token/script.js", async (req, res) => {
     script = script.replace(/\{\{TRANSLATIONS\}\}/g, JSON.stringify(translations));
 
     res.setHeader("Content-Type", "text/javascript");
-    res.setHeader("Cache-Control", "public, max-age=300");
+    res.setHeader("Cache-Control", "public, max-age=10");
     res.send(script);
   } catch (err) {
     console.error("[ai-assistant-embed] script error:", err.message);
