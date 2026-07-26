@@ -327,16 +327,20 @@ router.post("/:secret_token/chat", burstLimiter, sustainedLimiter, async (req, r
     try {
       const apiKey = decryptApiKey(config.api_key_enc);
       const baseUrl = config.base_url;
-      if (apiKey) {
+      // Prefer dedicated embedding env vars over assistant config
+      const embBaseUrl = process.env.AI_EMBEDDING_BASE_URL || baseUrl;
+      const embApiKey = process.env.AI_EMBEDDING_API_KEY || apiKey;
+      const embModel = process.env.AI_EMBEDDING_MODEL || "text-embedding-3-small";
+      if (embApiKey) {
         // Embed the query
         const ragController = new AbortController();
         const ragTimeout = setTimeout(() => ragController.abort(), 10_000);
         let embedRes;
         try {
-          embedRes = await fetch(`${baseUrl}/embeddings`, {
+          embedRes = await fetch(`${embBaseUrl}/embeddings`, {
             method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-            body: JSON.stringify({ model: "text-embedding-3-small", input: message }),
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${embApiKey}` },
+            body: JSON.stringify({ model: embModel, input: message }),
             signal: ragController.signal,
           });
         } finally {
