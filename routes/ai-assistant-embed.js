@@ -329,11 +329,19 @@ router.post("/:secret_token/chat", burstLimiter, sustainedLimiter, async (req, r
       const baseUrl = config.base_url;
       if (apiKey) {
         // Embed the query
-        const embedRes = await fetch(`${baseUrl}/embeddings`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-          body: JSON.stringify({ model: "text-embedding-3-small", input: message }),
-        });
+        const ragController = new AbortController();
+        const ragTimeout = setTimeout(() => ragController.abort(), 10_000);
+        let embedRes;
+        try {
+          embedRes = await fetch(`${baseUrl}/embeddings`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+            body: JSON.stringify({ model: "text-embedding-3-small", input: message }),
+            signal: ragController.signal,
+          });
+        } finally {
+          clearTimeout(ragTimeout);
+        }
         if (embedRes.ok) {
           const embedData = await embedRes.json();
           const embedding = embedData.data?.[0]?.embedding;
