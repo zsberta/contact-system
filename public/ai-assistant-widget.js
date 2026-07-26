@@ -274,7 +274,7 @@
   }
 
   function getOnlineText() {
-    return getTranslation("status_active", currentLang) || "Online";
+    return getTranslation("online", currentLang) || "Online";
   }
 
   function sendGreeting() {
