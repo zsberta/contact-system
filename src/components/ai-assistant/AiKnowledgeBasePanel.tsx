@@ -28,14 +28,13 @@ import {
 } from "@/components/ui/dialog";
 import {
   Upload,
-  Trash2,
   FileText,
   Loader2,
   AlertCircle,
   CheckCircle2,
   File,
-  Eye,
 } from "lucide-react";
+import KnowledgeDocumentActions from "@/components/ai-assistant/KnowledgeDocumentActions";
 import {
   getKnowledgeBaseDocuments,
   uploadKnowledgeBaseDocument,
@@ -275,27 +274,11 @@ export function AiKnowledgeBasePanel({
                     {statusIcon(doc.status)}
                     {t(`ai-assistant:status_${doc.status}`)}
                   </Badge>
-                  {doc.status === "ready" && doc.chunkCount > 0 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      onClick={() => handleViewClick(doc)}
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                  )}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                    onClick={() => handleDeleteClick(doc)}
-                    disabled={deleteMutation.isPending}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <KnowledgeDocumentActions
+                    document={doc}
+                    onView={handleViewClick}
+                    onDelete={handleDeleteClick}
+                  />
                 </div>
               </CardContent>
             </Card>
