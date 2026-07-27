@@ -55,6 +55,9 @@ import AnalyticsViewPage from "./pages/AnalyticsViewPage";
 import AiAssistantPage from "./pages/AiAssistantPage";
 import AiAssistantEditPage from "./pages/AiAssistantEditPage";
 import AiAssistantViewPage from "./pages/AiAssistantViewPage";
+import AiAssistantKnowledgePage from "./pages/AiAssistantKnowledgePage";
+import AiAssistantSnippetPage from "./pages/AiAssistantSnippetPage";
+import AiAssistantSessionsPage from "./pages/AiAssistantSessionsPage";
 import SetPasswordPage from "./pages/SetPasswordPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
@@ -63,7 +66,9 @@ import PortalSubmissionsPage from "./pages/PortalSubmissionsPage";
 import PortalReservationsPage from "./pages/PortalReservationsPage";
 import PortalCalendarPage from "./pages/PortalCalendarPage";
 import PortalAnalyticsPage from "./pages/PortalAnalyticsPage";
-import PortalAiAssistantPage from "./pages/PortalAiAssistantPage";
+import PortalAiAssistantKnowledgePage from "./pages/PortalAiAssistantKnowledgePage";
+import PortalAiAssistantDetailsPage from "./pages/PortalAiAssistantDetailsPage";
+import PortalAiAssistantSessionsPage from "./pages/PortalAiAssistantSessionsPage";
 import PortalIndexRedirect from "./pages/PortalIndexRedirect";
 import { AuthProvider } from "./context/AuthContext";
 import { ProjectProvider } from "./context/ProjectContext";
@@ -217,6 +222,18 @@ const App = () => (
                       element={<AiAssistantViewPage />}
                     />
                     <Route
+                      path="/ai-assistant/view/:id/knowledge"
+                      element={<AiAssistantKnowledgePage />}
+                    />
+                    <Route
+                      path="/ai-assistant/view/:id/snippet"
+                      element={<AiAssistantSnippetPage />}
+                    />
+                    <Route
+                      path="/ai-assistant/view/:id/sessions"
+                      element={<AiAssistantSessionsPage />}
+                    />
+                    <Route
                       path="/ai-assistant/edit/:id"
                       element={<AiAssistantEditPage />}
                     />
@@ -235,7 +252,9 @@ const App = () => (
                     <Route path="/portal" element={<EnduserPortalLayout />}>
                       <Route index element={<PortalIndexRedirect />} />
                       <Route path="analytics" element={<PortalAnalyticsPage />} />
-                      <Route path="ai-assistant" element={<PortalAiAssistantPage />} />
+                      <Route path="ai-assistant" element={<PortalAiAssistantDetailsPage />} />
+                      <Route path="ai-assistant/knowledge" element={<PortalAiAssistantKnowledgePage />} />
+                      <Route path="ai-assistant/sessions" element={<PortalAiAssistantSessionsPage />} />
                       <Route path="submissions" element={<PortalSubmissionsPage />} />
                       <Route path="reservations" element={<PortalReservationsPage />} />
                       <Route path="calendar" element={<PortalCalendarPage />} />
