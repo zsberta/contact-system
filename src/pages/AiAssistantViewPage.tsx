@@ -1,8 +1,5 @@
-// ----------------------------------------------------------------------------
-// AiAssistantViewPage — read-only detail card + KB + snippet panel inside
-// a 3-tab layout (Details / Knowledge Base / Beágyazás). Mirrors
-// AnalyticsViewPage structurally.
-// ----------------------------------------------------------------------------
+// AiAssistantViewPage — details tab of the admin AI assistant view.
+// Navigation between tabs is URL-based via NavLink (see AiAssistantViewNav).
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -22,7 +19,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ArrowLeft,
   Pencil,
@@ -39,8 +35,7 @@ import {
   getAiAssistantConfigById,
   updateAiAssistantConfig,
 } from "@/lib/ai-assistant";
-import { AiKnowledgeBasePanel } from "@/components/ai-assistant/AiKnowledgeBasePanel";
-import { AiAssistantSnippetPanel } from "@/components/ai-assistant/AiAssistantSnippetPanel";
+import { AiAssistantViewNav } from "@/components/ai-assistant/AiAssistantViewNav";
 import { AiChatPreview } from "@/components/ai-assistant/AiChatPreview";
 
 const AiAssistantViewPage: React.FC = () => {
@@ -230,8 +225,16 @@ const AiAssistantViewPage: React.FC = () => {
       ),
     },
     {
+      label: t("ai-assistant:legal_message"),
+      value: config.legalMessage || "—",
+    },
+    {
       label: t("ai-assistant:greeting_message"),
       value: config.greetingMessage || "—",
+    },
+    {
+      label: t("ai-assistant:popup_message"),
+      value: config.popupMessage || "—",
     },
     {
       label: t("ai-assistant:position"),
@@ -260,122 +263,90 @@ const AiAssistantViewPage: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <Tabs defaultValue="details">
-        <TabsList>
-          <TabsTrigger value="details">
-            {t("ai-assistant:details_tab")}
-          </TabsTrigger>
-          <TabsTrigger value="knowledge">
-            {t("ai-assistant:knowledge_tab")}
-          </TabsTrigger>
-          <TabsTrigger value="snippet">
-            {t("ai-assistant:snippet_tab")}
-          </TabsTrigger>
-        </TabsList>
+      <AiAssistantViewNav configId={config.id} />
 
-        <TabsContent value="details" className="space-y-4">
-          {/* Action buttons */}
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => navigate("/ai-assistant")}
-            >
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              {t("common:back")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => navigate(`/ai-assistant/edit/${config.id}`)}
-            >
-              <Pencil className="mr-2 h-4 w-4" />
-              {t("common:edit")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setIsStatusDialogOpen(true)}
-            >
-              {isActive ? (
-                <>
-                  <PowerOff className="mr-2 h-4 w-4" />
-                  {t("ai-assistant:action_disable")}
-                </>
-              ) : (
-                <>
-                  <Power className="mr-2 h-4 w-4" />
-                  {t("ai-assistant:action_enable")}
-                </>
-              )}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="text-destructive hover:text-destructive"
-              onClick={() => setIsDeleteDialogOpen(true)}
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              {t("common:delete")}
-            </Button>
-          </div>
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => navigate("/ai-assistant")}
+        >
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          {t("common:back")}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => navigate(`/ai-assistant/edit/${config.id}`)}
+        >
+          <Pencil className="mr-2 h-4 w-4" />
+          {t("common:edit")}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setIsStatusDialogOpen(true)}
+        >
+          {isActive ? (
+            <>
+              <PowerOff className="mr-2 h-4 w-4" />
+              {t("ai-assistant:action_disable")}
+            </>
+          ) : (
+            <>
+              <Power className="mr-2 h-4 w-4" />
+              {t("ai-assistant:action_enable")}
+            </>
+          )}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="text-destructive hover:text-destructive"
+          onClick={() => setIsDeleteDialogOpen(true)}
+        >
+          <Trash2 className="mr-2 h-4 w-4" />
+          {t("common:delete")}
+        </Button>
+      </div>
 
-          {/* Details card */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bot className="h-5 w-5" />
-                {t("ai-assistant:ai_assistant_details")}
-              </CardTitle>
-            </CardHeader>
-            <Separator />
-            <CardContent className="pt-6">
-              <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {details.map((d) => (
-                  <div key={d.label}>
-                    <dt className="text-sm font-medium text-muted-foreground">
-                      {d.label}
-                    </dt>
-                    <dd className="mt-1 text-sm">{d.value}</dd>
-                  </div>
-                ))}
-              </dl>
-            </CardContent>
-          </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Bot className="h-5 w-5" />
+            {t("ai-assistant:ai_assistant_details")}
+          </CardTitle>
+        </CardHeader>
+        <Separator />
+        <CardContent className="pt-6">
+          <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {details.map((d) => (
+              <div key={d.label}>
+                <dt className="text-sm font-medium text-muted-foreground">
+                  {d.label}
+                </dt>
+                <dd className="mt-1 text-sm">{d.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </CardContent>
+      </Card>
 
-          {/* Live Widget Preview */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("ai-assistant:branding_section")}
-              </CardTitle>
-            </CardHeader>
-            <Separator />
-            <CardContent className="pt-6">
-              <AiChatPreview config={config} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="knowledge">
-          <Card>
-            <CardContent className="pt-6">
-              <AiKnowledgeBasePanel configId={config.id} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="snippet">
-          <AiAssistantSnippetPanel
-            configId={config.id}
-            allowedOrigins={config.allowedOrigins}
-          />
-        </TabsContent>
-      </Tabs>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            {t("ai-assistant:branding_section")}
+          </CardTitle>
+        </CardHeader>
+        <Separator />
+        <CardContent className="pt-6">
+          <AiChatPreview config={config} />
+        </CardContent>
+      </Card>
 
       {/* Disable / Enable confirmation */}
       <AlertDialog

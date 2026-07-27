@@ -294,6 +294,12 @@ app.use("/api/public/ai-assistant", aiAssistantEmbedRouter);
 
 const distDir = path.join(__dirname, "dist");
 const uploadsDir = process.env.UPLOADS_DIR || path.join(__dirname, "uploads");
+// Avatar images (and other uploads) are loaded cross-origin by the widget.
+// Helmet defaults CORP to same-origin, which blocks this. Override.
+app.use("/uploads", (req, res, next) => {
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  next();
+});
 app.use("/uploads", express.static(uploadsDir));
 app.use(express.static(distDir));
 app.get("*", (req, res, next) => {

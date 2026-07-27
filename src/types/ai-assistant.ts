@@ -25,6 +25,7 @@ export interface AiAssistantConfigDTO {
   secondaryColor: string;
   greetingMessage: string;
   legalMessage: string;
+  popupMessage: string;
   avatarUrl: string | null;
   position: "bottom-right" | "bottom-left";
 
@@ -69,6 +70,7 @@ export interface AiAssistantUpdateDTO {
   secondaryColor?: string;
   greetingMessage?: string;
   legalMessage?: string;
+  popupMessage?: string;
   avatarUrl?: string | null;
   position?: "bottom-right" | "bottom-left";
   allowedOrigins?: string[];

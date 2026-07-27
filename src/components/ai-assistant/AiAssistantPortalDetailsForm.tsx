@@ -89,6 +89,7 @@ export default function AiAssistantPortalDetailsForm({
     secondaryColor: z.string().optional(),
     greetingMessage: z.string().max(2000).optional(),
     legalMessage: z.string().max(5000).optional(),
+    popupMessage: z.string().max(5000).optional(),
     basePrompt: z.string().max(10000).optional(),
     avatarUrl: z.string().nullable().optional(),
     position: z.enum(["bottom-right", "bottom-left"]).optional(),
@@ -105,6 +106,7 @@ export default function AiAssistantPortalDetailsForm({
       secondaryColor: initialData.secondaryColor ?? "#1e40af",
       greetingMessage: initialData.greetingMessage ?? "",
       legalMessage: initialData.legalMessage ?? "",
+      popupMessage: initialData.popupMessage ?? "",
       basePrompt: initialData.basePrompt ?? "",
       avatarUrl: initialData.avatarUrl ?? null,
       position: initialData.position ?? "bottom-right",
@@ -128,6 +130,7 @@ export default function AiAssistantPortalDetailsForm({
       secondaryColor: values.secondaryColor,
       greetingMessage: values.greetingMessage,
       legalMessage: values.legalMessage,
+      popupMessage: values.popupMessage,
       basePrompt: values.basePrompt,
       avatarUrl: values.avatarUrl || null,
       position: values.position,
@@ -242,6 +245,26 @@ export default function AiAssistantPortalDetailsForm({
                   </FormControl>
                   <FormDescription>
                     {t("ai-assistant:legal_message_help")}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="popupMessage"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("ai-assistant:popup_message")}</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder={t("ai-assistant:popup_message_placeholder")}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t("ai-assistant:popup_message_help")}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

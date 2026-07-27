@@ -4,7 +4,7 @@
  * Served from: /api/public/ai-assistant/:secret_token/script.js
  * Placeholders {{SECRET_TOKEN}}, {{BASE_URL}}, {{DEFAULT_LANGUAGE}},
  * {{DISPLAY_NAME}}, {{PRIMARY_COLOR}}, {{SECONDARY_COLOR}},
- * {{GREETING_MESSAGE}}, {{POSITION}}, {{AVATAR_URL}},
+ * {{GREETING_MESSAGE}}, {{LEGAL_MESSAGE}}, {{POPUP_MESSAGE}}, {{POSITION}}, {{AVATAR_URL}},
  * {{SUPPORTED_LANGUAGES}}, {{TRANSLATIONS}} are replaced server-side.
  *
  * Language switching API:
@@ -24,6 +24,8 @@
   var PRIMARY_COLOR = "{{PRIMARY_COLOR}}";
   var SECONDARY_COLOR = "{{SECONDARY_COLOR}}";
   var GREETING_MESSAGE = "{{GREETING_MESSAGE}}";
+  var LEGAL_MESSAGE = "{{LEGAL_MESSAGE}}";
+  var POPUP_MESSAGE = "{{POPUP_MESSAGE}}";
   var POSITION = "{{POSITION}}";
   var AVATAR_URL = "{{AVATAR_URL}}";
   var SUPPORTED_LANGUAGES = {{SUPPORTED_LANGUAGES}};
@@ -71,6 +73,8 @@
   var messagesContainer = null;
   var inputEl = null;
   var greetingSent = false;
+  var legalSent = false;
+  var popupDismissed = false;
 
   // --- Lightweight Markdown renderer (chat-safe, XSS-proof) ---
   function renderMarkdown(text) {
@@ -273,6 +277,27 @@
     });
     shadow.appendChild(fab);
 
+    // Popup message bubble (shown once per page load, dismissed on open)
+    if (POPUP_MESSAGE) {
+      var shownKey = "ai-assistant-popup-shown-" + SECRET_TOKEN;
+      if (!sessionStorage.getItem(shownKey)) {
+        popupDismissed = false;
+        var popup = document.createElement("div");
+        popup.className = "ai-popup-bubble";
+        popup.innerHTML = escHtml(POPUP_MESSAGE);
+        popup.addEventListener("click", function () {
+          toggleChat(true);
+        });
+        shadow.appendChild(popup);
+        // Start nudge animation after a short delay
+        setTimeout(function () {
+          popup.classList.add("ai-popup-nudge");
+        }, 1500);
+      } else {
+        popupDismissed = true;
+      }
+    }
+
     widgetRoot = shadow;
 
     // Send greeting after a short delay
@@ -288,11 +313,29 @@
   function sendGreeting() {
     if (greetingSent) return;
     greetingSent = true;
+    // Send legal message first if present
+    if (!legalSent && LEGAL_MESSAGE) {
+      legalSent = true;
+      addMessage("assistant", LEGAL_MESSAGE);
+    }
     addMessage("assistant", getGreeting());
   }
 
   function toggleChat(open) {
     isOpen = open;
+    // Dismiss popup bubble on open
+    if (open && !popupDismissed) {
+      popupDismissed = true;
+      var popup = widgetRoot && widgetRoot.querySelector(".ai-popup-bubble");
+      if (popup) {
+        popup.classList.add("ai-popup-hide");
+        var shownKey = "ai-assistant-popup-shown-" + SECRET_TOKEN;
+        try { sessionStorage.setItem(shownKey, "1"); } catch (e) {}
+        setTimeout(function () {
+          if (popup.parentNode) popup.parentNode.removeChild(popup);
+        }, 300);
+      }
+    }
     if (chatContainer) {
       if (open) {
         chatContainer.classList.remove("ai-chat-hidden");
@@ -528,9 +571,25 @@
 
       // --- Keyframes ---
       "@keyframes ai-fab-pulse {" +
-      "  0% { box-shadow: 0 4px 16px rgba(0,0,0,0.2); }" +
-      "  50% { box-shadow: 0 4px 16px rgba(0,0,0,0.2), 0 0 0 8px " + PRIMARY_COLOR + "22; }" +
-      "  100% { box-shadow: 0 4px 16px rgba(0,0,0,0.2); }" +
+      "  0% { transform: scale(1); }" +
+      "  50% { transform: scale(1.06); }" +
+      "  100% { transform: scale(1); }" +
+      "}" +
+      "@keyframes ai-popup-nudge {" +
+      "  0%, 100% { transform: translateX(0); }" +
+      "  15% { transform: translateX(-6px) rotate(-1deg); }" +
+      "  30% { transform: translateX(5px) rotate(0.5deg); }" +
+      "  45% { transform: translateX(-4px); }" +
+      "  60% { transform: translateX(3px); }" +
+      "  75% { transform: translateX(-1px); }" +
+      "}" +
+      "@keyframes ai-popup-in {" +
+      "  from { opacity: 0; transform: scale(0.8) translateY(8px); }" +
+      "  to { opacity: 1; transform: scale(1) translateY(0); }" +
+      "}" +
+      "@keyframes ai-popup-out {" +
+      "  from { opacity: 1; transform: scale(1) translateY(0); }" +
+      "  to { opacity: 0; transform: scale(0.8) translateY(8px); }" +
       "}" +
       "@keyframes ai-panel-in {" +
       "  from { opacity: 0; transform: translateY(16px) scale(0.96); }" +
@@ -676,16 +735,30 @@
       "  bottom: 20px; width: 56px; height: 56px; border-radius: 50%; border: none;" +
       "  background: " + PRIMARY_COLOR + "; color: #fff; cursor: pointer; z-index: 2147483646;" +
       "  box-shadow: 0 4px 16px rgba(0,0,0,0.2); display: flex; align-items: center;" +
-      "  justify-content: center; transition: transform 0.3s cubic-bezier(0.4,0,0.2,1), box-shadow 0.3s;" +
+      "  justify-content: center; transition: transform 0.15s ease, box-shadow 0.15s ease;" +
       "  animation: ai-fab-pulse 3s ease-in-out infinite;" +
       "}" +
-      ".ai-chat-fab:hover { transform: scale(1.1); }" +
+      ".ai-chat-fab:hover { transform: scale(1.1); animation-play-state: paused; }" +
       ".ai-chat-fab:active { transform: scale(0.95); }" +
       ".ai-chat-fab-active {" +
       "  animation: none; border-radius: 16px;" +
       "  transform: rotate(0deg); transition: transform 0.3s, border-radius 0.3s, box-shadow 0.3s;" +
       "}" +
       ".ai-chat-fab-active:hover { transform: scale(1.08); }" +
+
+      // --- Popup bubble ---
+      ".ai-popup-bubble {" +
+      "  position: fixed; " + posStyle +
+      "  bottom: 86px; max-width: 260px; padding: 12px 16px;" +
+      "  background: #fff; color: #1a1a1a; border-radius: 16px 16px 4px 16px;" +
+      "  box-shadow: 0 4px 20px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.08);" +
+      "  font-size: 14px; line-height: 1.4; cursor: pointer;" +
+      "  z-index: 2147483645; animation: ai-popup-in 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards;" +
+      "  transition: opacity 0.25s ease, transform 0.25s ease;" +
+      "  border: 1px solid rgba(0,0,0,0.05);" +
+      "}" +
+      ".ai-popup-nudge { animation: ai-popup-nudge 0.8s ease-in-out 1; }" +
+      ".ai-popup-hide { opacity: 0; transform: scale(0.85) translateY(8px); pointer-events: none; }" +
 
       // --- Mobile ---
       "@media (max-width: 480px) {" +

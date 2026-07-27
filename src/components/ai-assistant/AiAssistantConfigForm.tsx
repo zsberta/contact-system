@@ -111,6 +111,8 @@ const formSchema = z.object({
   primaryColor: z.string().optional(),
   secondaryColor: z.string().optional(),
   greetingMessage: z.string().optional(),
+  legalMessage: z.string().optional(),
+  popupMessage: z.string().optional(),
   avatarUrl: z.string().optional(),
   position: z.enum(["bottom-right", "bottom-left"]).optional(),
   defaultLanguage: z.string().optional(),
@@ -140,6 +142,8 @@ const AiAssistantConfigForm = ({
       primaryColor: initialData?.primaryColor ?? "#3b82f6",
       secondaryColor: initialData?.secondaryColor ?? "#1e40af",
       greetingMessage: initialData?.greetingMessage ?? "",
+      legalMessage: initialData?.legalMessage ?? "",
+      popupMessage: initialData?.popupMessage ?? "",
       avatarUrl: initialData?.avatarUrl ?? "",
       position: initialData?.position ?? "bottom-right",
       defaultLanguage: initialData?.defaultLanguage ?? "en",
@@ -235,6 +239,8 @@ const AiAssistantConfigForm = ({
       primaryColor: values.primaryColor,
       secondaryColor: values.secondaryColor,
       greetingMessage: values.greetingMessage,
+      legalMessage: values.legalMessage,
+      popupMessage: values.popupMessage,
       avatarUrl: values.avatarUrl || null,
       position: values.position,
       allowedOrigins: cleanedOrigins,
@@ -583,12 +589,56 @@ const AiAssistantConfigForm = ({
 
             <FormField
               control={form.control}
+              name="legalMessage"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("ai-assistant:legal_message")}</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder={t(
+                        "ai-assistant:legal_message_placeholder",
+                      )}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t("ai-assistant:legal_message_help")}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="popupMessage"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("ai-assistant:popup_message")}</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder={t(
+                        "ai-assistant:popup_message_placeholder",
+                      )}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t("ai-assistant:popup_message_help")}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
               name="greetingMessage"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{t("ai-assistant:greeting_message")}</FormLabel>
                   <FormControl>
-                    <Input
+                    <Textarea
                       placeholder={t(
                         "ai-assistant:greeting_message_placeholder",
                       )}
@@ -925,14 +975,16 @@ function AvatarUploader({
   return (
     <div className="flex items-center gap-4">
       {/* Preview */}
-      <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full border bg-muted flex items-center justify-center">
+      <div className="relative h-16 w-16 shrink-0 rounded-full border bg-muted flex items-center justify-center">
         {value ? (
           <>
-            <img src={value} alt="Avatar" className="h-full w-full object-cover" />
+            <div className="h-16 w-16 overflow-hidden rounded-full">
+              <img src={value} alt="Avatar" className="h-full w-full object-cover" />
+            </div>
             <button
               type="button"
               onClick={handleDelete}
-              className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-white shadow-sm hover:bg-destructive/90"
+              className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-white shadow-sm hover:bg-destructive/90 z-10"
             >
               <X className="h-3 w-3" />
             </button>

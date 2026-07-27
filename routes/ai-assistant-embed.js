@@ -150,7 +150,7 @@ router.get("/:secret_token/script.js", async (req, res) => {
     // Fetch config for placeholder replacement
     const configResult = await pool.query(
       `SELECT c.display_name, c.primary_color, c.secondary_color, c.default_language,
-              c.greeting_message, c.position, c.avatar_url, c.supported_languages,
+              c.greeting_message, c.legal_message, c.popup_message, c.position, c.avatar_url, c.supported_languages,
               (SELECT COALESCE(json_agg(json_build_object(
                 'language', t.language,
                 'displayName', t.display_name,
@@ -171,13 +171,21 @@ router.get("/:secret_token/script.js", async (req, res) => {
 
     const translations = parseTranslations(cfg);
 
+    // eslint-disable-next-line no-shadow
+    function escapeJsString(s) {
+      if (!s) return "";
+      return String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/</g, "\\x3c");
+    }
+
     script = script.replace(/\{\{SECRET_TOKEN\}\}/g, secretToken);
     script = script.replace(/\{\{BASE_URL\}\}/g, appUrl);
     script = script.replace(/\{\{DEFAULT_LANGUAGE\}\}/g, cfg.default_language || "en");
-    script = script.replace(/\{\{DISPLAY_NAME\}\}/g, cfg.display_name || "AI Assistant");
+    script = script.replace(/\{\{DISPLAY_NAME\}\}/g, escapeJsString(cfg.display_name || "AI Assistant"));
     script = script.replace(/\{\{PRIMARY_COLOR\}\}/g, cfg.primary_color || "#3b82f6");
     script = script.replace(/\{\{SECONDARY_COLOR\}\}/g, cfg.secondary_color || "#ffffff");
-    script = script.replace(/\{\{GREETING_MESSAGE\}\}/g, cfg.greeting_message || "Hello! How can I help you today?");
+    script = script.replace(/\{\{GREETING_MESSAGE\}\}/g, escapeJsString(cfg.greeting_message || "Hello! How can I help you today?"));
+    script = script.replace(/\{\{LEGAL_MESSAGE\}\}/g, escapeJsString(cfg.legal_message || ""));
+    script = script.replace(/\{\{POPUP_MESSAGE\}\}/g, escapeJsString(cfg.popup_message || ""));
     script = script.replace(/\{\{POSITION\}\}/g, cfg.position || "bottom-right");
     script = script.replace(/\{\{AVATAR_URL\}\}/g, cfg.avatar_url || "");
     script = script.replace(/\{\{SUPPORTED_LANGUAGES\}\}/g, JSON.stringify(supportedLanguages));
@@ -232,6 +240,7 @@ router.get("/:secret_token/config", async (req, res) => {
       supportedLanguages,
       translations: parseTranslations(row),
       greetingMessage: row.greeting_message,
+      legalMessage: row.legal_message,
       position: row.position,
       avatarUrl: row.avatar_url,
     });
@@ -353,7 +362,7 @@ router.post("/:secret_token/chat", burstLimiter, sustainedLimiter, async (req, r
             const chunks = await searchKnowledgeBase({ assistantId, queryEmbedding: embedding, topK: 5 });
             if (chunks.length > 0) {
               ragContext = "\n\nRelevant knowledge base context:\n" + chunks.map((c, i) => `[${i + 1}] ${c.content}`).join("\n\n");
-              ragSources = chunks.map((c) => ({ documentId: c.documentId, chunkContent: c.content.slice(0, 200) }));
+              ragSources = chunks.map((c) => ({ documentId: c.documentId, filename: c.filename, chunkContent: c.content.slice(0, 200) }));
             }
           }
         }

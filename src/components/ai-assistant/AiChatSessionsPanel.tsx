@@ -1,24 +1,26 @@
 // ----------------------------------------------------------------------------
-// AiChatSessionsPanel — chat sessions viewer. Lists sessions with
-// expandable message view. Used in the admin view page and portal page.
+// AiChatSessionsPanel — paged DataTable of chat sessions with a Dialog to
+// view the conversation. Used in the admin view page and portal page.
+// Mirrors the AiAssistantPage DataTable pattern.
 // ----------------------------------------------------------------------------
 
-import { useState } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent } from "@/components/ui/card";
+import { DataTable } from "@/components/DataTable";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { MessageSquare, User, Bot, Info } from "lucide-react";
 import {
-  ChevronDown,
-  ChevronRight,
-  MessageSquare,
-  User,
-  Bot,
-  Info,
-} from "lucide-react";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { QueryParams } from "@/types/common";
 import { getChatSessions, getChatMessages } from "@/lib/ai-assistant";
 import type { AiChatSessionDTO, AiChatMessageDTO } from "@/types/ai-assistant";
+import ChatSessionActions from "@/components/ai-assistant/ChatSessionActions";
 
 interface AiChatSessionsPanelProps {
   configId: number;
@@ -27,30 +29,117 @@ interface AiChatSessionsPanelProps {
 export function AiChatSessionsPanel({
   configId,
 }: AiChatSessionsPanelProps) {
-  const { t } = useTranslation(["ai-assistant", "common"]);
-  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(
-    null,
-  );
+  const { t, i18n } = useTranslation(["ai-assistant", "common"]);
 
-  const { data: sessionsData, isLoading: sessionsLoading } = useQuery({
-    queryKey: ["ai-assistant", configId, "sessions"],
-    queryFn: () =>
-      getChatSessions(configId, {
-        page: 0,
-        size: 50,
-        sortField: "createdAt",
-        sortOrder: "desc",
-      }),
+  // Pagination / search / sort state
+  const [queryParams, setQueryParams] = useState<QueryParams>({
+    page: 0,
+    size: 10,
+    sortField: "createdAt",
+    sortOrder: "desc",
+    queries: [],
+    filterType: "any",
+  });
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["ai-assistant", configId, "sessions", queryParams],
+    queryFn: () => getChatSessions(configId, queryParams),
     enabled: !!configId,
   });
 
-  const sessions = sessionsData?.content ?? [];
+  // Dialog state
+  const [selectedSession, setSelectedSession] = useState<AiChatSessionDTO | null>(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-  const toggleSession = (sessionId: string) => {
-    setExpandedSessionId((prev) =>
-      prev === sessionId ? null : sessionId,
-    );
-  };
+  const handlePageChange = useCallback(
+    (page: number) => setQueryParams((p) => ({ ...p, page })),
+    [],
+  );
+  const handlePageSizeChange = useCallback(
+    (size: number) => setQueryParams((p) => ({ ...p, size, page: 0 })),
+    [],
+  );
+  const handleQueriesChange = useCallback(
+    (queries: string[]) =>
+      setQueryParams((p) => ({ ...p, queries, page: 0 })),
+    [],
+  );
+  const handleFilterTypeChange = useCallback(
+    (filterType: "any" | "all") =>
+      setQueryParams((p) => ({ ...p, filterType, page: 0 })),
+    [],
+  );
+  const handleSearch = useCallback(
+    (query: string) =>
+      setQueryParams((p) => ({
+        ...p,
+        queries: query ? [query] : [],
+        page: 0,
+      })),
+    [],
+  );
+  const handleSortChange = useCallback(
+    (sortField: string, sortOrder: "asc" | "desc") =>
+      setQueryParams((p) => ({ ...p, sortField, sortOrder, page: 0 })),
+    [],
+  );
+
+  const handleRowDoubleClick = useCallback((row: AiChatSessionDTO) => {
+    setSelectedSession(row);
+    setIsDialogOpen(true);
+  }, []);
+
+  const columns = [
+    {
+      accessorKey: "sessionId",
+      header: t("ai-assistant:session_visitor"),
+      cell: (row: AiChatSessionDTO) => (
+        <span className="font-medium truncate max-w-[200px] block">
+          {row.visitorId || row.sessionId.slice(0, 12) + "..."}
+        </span>
+      ),
+      enableSorting: true,
+    },
+    {
+      accessorKey: "messageCount",
+      header: t("ai-assistant:session_messages"),
+      cell: (row: AiChatSessionDTO) => (
+        <Badge variant="secondary" className="gap-1">
+          <MessageSquare className="h-3 w-3" />
+          {row.messageCount ?? 0}
+        </Badge>
+      ),
+      enableSorting: false,
+    },
+    {
+      accessorKey: "language",
+      header: t("ai-assistant:session_language"),
+      cell: (row: AiChatSessionDTO) => (
+        <Badge variant="outline">{row.language}</Badge>
+      ),
+      enableSorting: true,
+    },
+    {
+      accessorKey: "createdAt",
+      header: t("common:created_at"),
+      cell: (row: AiChatSessionDTO) =>
+        new Date(row.createdAt).toLocaleString(i18n.language),
+      enableSorting: true,
+    },
+    {
+      accessorKey: "actions",
+      header: t("common:actions"),
+      cell: (row: AiChatSessionDTO) => (
+        <ChatSessionActions
+          session={row}
+          onView={(s) => {
+            setSelectedSession(s);
+            setIsDialogOpen(true);
+          }}
+        />
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-4">
@@ -63,159 +152,187 @@ export function AiChatSessionsPanel({
         </p>
       </div>
 
-      {sessionsLoading ? (
-        <p className="text-sm text-muted-foreground">
-          {t("common:loading")}
-        </p>
-      ) : sessions.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">
-          <MessageSquare className="mx-auto h-8 w-8 mb-2 opacity-50" />
-          <p className="text-sm">{t("ai-assistant:sessions_empty")}</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {sessions.map((session) => (
-            <SessionCard
-              key={session.id}
-              session={session}
-              configId={configId}
-              isExpanded={expandedSessionId === session.sessionId}
-              onToggle={() => toggleSession(session.sessionId)}
-            />
-          ))}
-        </div>
-      )}
+      <DataTable
+        columns={columns}
+        data={data?.content || []}
+        pageInfo={data}
+        onPageChange={handlePageChange}
+        onPageSizeChange={handlePageSizeChange}
+        onSearch={handleSearch}
+        queries={queryParams.queries}
+        filterType={queryParams.filterType}
+        onQueriesChange={handleQueriesChange}
+        onFilterTypeChange={handleFilterTypeChange}
+        isLoading={isLoading}
+        onSortChange={handleSortChange}
+        currentSortField={queryParams.sortField || "createdAt"}
+        currentSortOrder={queryParams.sortOrder || "desc"}
+        onRowDoubleClick={handleRowDoubleClick}
+        emptyMessage={t("ai-assistant:sessions_empty")}
+      />
+
+      {/* Chat Dialog */}
+      <ChatDialog
+        session={selectedSession}
+        configId={configId}
+        isOpen={isDialogOpen}
+        onOpenChange={setIsDialogOpen}
+      />
     </div>
   );
 }
 
-// Separate component for each session card to isolate the messages query
-function SessionCard({
+// ---------------------------------------------------------------------------
+// ChatDialog — shows the full conversation in a modal with chat-window UI
+// ---------------------------------------------------------------------------
+function ChatDialog({
   session,
   configId,
-  isExpanded,
-  onToggle,
+  isOpen,
+  onOpenChange,
 }: {
-  session: AiChatSessionDTO;
+  session: AiChatSessionDTO | null;
   configId: number;
-  isExpanded: boolean;
-  onToggle: () => void;
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const { t } = useTranslation(["ai-assistant", "common"]);
+  const { t, i18n } = useTranslation(["ai-assistant", "common"]);
 
-  const { data: messages, isLoading: messagesLoading } = useQuery({
-    queryKey: ["ai-assistant", configId, "sessions", session.sessionId, "messages"],
-    queryFn: () => getChatMessages(configId, session.sessionId),
-    enabled: isExpanded,
+  const { data: messages, isLoading } = useQuery({
+    queryKey: ["ai-assistant", configId, "sessions", session?.id, "messages"],
+    queryFn: () => getChatMessages(configId, session!.id),
+    enabled: isOpen && !!session,
   });
 
-  return (
-    <Card>
-      <CardContent className="py-3">
-        <button
-          type="button"
-          className="flex items-center justify-between w-full text-left"
-          onClick={onToggle}
-        >
-          <div className="flex items-center gap-3">
-            {isExpanded ? (
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            ) : (
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-            )}
-            <div>
-              <p className="text-sm font-medium">
-                {session.visitorId || session.sessionId}
-              </p>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span>
-                  {session.messageCount ?? 0} {t("ai-assistant:session_messages")}
-                </span>
-                <span>·</span>
-                <span>{session.language}</span>
-                <span>·</span>
-                <span>
-                  {new Date(session.createdAt).toLocaleString()}
-                </span>
-              </div>
-            </div>
-          </div>
-          <Badge variant="outline" className="text-xs">
-            {session.language}
-          </Badge>
-        </button>
+  if (!session) return null;
 
-        {isExpanded && (
-          <div className="mt-3 space-y-2 border-t pt-3">
-            {messagesLoading ? (
-              <p className="text-sm text-muted-foreground">
-                {t("common:loading")}
-              </p>
-            ) : messages && messages.length > 0 ? (
-              messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} />
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                {t("ai-assistant:session_empty_messages")}
-              </p>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+  return (
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0">
+        <DialogHeader className="px-6 pt-6 pb-4 border-b">
+          <DialogTitle className="flex items-center gap-2">
+            <MessageSquare className="h-5 w-5" />
+            {t("ai-assistant:chat_sessions")}
+          </DialogTitle>
+          <DialogDescription className="flex items-center gap-3 text-xs">
+            <span>{session.visitorId || session.sessionId}</span>
+            <span>·</span>
+            <span>{session.language}</span>
+            <span>·</span>
+            <span>{new Date(session.createdAt).toLocaleString(i18n.language)}</span>
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {isLoading ? (
+            <div className="p-6 text-center text-sm text-muted-foreground">
+              {t("common:loading")}
+            </div>
+          ) : messages && messages.length > 0 ? (
+            <div className="p-4 space-y-3 bg-muted/20">
+              {messages.map((msg) => (
+                <ChatMessage key={msg.id} message={msg} />
+              ))}
+            </div>
+          ) : (
+            <div className="p-6 text-center text-sm text-muted-foreground">
+              {t("ai-assistant:session_empty_messages")}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function MessageBubble({ message }: { message: AiChatMessageDTO }) {
-  const { t } = useTranslation(["ai-assistant", "common"]);
+// ---------------------------------------------------------------------------
+// ChatMessage — individual message bubble (user right, assistant left)
+// ---------------------------------------------------------------------------
+function ChatMessage({ message }: { message: AiChatMessageDTO }) {
+  const { t, i18n } = useTranslation(["ai-assistant", "common"]);
 
-  const roleConfig = {
-    user: {
-      icon: <User className="h-3 w-3" />,
-      variant: "secondary" as const,
-      label: "User",
-    },
-    assistant: {
-      icon: <Bot className="h-3 w-3" />,
-      variant: "default" as const,
-      label: "Assistant",
-    },
-    system: {
-      icon: <Info className="h-3 w-3" />,
-      variant: "outline" as const,
-      label: "System",
-    },
-  };
-
-  const role = roleConfig[message.role];
+  const isUser = message.role === "user";
+  const isAssistant = message.role === "assistant";
+  const isSystem = message.role === "system";
 
   return (
-    <div className="rounded-md bg-muted/50 p-3 space-y-2">
-      <div className="flex items-center justify-between">
-        <Badge variant={role.variant} className="gap-1 text-xs">
-          {role.icon}
-          {role.label}
-        </Badge>
-        <span className="text-xs text-muted-foreground">
-          {new Date(message.createdAt).toLocaleString()}
-        </span>
-      </div>
-      <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-      {message.ragSources && message.ragSources.length > 0 && (
-        <div className="mt-2">
-          <p className="text-xs font-medium text-muted-foreground mb-1">
-            {t("ai-assistant:rag_sources")}:
-          </p>
-          <div className="flex flex-wrap gap-1">
-            {message.ragSources.map((src, i) => (
-              <Badge key={i} variant="outline" className="text-xs">
-                {src.filename}
-              </Badge>
-            ))}
-          </div>
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+      <div
+        className={`flex gap-2 max-w-[80%] ${isUser ? "flex-row-reverse" : "flex-row"}`}
+      >
+        {/* Avatar */}
+        <div
+          className={`shrink-0 h-7 w-7 rounded-full flex items-center justify-center ${
+            isUser
+              ? "bg-primary text-primary-foreground"
+              : isAssistant
+                ? "bg-secondary text-secondary-foreground"
+                : "bg-muted text-muted-foreground"
+          }`}
+        >
+          {isUser ? (
+            <User className="h-3.5 w-3.5" />
+          ) : isAssistant ? (
+            <Bot className="h-3.5 w-3.5" />
+          ) : (
+            <Info className="h-3.5 w-3.5" />
+          )}
         </div>
-      )}
+
+        {/* Message bubble */}
+        <div className="space-y-1">
+          <div
+            className={`rounded-xl px-3 py-2 text-sm ${
+              isUser
+                ? "bg-primary text-primary-foreground rounded-br-sm"
+                : isAssistant
+                  ? "bg-card border rounded-bl-sm shadow-sm"
+                  : "bg-muted border border-dashed rounded-bl-sm"
+            }`}
+          >
+            <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          </div>
+
+          {/* Meta row */}
+          <div
+            className={`flex items-center gap-2 text-[11px] text-muted-foreground px-1 ${
+              isUser ? "justify-end" : "justify-start"
+            }`}
+          >
+            <span>
+              {isUser
+                ? t("ai-assistant:message_role_user", "User")
+                : isAssistant
+                  ? t("ai-assistant:message_role_assistant", "Assistant")
+                  : t("ai-assistant:message_role_system", "System")}
+            </span>
+            <span>·</span>
+            <span>{new Date(message.createdAt).toLocaleTimeString(i18n.language)}</span>
+            {message.tokensUsed > 0 && (
+              <>
+                <span>·</span>
+                <span>{message.tokensUsed} tokens</span>
+              </>
+            )}
+          </div>
+
+          {/* RAG sources */}
+          {message.ragSources && message.ragSources.length > 0 && (
+            <div className="px-1">
+              <p className="text-[11px] font-medium text-muted-foreground mb-1">
+                {t("ai-assistant:rag_sources")}:
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {message.ragSources.map((src, i) => (
+                  <Badge key={i} variant="outline" className="text-[11px]">
+                    {src.filename || `Doc #${src.documentId}`}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

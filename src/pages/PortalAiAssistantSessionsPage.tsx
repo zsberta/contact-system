@@ -1,20 +1,17 @@
-// PortalAiAssistantPage — enduser portal page for the AI assistant.
-// Mirrors PortalAnalyticsPage: fetches config via lazy upsert, shows
-// read-only view with Knowledge Base and Chat Sessions tabs.
+// PortalAiAssistantSessionsPage — chat sessions tab of the enduser portal.
 
 import { useTranslation } from "react-i18next";
 import { Bot } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useProjectContext } from "@/context/ProjectContext";
 import { getOrCreateAiAssistantConfigByProject } from "@/lib/ai-assistant";
 import { showError } from "@/utils/toast";
 import type { AiAssistantConfigDTO } from "@/types/ai-assistant";
-import { AiKnowledgeBasePanel } from "@/components/ai-assistant/AiKnowledgeBasePanel";
 import { AiChatSessionsPanel } from "@/components/ai-assistant/AiChatSessionsPanel";
+import { PortalAiAssistantNav } from "@/components/ai-assistant/PortalAiAssistantNav";
 
-export default function PortalAiAssistantPage() {
+export default function PortalAiAssistantSessionsPage() {
   const { t } = useTranslation(["ai-assistant", "common"]);
   const { selectedId } = useProjectContext();
 
@@ -56,32 +53,13 @@ export default function PortalAiAssistantPage() {
         </h1>
       </div>
 
-      <Tabs defaultValue="knowledge">
-        <TabsList>
-          <TabsTrigger value="knowledge">
-            {t("ai-assistant:knowledge_tab")}
-          </TabsTrigger>
-          <TabsTrigger value="sessions">
-            {t("ai-assistant:chat_sessions")}
-          </TabsTrigger>
-        </TabsList>
+      <PortalAiAssistantNav />
 
-        <TabsContent value="knowledge">
-          <Card>
-            <CardContent className="pt-6">
-              <AiKnowledgeBasePanel configId={config.id} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="sessions">
-          <Card>
-            <CardContent className="pt-6">
-              <AiChatSessionsPanel configId={config.id} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+      <Card>
+        <CardContent className="pt-6">
+          <AiChatSessionsPanel configId={config.id} />
+        </CardContent>
+      </Card>
     </div>
   );
 }

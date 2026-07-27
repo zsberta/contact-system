@@ -139,6 +139,7 @@ function rowToConfigDTO(row) {
     secondaryColor: row.secondary_color ?? "#ffffff",
     greetingMessage: row.greeting_message ?? "",
     legalMessage: row.legal_message ?? "",
+    popupMessage: row.popup_message ?? "",
     avatarUrl: row.avatar_url ?? null,
     position: row.position ?? "bottom-right",
     // Multilanguage
@@ -404,6 +405,21 @@ function validateConfigBody(body, { partial = false } = {}) {
     out.legal_message = "";
   }
 
+  if (body.popupMessage !== undefined || body.popup_message !== undefined) {
+    const v = body.popupMessage ?? body.popup_message;
+    if (typeof v !== "string") {
+      errors.push("popupMessage must be a string");
+    } else {
+      if (v.length > 5000) {
+        errors.push("popupMessage must be <= 5000 chars");
+      } else {
+        out.popup_message = v;
+      }
+    }
+  } else if (!partial) {
+    out.popup_message = "";
+  }
+
   if (body.avatarUrl !== undefined || body.avatar_url !== undefined) {
     const v = body.avatarUrl ?? body.avatar_url;
     if (v !== null && v !== undefined && typeof v !== "string") {
@@ -555,7 +571,7 @@ const CONFIG_COLUMNS = `c.id, c.project_id, p.name AS project_name,
   c.name, c.secret_token, c.status,
   c.ai_config_id, c.model, c.base_url, c.base_prompt,
   c.display_name, c.primary_color, c.secondary_color,
-  c.greeting_message, c.legal_message, c.avatar_url, c.position,
+  c.greeting_message, c.legal_message, c.popup_message, c.avatar_url, c.position,
   c.default_language, c.supported_languages,
   c.allowed_origins, c.rate_limit_burst,
   c.rate_limit_sustained, c.max_upload_size_mb,
