@@ -8,6 +8,7 @@ import type {
   AiAssistantUpdateDTO,
   AiAssistantSnippetResponse,
   AiKnowledgeBaseDocument,
+  AiKnowledgeChunksResponse,
   AiChatSessionDTO,
   AiChatMessageDTO,
 } from "@/types/ai-assistant";
@@ -91,6 +92,15 @@ export const deleteKnowledgeBaseDocument = (
   );
 };
 
+export const getKnowledgeDocumentChunks = (
+  assistantId: number,
+  docId: number,
+): Promise<AiKnowledgeChunksResponse> => {
+  return apiFetch<AiKnowledgeChunksResponse>(
+    `/ai-assistant/${assistantId}/knowledge/${docId}/chunks`,
+  );
+};
+
 // Chat sessions
 export const getChatSessions = (
   assistantId: number,
@@ -103,10 +113,10 @@ export const getChatSessions = (
 
 export const getChatMessages = (
   assistantId: number,
-  sessionId: string,
+  sessionId: number,
 ): Promise<AiChatMessageDTO[]> => {
   return apiFetch<AiChatMessageDTO[]>(
-    `/ai-assistant/${assistantId}/sessions/${sessionId}/messages`,
+    `/ai-assistant/${assistantId}/sessions/${sessionId}`,
   );
 };
 

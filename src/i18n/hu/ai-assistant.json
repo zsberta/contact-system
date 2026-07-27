@@ -80,6 +80,9 @@
   "display_name_placeholder": "AI Asszisztens",
   "primary_color": "Elsődleges szín",
   "secondary_color": "Másodlagos szín",
+  "legal_message": "Jogi nyilatkozat",
+  "legal_message_help": "Jogi közlemény vagy diszclaimer, amely a beszélgetés kezdetekor megjelenik a köszöntő előtt",
+  "legal_message_placeholder": "pl. Ez a beszélgetés minitásbiztosítási célokból rögzítésre kerülhet...",
   "greeting_message": "Köszöntő üzenet",
   "greeting_message_help": "Az első üzenet, amit az asszisztens küld a beszélgetés kezdetekor",
   "greeting_message_placeholder": "Szép napot! Miben segíthetek?",
@@ -122,6 +125,9 @@
   "documents_empty": "Még nincsenek feltöltött dokumentumok.",
   "file_too_large": "A fájl meghaladja a maximális {{maxSize}}MB méretet.",
   "invalid_file_type": "Nem támogatott fájltípus. Kérjük, PDF, TXT, Markdown, DOCX vagy CSV fájlt töltsön fel.",
+  "chunk_tokens": "{{count}} token",
+  "chunk_expand": "Kibontás",
+  "chunk_collapse": "Összecsukás",
   "chat_sessions": "Csevegési munkamenetek",
   "chat_sessions_description": "Weboldali látogatók beszélgetéseinek megtekintése.",
   "sessions_empty": "Még nincsenek csevegési munkamenetek.",
@@ -130,5 +136,8 @@
   "session_language": "Nyelv",
   "session_created": "Indítva",
   "session_empty_messages": "Nincsenek üzenetek ebben a munkamenetben.",
-  "rag_sources": "Felhasznált források"
+  "rag_sources": "Felhasznált források",
+  "message_role_user": "Felhasználó",
+  "message_role_assistant": "Asszisztens",
+  "message_role_system": "Rendszer"
 }

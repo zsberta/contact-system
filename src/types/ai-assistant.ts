@@ -24,6 +24,7 @@ export interface AiAssistantConfigDTO {
   primaryColor: string;
   secondaryColor: string;
   greetingMessage: string;
+  legalMessage: string;
   avatarUrl: string | null;
   position: "bottom-right" | "bottom-left";
 
@@ -67,6 +68,7 @@ export interface AiAssistantUpdateDTO {
   primaryColor?: string;
   secondaryColor?: string;
   greetingMessage?: string;
+  legalMessage?: string;
   avatarUrl?: string | null;
   position?: "bottom-right" | "bottom-left";
   allowedOrigins?: string[];
@@ -111,6 +113,26 @@ export interface AiKnowledgeBaseDocument {
   chunkCount: number;
   createdAt: string;
   updatedAt: string;
+}
+
+// Knowledge base document chunk (from GET /api/ai-assistant/:id/knowledge/:docId/chunks)
+export interface AiKnowledgeChunk {
+  id: number;
+  chunkIndex: number;
+  content: string;
+  tokenCount: number;
+  createdAt: string;
+}
+
+export interface AiKnowledgeChunksResponse {
+  document: {
+    id: number;
+    originalFilename: string;
+    fileType: string;
+    chunkCount: number;
+    status: string;
+  };
+  chunks: AiKnowledgeChunk[];
 }
 
 // AI config preset

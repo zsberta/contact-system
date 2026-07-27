@@ -80,6 +80,9 @@
   "display_name_placeholder": "AI Assistant",
   "primary_color": "Primary Color",
   "secondary_color": "Secondary Color",
+  "legal_message": "Legal Message",
+  "legal_message_help": "Disclaimer or legal notice shown before the greeting message when a chat starts",
+  "legal_message_placeholder": "e.g. This conversation may be recorded for quality purposes...",
   "greeting_message": "Greeting Message",
   "greeting_message_help": "First message the assistant sends when a chat starts",
   "greeting_message_placeholder": "Hello! How can I help you today?",
@@ -122,6 +125,9 @@
   "documents_empty": "No documents uploaded yet.",
   "file_too_large": "File exceeds the maximum upload size of {{maxSize}}MB.",
   "invalid_file_type": "Unsupported file type. Please upload PDF, TXT, Markdown, DOCX, or CSV.",
+  "chunk_tokens": "{{count}} tokens",
+  "chunk_expand": "Expand",
+  "chunk_collapse": "Collapse",
   "chat_sessions": "Chat Sessions",
   "chat_sessions_description": "View conversations from website visitors.",
   "sessions_empty": "No chat sessions yet.",
@@ -130,5 +136,8 @@
   "session_language": "Language",
   "session_created": "Started",
   "session_empty_messages": "No messages in this session.",
-  "rag_sources": "Sources used"
+  "rag_sources": "Sources used",
+  "message_role_user": "User",
+  "message_role_assistant": "Assistant",
+  "message_role_system": "System"
 }

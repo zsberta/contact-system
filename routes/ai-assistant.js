@@ -138,6 +138,7 @@ function rowToConfigDTO(row) {
     primaryColor: row.primary_color ?? "#3b82f6",
     secondaryColor: row.secondary_color ?? "#ffffff",
     greetingMessage: row.greeting_message ?? "",
+    legalMessage: row.legal_message ?? "",
     avatarUrl: row.avatar_url ?? null,
     position: row.position ?? "bottom-right",
     // Multilanguage
@@ -388,6 +389,21 @@ function validateConfigBody(body, { partial = false } = {}) {
     out.greeting_message = "Hello! How can I help you today?";
   }
 
+  if (body.legalMessage !== undefined || body.legal_message !== undefined) {
+    const v = body.legalMessage ?? body.legal_message;
+    if (typeof v !== "string") {
+      errors.push("legalMessage must be a string");
+    } else {
+      if (v.length > 5000) {
+        errors.push("legalMessage must be <= 5000 chars");
+      } else {
+        out.legal_message = v;
+      }
+    }
+  } else if (!partial) {
+    out.legal_message = "";
+  }
+
   if (body.avatarUrl !== undefined || body.avatar_url !== undefined) {
     const v = body.avatarUrl ?? body.avatar_url;
     if (v !== null && v !== undefined && typeof v !== "string") {
@@ -539,7 +555,7 @@ const CONFIG_COLUMNS = `c.id, c.project_id, p.name AS project_name,
   c.name, c.secret_token, c.status,
   c.ai_config_id, c.model, c.base_url, c.base_prompt,
   c.display_name, c.primary_color, c.secondary_color,
-  c.greeting_message, c.avatar_url, c.position,
+  c.greeting_message, c.legal_message, c.avatar_url, c.position,
   c.default_language, c.supported_languages,
   c.allowed_origins, c.rate_limit_burst,
   c.rate_limit_sustained, c.max_upload_size_mb,
@@ -1187,6 +1203,62 @@ router.post("/:id/knowledge", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/ai-assistant/:id/knowledge/:docId/chunks
+// List chunks for a specific knowledge base document.
+// ---------------------------------------------------------------------------
+router.get("/:id/knowledge/:docId/chunks", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const docId = parseInt(req.params.docId, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ errorMessage: "Invalid id" });
+  }
+  if (!Number.isFinite(docId) || docId <= 0) {
+    return res.status(400).json({ errorMessage: "Invalid document id" });
+  }
+
+  try {
+    // Verify the document belongs to this assistant.
+    const { rows: docs } = await pool.query(
+      `SELECT id, original_filename, file_type, chunk_count, status
+       FROM ai_knowledge_base
+       WHERE id = $1 AND assistant_id = $2`,
+      [docId, id],
+    );
+    if (docs.length === 0) {
+      return res.status(404).json({ errorMessage: "Document not found" });
+    }
+
+    const { rows: chunks } = await pool.query(
+      `SELECT id, chunk_index, content, token_count, created_at
+       FROM ai_knowledge_chunks
+       WHERE document_id = $1 AND assistant_id = $2
+       ORDER BY chunk_index ASC`,
+      [docId, id],
+    );
+
+    return res.json({
+      document: {
+        id: Number(docs[0].id),
+        originalFilename: docs[0].original_filename,
+        fileType: docs[0].file_type,
+        chunkCount: Number(docs[0].chunk_count),
+        status: docs[0].status,
+      },
+      chunks: chunks.map((c) => ({
+        id: Number(c.id),
+        chunkIndex: c.chunk_index,
+        content: c.content,
+        tokenCount: c.token_count,
+        createdAt: new Date(c.created_at).toISOString(),
+      })),
+    });
+  } catch (err) {
+    console.error("[ai-assistant/knowledge-chunks]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // DELETE /api/ai-assistant/:id/knowledge/:docId
 // Delete a knowledge base document and its chunks (CASCADE).
 // ---------------------------------------------------------------------------
@@ -1389,6 +1461,31 @@ router.get("/:id/sessions", async (req, res) => {
   );
   const offset = page * size;
 
+  // Search: ?queries=["keyword"] — searches session fields AND message content
+  let searchClauses = "";
+  const searchValues = [];
+  const queries = Array.isArray(req.query.queries)
+    ? req.query.queries.filter((q) => typeof q === "string" && q.trim())
+    : typeof req.query.queries === "string" && req.query.queries.trim()
+      ? [req.query.queries.trim()]
+      : [];
+  if (queries.length > 0) {
+    const likeParts = [];
+    for (const q of queries) {
+      searchValues.push(`%${q}%`);
+      const p = `$${searchValues.length + 1}`;
+      likeParts.push(
+        `(s.session_id ILIKE ${p} OR s.visitor_id ILIKE ${p} OR s.language ILIKE ${p} OR s.ip_address::text ILIKE ${p} OR EXISTS (SELECT 1 FROM ai_chat_messages cm WHERE cm.session_id = s.id AND cm.content ILIKE ${p}))`
+      );
+    }
+    searchClauses = " AND (" + likeParts.join(" OR ") + ")";
+  }
+
+  // Sort: ?sortField=createdAt&sortOrder=desc
+  const allowedSortFields = { createdAt: "s.created_at", language: "s.language", sessionId: "s.session_id" };
+  const sortField = allowedSortFields[req.query.sortField] || "s.created_at";
+  const sortOrder = req.query.sortOrder === "asc" ? "ASC" : "DESC";
+
   try {
     const configCheck = await pool.query(
       `SELECT id FROM ai_assistant_configs WHERE id = $1`,
@@ -1399,19 +1496,26 @@ router.get("/:id/sessions", async (req, res) => {
     }
 
     const countResult = await pool.query(
-      `SELECT COUNT(*)::int AS total FROM ai_chat_sessions WHERE assistant_id = $1`,
-      [id],
+      `SELECT COUNT(*)::int AS total FROM ai_chat_sessions s WHERE s.assistant_id = $1${searchClauses}`,
+      [id, ...searchValues],
     );
     const totalElements = countResult.rows[0].total;
 
     const { rows } = await pool.query(
-      `SELECT id, assistant_id, session_id, visitor_id, language,
-              ip_address, user_agent, created_at, updated_at
-       FROM ai_chat_sessions
-       WHERE assistant_id = $1
-       ORDER BY created_at DESC
-       LIMIT $2 OFFSET $3`,
-      [id, size, offset],
+      `SELECT s.id, s.assistant_id, s.session_id, s.visitor_id, s.language,
+              s.ip_address, s.user_agent, s.created_at, s.updated_at,
+              COALESCE(m.cnt, 0)::int AS message_count
+       FROM ai_chat_sessions s
+       LEFT JOIN (
+         SELECT session_id, COUNT(*)::int AS cnt
+         FROM ai_chat_messages
+         WHERE assistant_id = $1
+         GROUP BY session_id
+       ) m ON m.session_id = s.id
+       WHERE s.assistant_id = $1${searchClauses}
+       ORDER BY ${sortField} ${sortOrder}
+       LIMIT $${searchValues.length + 2} OFFSET $${searchValues.length + 3}`,
+      [id, ...searchValues, size, offset],
     );
 
     const totalPages = Math.max(1, Math.ceil(totalElements / size));
@@ -1436,6 +1540,7 @@ router.get("/:id/sessions", async (req, res) => {
         language: r.language,
         ipAddress: r.ip_address ?? null,
         userAgent: r.user_agent ?? null,
+        messageCount: r.message_count,
         createdAt: new Date(r.created_at).toISOString(),
         updatedAt: new Date(r.updated_at).toISOString(),
       })),

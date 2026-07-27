@@ -1,6 +1,6 @@
 // ----------------------------------------------------------------------------
 // AiKnowledgeBasePanel — knowledge base document management panel.
-// Displays documents list, upload button, and delete functionality.
+// Displays documents list, upload button, view chunks, and delete functionality.
 // ----------------------------------------------------------------------------
 
 import { useRef, useState } from "react";
@@ -20,6 +20,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
   Upload,
   Trash2,
   FileText,
@@ -27,14 +34,19 @@ import {
   AlertCircle,
   CheckCircle2,
   File,
+  Eye,
 } from "lucide-react";
 import {
   getKnowledgeBaseDocuments,
   uploadKnowledgeBaseDocument,
   deleteKnowledgeBaseDocument,
+  getKnowledgeDocumentChunks,
 } from "@/lib/ai-assistant";
 import { showError, showSuccess } from "@/utils/toast";
-import type { AiKnowledgeBaseDocument } from "@/types/ai-assistant";
+import type {
+  AiKnowledgeBaseDocument,
+  AiKnowledgeChunk,
+} from "@/types/ai-assistant";
 
 interface AiKnowledgeBasePanelProps {
   configId: number;
@@ -80,6 +92,11 @@ export function AiKnowledgeBasePanel({
   const [docToDelete, setDocToDelete] =
     useState<AiKnowledgeBaseDocument | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+
+  // View dialog state
+  const [docToView, setDocToView] =
+    useState<AiKnowledgeBaseDocument | null>(null);
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
 
   const { data: documents, isLoading } = useQuery({
     queryKey: ["ai-assistant", configId, "knowledge"],
@@ -157,6 +174,11 @@ export function AiKnowledgeBasePanel({
   const handleDeleteClick = (doc: AiKnowledgeBaseDocument) => {
     setDocToDelete(doc);
     setIsDeleteDialogOpen(true);
+  };
+
+  const handleViewClick = (doc: AiKnowledgeBaseDocument) => {
+    setDocToView(doc);
+    setIsViewDialogOpen(true);
   };
 
   const getFileIcon = (fileType: string) => {
@@ -253,6 +275,17 @@ export function AiKnowledgeBasePanel({
                     {statusIcon(doc.status)}
                     {t(`ai-assistant:status_${doc.status}`)}
                   </Badge>
+                  {doc.status === "ready" && doc.chunkCount > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      onClick={() => handleViewClick(doc)}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                  )}
                   <Button
                     type="button"
                     variant="ghost"
@@ -301,6 +334,125 @@ export function AiKnowledgeBasePanel({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* View chunks dialog */}
+      <ViewChunksDialog
+        configId={configId}
+        document={docToView}
+        isOpen={isViewDialogOpen}
+        onOpenChange={setIsViewDialogOpen}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ViewChunksDialog — shows the parsed chunks for a processed document
+// ---------------------------------------------------------------------------
+function ViewChunksDialog({
+  configId,
+  document: doc,
+  isOpen,
+  onOpenChange,
+}: {
+  configId: number;
+  document: AiKnowledgeBaseDocument | null;
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { t, i18n } = useTranslation(["ai-assistant", "common"]);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["ai-assistant", configId, "knowledge", doc?.id, "chunks"],
+    queryFn: () => getKnowledgeDocumentChunks(configId, doc!.id),
+    enabled: isOpen && !!doc,
+  });
+
+  if (!doc) return null;
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col p-0">
+        <DialogHeader className="px-6 pt-6 pb-4 border-b">
+          <DialogTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5" />
+            {doc.originalFilename}
+          </DialogTitle>
+          <DialogDescription className="flex items-center gap-3 text-xs">
+            <span>{doc.fileType.toUpperCase()}</span>
+            <span>·</span>
+            <span>{formatFileSize(doc.fileSizeBytes)}</span>
+            <span>·</span>
+            <span>
+              {doc.chunkCount} {t("ai-assistant:upload_chunks")}
+            </span>
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {isLoading ? (
+            <div className="p-6 text-center text-sm text-muted-foreground">
+              {t("common:loading")}
+            </div>
+          ) : data && data.chunks.length > 0 ? (
+            <div className="p-4 space-y-3">
+              {data.chunks.map((chunk: AiKnowledgeChunk) => (
+                <ChunkCard key={chunk.id} chunk={chunk} index={chunk.chunkIndex} />
+              ))}
+            </div>
+          ) : (
+            <div className="p-6 text-center text-sm text-muted-foreground">
+              {t("ai-assistant:documents_empty")}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ChunkCard — displays a single chunk with index, content preview, and tokens
+// ---------------------------------------------------------------------------
+function ChunkCard({
+  chunk,
+  index,
+}: {
+  chunk: AiKnowledgeChunk;
+  index: number;
+}) {
+  const { t } = useTranslation(["ai-assistant", "common"]);
+  const [expanded, setExpanded] = useState(false);
+  const contentPreview = chunk.content.length > 300 && !expanded
+    ? chunk.content.slice(0, 300) + "..."
+    : chunk.content;
+
+  return (
+    <div className="rounded-md border bg-muted/30 p-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-xs">
+            #{index + 1}
+          </Badge>
+          <span className="text-xs text-muted-foreground">
+            {t("ai-assistant:chunk_tokens", { count: chunk.tokenCount })}
+          </span>
+        </div>
+        {chunk.content.length > 300 && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 text-xs"
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? t("ai-assistant:chunk_collapse") : t("ai-assistant:chunk_expand")}
+          </Button>
+        )}
+      </div>
+      <pre className="text-sm whitespace-pre-wrap font-mono text-foreground leading-relaxed">
+        {contentPreview}
+      </pre>
     </div>
   );
 }
