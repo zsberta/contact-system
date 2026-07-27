@@ -89,6 +89,7 @@ export default function AiAssistantPortalDetailsForm({
     secondaryColor: z.string().optional(),
     greetingMessage: z.string().max(2000).optional(),
     legalMessage: z.string().max(5000).optional(),
+    basePrompt: z.string().max(10000).optional(),
     avatarUrl: z.string().nullable().optional(),
     position: z.enum(["bottom-right", "bottom-left"]).optional(),
     defaultLanguage: z.string().optional(),
@@ -104,6 +105,7 @@ export default function AiAssistantPortalDetailsForm({
       secondaryColor: initialData.secondaryColor ?? "#1e40af",
       greetingMessage: initialData.greetingMessage ?? "",
       legalMessage: initialData.legalMessage ?? "",
+      basePrompt: initialData.basePrompt ?? "",
       avatarUrl: initialData.avatarUrl ?? null,
       position: initialData.position ?? "bottom-right",
       defaultLanguage: initialData.defaultLanguage ?? "en",
@@ -126,6 +128,7 @@ export default function AiAssistantPortalDetailsForm({
       secondaryColor: values.secondaryColor,
       greetingMessage: values.greetingMessage,
       legalMessage: values.legalMessage,
+      basePrompt: values.basePrompt,
       avatarUrl: values.avatarUrl || null,
       position: values.position,
       defaultLanguage: values.defaultLanguage,
@@ -261,6 +264,28 @@ export default function AiAssistantPortalDetailsForm({
                   </FormControl>
                   <FormDescription>
                     {t("ai-assistant:greeting_message_help")}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="basePrompt"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("ai-assistant:base_prompt")}</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder={t("ai-assistant:base_prompt_placeholder")}
+                      rows={6}
+                      className="resize-y"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t("ai-assistant:base_prompt_help")}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
