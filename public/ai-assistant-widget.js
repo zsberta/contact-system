@@ -81,6 +81,14 @@
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
     // 2. Inline formatting (before block processing)
+    // Links: [text](url) — only http/https/mailto protocols allowed
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(_, linkText, url) {
+      var safeUrl = url.replace(/"/g, "&quot;");
+      if (/^(https?:\/\/|mailto:)/i.test(safeUrl)) {
+        return '<a href="' + safeUrl + '" target="_blank" rel="noopener noreferrer">' + linkText + '</a>';
+      }
+      return "[" + linkText + "](" + url + ")";
+    });
     // Bold
     s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
     // Italic
@@ -615,6 +623,8 @@
       ".ai-chat-bubble code { background: rgba(0,0,0,0.06); padding: 1px 5px; border-radius: 4px; font-size: 13px; font-family: inherit; }" +
       ".ai-chat-bubble ul { margin: 6px 0; padding-left: 20px; }" +
       ".ai-chat-bubble li { margin: 3px 0; }" +
+      ".ai-chat-bubble a { color: " + PRIMARY_COLOR + "; text-decoration: underline; text-underline-offset: 2px; }" +
+      ".ai-chat-bubble a:hover { opacity: 0.8; }" +
       ".ai-chat-message-user .ai-chat-bubble {" +
       "  background: " + PRIMARY_COLOR + "; color: #fff; border-bottom-right-radius: 4px;" +
       "  box-shadow: 0 2px 8px " + PRIMARY_COLOR + "33;" +
