@@ -112,7 +112,9 @@ services:
       - /etc/contact-system/pg/ca.crt:/etc/contact-system/pg/ca.crt:ro
     # Start as root to fix uploads volume permissions (may be root-owned
     # from a previous build), then drop to nodeapp via su-exec.
-    command: ["sh", "-c", "chown -R nodeapp:nodeapp /app/uploads && su-exec nodeapp sh -c 'npm run db:migrate && node server.js'"]
+    # db:seed is idempotent (ON CONFLICT DO NOTHING) so running it every
+    # startup is safe — it only inserts when the DB is empty.
+    command: ["sh", "-c", "chown -R nodeapp:nodeapp /app/uploads && su-exec nodeapp sh -c 'npm run db:migrate && npm run db:seed && node server.js'"]
 
 volumes:
   pgdata:
