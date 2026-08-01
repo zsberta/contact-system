@@ -329,6 +329,18 @@
 
   function toggleChat(open) {
     isOpen = open;
+    // Lock body scroll on mobile so the page doesn't shift when keyboard opens
+    if (window.innerWidth <= 480) {
+      if (open) {
+        document.body.style.overflow = "hidden";
+        document.body.style.position = "fixed";
+        document.body.style.width = "100%";
+      } else {
+        document.body.style.overflow = "";
+        document.body.style.position = "";
+        document.body.style.width = "";
+      }
+    }
     // Dismiss popup bubble on open
     if (open && !popupDismissed) {
       popupDismissed = true;
@@ -365,8 +377,13 @@
       }
     }
     if (open && inputEl) {
-      setTimeout(function () { inputEl.focus(); }, 300);
-      scrollToBottom();
+      // On mobile, prevent the browser from scrolling the page to the
+      // input when the keyboard opens. The body is already locked via
+      // position:fixed, but some browsers still try to scroll.
+      setTimeout(function () {
+        inputEl.focus({ preventScroll: true });
+        scrollToBottom();
+      }, 300);
     }
   }
 
