@@ -14,7 +14,7 @@ RUN npm run build && npm prune --omit=dev && cp -R node_modules /tmp/prod_node_m
 
 FROM node:22-alpine AS runner
 WORKDIR /app
-RUN apk upgrade --no-cache openssl libssl3 libcrypto3 busybox
+RUN apk upgrade --no-cache openssl libssl3 libcrypto3 busybox && apk add --no-cache su-exec
 
 COPY --from=builder /app/dist ./dist
 RUN chmod -R a+rX /app/dist
@@ -27,8 +27,11 @@ COPY middleware ./middleware
 COPY scripts ./scripts
 COPY public ./public
 
-RUN addgroup -S nodeapp && adduser -S nodeapp -G nodeapp && chown -R nodeapp:nodeapp /app
-USER nodeapp
+RUN addgroup -S nodeapp && adduser -S nodeapp -G nodeapp \
+    && mkdir -p /app/uploads/ai-assistant-avatars \
+    && chown -R nodeapp:nodeapp /app
+# Don't set USER here — docker-compose drops privileges via su-exec after
+# fixing the uploads volume permissions at startup.
 
 EXPOSE 3000
 CMD ["node", "server.js"]
