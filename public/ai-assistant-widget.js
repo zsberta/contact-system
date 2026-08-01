@@ -371,6 +371,7 @@
           chatContainer.style.left = "";
           chatContainer.style.right = "";
           chatContainer.style.height = "";
+          chatContainer.style.maxHeight = "";
         }
         setTimeout(function () {
           if (!isOpen) chatContainer.style.display = "none";
@@ -873,6 +874,7 @@
     chatContainer.style.right = "10px";
     chatContainer.style.bottom = "auto";
     chatContainer.style.height = Math.max(vh - 20, 100) + "px";
+    chatContainer.style.maxHeight = "none";
   }
   function attachKeyboardListeners() {
     if (_kkAttached || !window.visualViewport) return;
