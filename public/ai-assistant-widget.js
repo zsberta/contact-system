@@ -357,9 +357,21 @@
         chatContainer.style.display = "";
         chatContainer.classList.remove("ai-chat-hidden");
         chatContainer.classList.add("ai-chat-visible");
+        // Position correctly on mobile before keyboard opens
+        attachKeyboardListeners();
+        adjustForKeyboard();
       } else {
         chatContainer.classList.remove("ai-chat-visible");
         chatContainer.classList.add("ai-chat-hidden");
+        // Reset inline positioning so desktop CSS takes over
+        if (window.innerWidth <= 480) {
+          chatContainer.style.position = "";
+          chatContainer.style.top = "";
+          chatContainer.style.bottom = "";
+          chatContainer.style.left = "";
+          chatContainer.style.right = "";
+          chatContainer.style.height = "";
+        }
         setTimeout(function () {
           if (!isOpen) chatContainer.style.display = "none";
         }, 350);
@@ -829,10 +841,6 @@
       "  .ai-chat-container {" +
       "    width: calc(100vw - 20px) !important;" +
       "    left: 10px !important; right: 10px !important;" +
-      "    top: 10px !important;" +
-      "    bottom: 10px !important;" +
-      "    height: auto !important;" +
-      "    max-height: calc(100vh - 20px);" +
       "    border-radius: 14px;" +
       "  }" +
       "  .ai-chat-fab { bottom: 16px; width: 52px; height: 52px; right: 10px !important; left: auto !important; z-index: 2147483646; }" +
@@ -846,17 +854,29 @@
   // so they won't fire until enable() is called.
 
   // --- Mobile keyboard handling ---
-  // On most modern mobile browsers, position:fixed with bottom:10px
-  // already tracks the visual viewport (above the keyboard). For browsers
-  // where it doesn't, we clamp the container height to the visual viewport.
-  if (window.visualViewport) {
-    function adjustForKeyboard() {
-      if (isDisabled || !chatContainer) return;
-      if (window.innerWidth > 480) return; // desktop: CSS handles everything
-      var vh = window.visualViewport.height;
-      var maxH = Math.max(vh - 20, 100);
-      chatContainer.style.maxHeight = maxH + "px";
-    }
+  // On iOS Safari, position:fixed with bottom stays at the layout viewport
+  // bottom (behind the keyboard), not the visual viewport. We use
+  // visualViewport to calculate top + height so the widget always sits
+  // exactly in the visible area above the keyboard.
+  var _kkAttached = false;
+  function adjustForKeyboard() {
+    if (isDisabled || !chatContainer) return;
+    if (window.innerWidth > 480) return;
+    if (!window.visualViewport) return;
+    var vv = window.visualViewport;
+    var vh = vv.height;
+    var offset = vv.offsetTop || 0;
+    // Position: 10px from top of visible area, fill down to 10px from bottom
+    chatContainer.style.position = "fixed";
+    chatContainer.style.top = (offset + 10) + "px";
+    chatContainer.style.left = "10px";
+    chatContainer.style.right = "10px";
+    chatContainer.style.bottom = "auto";
+    chatContainer.style.height = Math.max(vh - 20, 100) + "px";
+  }
+  function attachKeyboardListeners() {
+    if (_kkAttached || !window.visualViewport) return;
+    _kkAttached = true;
     window.visualViewport.addEventListener("resize", adjustForKeyboard);
     window.visualViewport.addEventListener("scroll", adjustForKeyboard);
   }
