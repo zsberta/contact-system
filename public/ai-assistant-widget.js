@@ -818,7 +818,7 @@
       "    max-height: calc(100vh - 20px);" +
       "    border-radius: 14px;" +
       "  }" +
-      "  .ai-chat-fab { bottom: 16px; width: 52px; height: 52px; right: 10px !important; left: auto !important; }" +
+      "  .ai-chat-fab { bottom: 16px; width: 52px; height: 52px; right: 10px !important; left: auto !important; z-index: 2147483646; }" +
       "}"
     );
   }
