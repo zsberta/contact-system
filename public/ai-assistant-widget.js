@@ -75,7 +75,7 @@
   var greetingSent = false;
   var legalSent = false;
   var popupDismissed = false;
-  var isDisabled = false;
+  var isDisabled = true; // widget starts hidden; call window.__aiAssistant.enable() to show
 
   // --- Lightweight Markdown renderer (chat-safe, XSS-proof) ---
   function renderMarkdown(text) {
@@ -819,15 +819,9 @@
   }
 
   // --- Init ---
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", function () {
-      createWidget();
-      watchDataLang();
-    });
-  } else {
-    createWidget();
-    watchDataLang();
-  }
+  // Widget starts disabled — call window.__aiAssistant.enable() to show it.
+  // The restore observers and SPA hooks are already gated on !isDisabled,
+  // so they won't fire until enable() is called.
 
   // --- Auto-restore on DOM removal (generic SPA fallback) ---
   var restoreObserver = new MutationObserver(function () {
