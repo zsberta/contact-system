@@ -810,8 +810,12 @@
       // --- Mobile ---
       "@media (max-width: 480px) {" +
       "  .ai-chat-container {" +
-      "    width: calc(100vw - 20px); height: calc(100vh - 20px);" +
-      "    bottom: 10px; right: 10px !important; left: 10px !important; top: 10px !important;" +
+      "    width: calc(100vw - 20px) !important;" +
+      "    left: 10px !important; right: 10px !important;" +
+      "    top: 10px !important;" +
+      "    bottom: 10px !important;" +
+      "    height: auto !important;" +
+      "    max-height: calc(100vh - 20px);" +
       "    border-radius: 14px;" +
       "  }" +
       "  .ai-chat-fab { bottom: 16px; width: 52px; height: 52px; right: 10px !important; left: auto !important; }" +
@@ -825,32 +829,16 @@
   // so they won't fire until enable() is called.
 
   // --- Mobile keyboard handling ---
-  // When the virtual keyboard opens on mobile, window.innerHeight stays the
-  // same but visualViewport shrinks. We resize the chat container to match
-  // the visual viewport so it never gets pushed off-screen.
+  // On most modern mobile browsers, position:fixed with bottom:10px
+  // already tracks the visual viewport (above the keyboard). For browsers
+  // where it doesn't, we clamp the container height to the visual viewport.
   if (window.visualViewport) {
     function adjustForKeyboard() {
       if (isDisabled || !chatContainer) return;
-      var isMobile = window.innerWidth <= 480;
-      if (!isMobile) {
-        // Reset to defaults on desktop
-        chatContainer.style.height = "";
-        chatContainer.style.bottom = "";
-        chatContainer.style.top = "";
-        return;
-      }
+      if (window.innerWidth > 480) return; // desktop: CSS handles everything
       var vh = window.visualViewport.height;
-      var offset = window.visualViewport.offsetTop || 0;
-      // Cap height so there's always 10px padding at top and bottom
-      var maxH = vh - 20;
-      if (maxH < 100) maxH = 100;
-      chatContainer.style.height = maxH + "px";
-      chatContainer.style.top = (offset + 10) + "px";
-      chatContainer.style.bottom = "auto";
-      // Scroll input into view if needed
-      setTimeout(function () {
-        if (inputEl) inputEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      }, 100);
+      var maxH = Math.max(vh - 20, 100);
+      chatContainer.style.maxHeight = maxH + "px";
     }
     window.visualViewport.addEventListener("resize", adjustForKeyboard);
     window.visualViewport.addEventListener("scroll", adjustForKeyboard);
