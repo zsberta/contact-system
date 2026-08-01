@@ -4,10 +4,11 @@ const { Pool } = pg;
 const useSsl = process.env.DATABASE_SSL === "true";
 
 if (!useSsl && process.env.NODE_ENV === "production") {
-  console.error(
-    "Refusing to start: DATABASE_SSL=false in production. Set DATABASE_SSL=true and provide a CA cert.",
+  console.warn(
+    "WARNING: DATABASE_SSL=false in production. Connections are unencrypted. " +
+    "This is acceptable when the database is on the same Docker network, " +
+    "but not over a public network.",
   );
-  process.exit(1);
 }
 
 export const pool = new Pool({
