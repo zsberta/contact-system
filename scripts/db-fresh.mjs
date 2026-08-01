@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // scripts/db-fresh.mjs
 //
-// Wipe the database, re-apply all migrations, and re-seed demo data.
+// Wipe the database, re-apply all migrations, and seed the admin user.
 //
 // This is the canonical "I want a clean slate" command. Use it freely
 // during local development. NEVER run it against production — there is
@@ -118,7 +118,7 @@ async function main() {
   await seed();
 
   console.log("");
-  console.log("✓ db:fresh complete — clean schema, all migrations applied, demo data loaded.");
+  console.log("✓ db:fresh complete — clean schema, all migrations applied, admin user seeded.");
   await pool.end();
 }
 
