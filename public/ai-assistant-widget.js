@@ -75,6 +75,7 @@
   var greetingSent = false;
   var legalSent = false;
   var popupDismissed = false;
+  var isDisabled = false;
 
   // --- Lightweight Markdown renderer (chat-safe, XSS-proof) ---
   function renderMarkdown(text) {
@@ -532,6 +533,35 @@
   // --- Global API ---
   window.__aiAssistant = {
     setLanguage: setLanguage,
+    enable: function () {
+      if (!isDisabled) return;
+      isDisabled = false;
+      createWidget();
+      watchDataLang();
+    },
+    disable: function () {
+      isDisabled = true;
+      // Stop the restore observer so it doesn't re-create the widget
+      if (restoreObserver) {
+        restoreObserver.disconnect();
+        restoreObserver = null;
+      }
+      // Remove the DOM element
+      var host = document.getElementById("ai-assistant-widget-host");
+      if (host && host.parentNode) host.parentNode.removeChild(host);
+      // Reset state
+      widgetRoot = null;
+      chatContainer = null;
+      messagesContainer = null;
+      inputEl = null;
+      isOpen = false;
+      isStreaming = false;
+      greetingSent = false;
+      legalSent = false;
+      popupDismissed = false;
+      messages = [];
+      sessionId = null;
+    },
   };
 
   // Listen for CustomEvent language changes
@@ -801,7 +831,7 @@
 
   // --- Auto-restore on DOM removal (generic SPA fallback) ---
   var restoreObserver = new MutationObserver(function () {
-    if (!document.getElementById("ai-assistant-widget-host")) {
+    if (!isDisabled && !document.getElementById("ai-assistant-widget-host")) {
       createWidget();
     }
   });
@@ -809,7 +839,7 @@
 
   // --- Astro View Transitions support ---
   document.addEventListener("astro:page-load", function () {
-    if (!document.getElementById("ai-assistant-widget-host")) {
+    if (!isDisabled && !document.getElementById("ai-assistant-widget-host")) {
       window.__aiAssistant = undefined;
       createWidget();
     }
@@ -818,7 +848,7 @@
   // --- Next.js / generic SPA (popstate) ---
   window.addEventListener("popstate", function () {
     setTimeout(function () {
-      if (!document.getElementById("ai-assistant-widget-host")) {
+      if (!isDisabled && !document.getElementById("ai-assistant-widget-host")) {
         window.__aiAssistant = undefined;
         createWidget();
       }

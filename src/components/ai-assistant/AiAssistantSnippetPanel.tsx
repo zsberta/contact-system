@@ -188,7 +188,38 @@ export function AiAssistantSnippetPanel({
             </div>
           </section>
 
-          {/* 3. Features */}
+          {/* 3. Enable / Disable */}
+          <section className="space-y-2">
+            <h3 className="flex items-center gap-2 text-sm font-semibold">
+              <Terminal className="h-4 w-4" />
+              {t("ai-assistant:docs_toggle_title")}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              {t("ai-assistant:docs_toggle_text")}
+            </p>
+
+            {/* Enable */}
+            <div className="rounded-md border p-3 space-y-1">
+              <p className="text-xs font-semibold">{t("ai-assistant:docs_toggle_enable")}</p>
+              <pre className="overflow-x-auto rounded bg-muted p-2 text-xs font-mono">
+                <code>{`// Re-create the widget after it was disabled\nwindow.__aiAssistant.enable();`}</code>
+              </pre>
+            </div>
+
+            {/* Disable */}
+            <div className="rounded-md border p-3 space-y-1">
+              <p className="text-xs font-semibold">{t("ai-assistant:docs_toggle_disable")}</p>
+              <pre className="overflow-x-auto rounded bg-muted p-2 text-xs font-mono">
+                <code>{`// Fully remove the widget and reset all state\nwindow.__aiAssistant.disable();`}</code>
+              </pre>
+            </div>
+
+            <p className="text-xs text-muted-foreground italic">
+              {t("ai-assistant:docs_toggle_note")}
+            </p>
+          </section>
+
+          {/* 4. Features */}
           <section className="space-y-2">
             <h3 className="flex items-center gap-2 text-sm font-semibold">
               <Terminal className="h-4 w-4" />
@@ -205,7 +236,7 @@ export function AiAssistantSnippetPanel({
             </ul>
           </section>
 
-          {/* 4. How it works */}
+          {/* 5. How it works */}
           <section className="space-y-2">
             <h3 className="flex items-center gap-2 text-sm font-semibold">
               <MousePointer className="h-4 w-4" />

@@ -227,6 +227,12 @@ function applyPublicCors(req, res) {
     // in place as a safety net so the user's local dev / staging
     // workflows keep working. Document this in the ADR follow-up.
     res.setHeader("Access-Control-Allow-Origin", origin);
+    // Required when the browser sends credentials (cookies) with the
+    // request — e.g. sendBeacon or fetch from a page that shares the
+    // backend's domain (zsoltberta.hu → crm.zsoltberta.hu with cookies).
+    // Safe to always include: the origin is reflected (not *), so only
+    // the specific requesting origin is granted credentialed access.
+    res.setHeader("Access-Control-Allow-Credentials", "true");
   }
   for (const [k, v] of Object.entries(PUBLIC_EMBED_CORS_HEADERS)) {
     res.setHeader(k, v);
