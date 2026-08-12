@@ -84,6 +84,62 @@ function measureBag(obj, currentDepth = 1, results = { keys: 0, depth: 1 }) {
   return results;
 }
 
+// ---- DEBUG GET /:secret_token/diagnose ----
+// TEMPORARY — remove after diagnosing the production issue.
+// Returns the raw form row so we can see what the DB actually holds.
+router.get("/:secret_token/diagnose", async (req, res) => {
+  const { secret_token: secretToken } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT id, project_id, name, slug, secret_token,
+              allowed_origins, status, created_at, updated_at
+       FROM forms
+       WHERE secret_token = $1`,
+      [secretToken],
+    );
+    if (result.rowCount === 0) {
+      // Also check: is the token present with a different length?
+      const approx = await pool.query(
+        `SELECT id, secret_token, length(secret_token) AS token_len, status
+         FROM forms WHERE secret_token LIKE $1 || '%'`,
+        [secretToken.slice(0, 10)],
+      );
+      return res.json({
+        found: false,
+        rowCount: result.rowCount,
+        tokenQueried: secretToken,
+        tokenLength: secretToken.length,
+        approxMatches: approx.rows,
+        allForms: (await pool.query(
+          `SELECT id, name, slug, secret_token, length(secret_token) AS token_len, status FROM forms ORDER BY id`
+        )).rows,
+      });
+    }
+    const row = result.rows[0];
+    return res.json({
+      found: true,
+      rowCount: result.rowCount,
+      tokenQueried: secretToken,
+      tokenLength: secretToken.length,
+      row: {
+        id: row.id,
+        projectId: row.project_id,
+        name: row.name,
+        slug: row.slug,
+        secretToken: row.secret_token,
+        secretTokenLength: row.secret_token?.length,
+        allowedOrigins: row.allowed_origins,
+        status: row.status,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      },
+    });
+  } catch (err) {
+    console.error("[forms/public/diagnose]", err.code, err.message);
+    return res.status(500).json({ errorMessage: err.message });
+  }
+});
+
 // ---- POST /:secret_token/submissions ----
 router.post(
   "/:secret_token/submissions",
