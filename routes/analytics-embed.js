@@ -185,7 +185,7 @@ router.get("/:secret_token/script.js", async (req, res) => {
   // /collect endpoint below enforces the origin.
   try {
     const result = await pool.query(
-      `SELECT id, status, allowed_origins FROM analytics_configs WHERE secret_token = $1`,
+      `SELECT id, status, allowed_origins FROM analytics_configs WHERE trim(secret_token) = $1`,
       [secretToken],
     );
     if (result.rowCount === 0 || result.rows[0].status !== "active") {
@@ -529,7 +529,7 @@ router.post(
       const result = await pool.query(
         `SELECT id, status, allowed_origins
          FROM analytics_configs
-         WHERE secret_token = $1`,
+         WHERE trim(secret_token) = $1`,
         [secretToken],
       );
       if (result.rowCount === 0 || result.rows[0].status !== "active") {

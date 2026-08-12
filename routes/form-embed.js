@@ -84,115 +84,6 @@ function measureBag(obj, currentDepth = 1, results = { keys: 0, depth: 1 }) {
   return results;
 }
 
-// ---- DEBUG GET /:secret_token/diagnose ----
-// TEMPORARY — remove after diagnosing the production issue.
-// Returns the raw form row so we can see what the DB actually holds.
-router.get("/:secret_token/diagnose", async (req, res) => {
-  const { secret_token: secretToken } = req.params;
-  try {
-    const result = await pool.query(
-      `SELECT id, project_id, name, slug, secret_token,
-              allowed_origins, status, created_at, updated_at
-       FROM forms
-       WHERE secret_token = $1`,
-      [secretToken],
-    );
-    if (result.rowCount === 0) {
-      // Deep diagnostic: the LIKE prefix match found the form but
-      // equality didn't — investigate byte-level differences.
-      const approx = await pool.query(
-        `SELECT id, secret_token, length(secret_token) AS token_len, status
-         FROM forms WHERE secret_token LIKE $1 || '%'`,
-        [secretToken.slice(0, 10)],
-      );
-      const allForms = (await pool.query(
-        `SELECT id, name, slug, secret_token,
-                length(secret_token) AS token_len,
-                status
-         FROM forms ORDER BY id`
-      )).rows;
-      // Raw comparison — test WHERE vs SELECT with same equality
-      const comparison = await pool.query(
-        `SELECT id, secret_token,
-                length(secret_token) AS stored_len,
-                trim(secret_token) = $1 AS trimmed_eq,
-                secret_token = $1 AS exact_eq,
-                position($1 in secret_token) AS token_position
-         FROM forms ORDER BY id`,
-        [secretToken],
-      );
-      // Same equality in WHERE — does it filter differently?
-      const whereTest = await pool.query(
-        `SELECT id, secret_token, status FROM forms WHERE secret_token = $1`,
-        [secretToken],
-      );
-      // Test with explicit text cast in WHERE
-      const whereCastTest = await pool.query(
-        `SELECT id, secret_token, status FROM forms WHERE secret_token = $1::text`,
-        [secretToken],
-      );
-      // Test with hardcoded literal (rules out parameter binding entirely)
-      const literalTest = await pool.query(
-        `SELECT id, secret_token, status FROM forms WHERE secret_token = '-W73CtCvo8zLNvdRSckStw'`,
-      );
-      // Test with trim in WHERE
-      const whereTrimTest = await pool.query(
-        `SELECT id, secret_token, status FROM forms WHERE trim(secret_token) = $1`,
-        [secretToken],
-      );
-      // Check PostgreSQL version and server encoding
-      const pgVersion = await pool.query(
-        `SELECT version() AS pg_version, current_setting('server_encoding') AS encoding, current_setting('client_encoding') AS client_encoding`
-      );
-      // Test with explicit text type cast
-      const castTest = await pool.query(
-        `SELECT id, secret_token, status,
-                secret_token = $1::text AS cast_eq
-         FROM forms ORDER BY id`,
-        [secretToken],
-      );
-      return res.json({
-        found: false,
-        rowCount: result.rowCount,
-        tokenQueried: secretToken,
-        tokenLength: secretToken.length,
-        tokenHex: Buffer.from(secretToken).toString("hex"),
-        approxMatches: approx.rows,
-        byteComparison: comparison.rows,
-        whereTest: whereTest.rows,
-        whereCastTest: whereCastTest.rows,
-        literalTest: literalTest.rows,
-        whereTrimTest: whereTrimTest.rows,
-        pgVersion: pgVersion.rows[0],
-        castTest: castTest.rows,
-        allForms,
-      });
-    }
-    const row = result.rows[0];
-    return res.json({
-      found: true,
-      rowCount: result.rowCount,
-      tokenQueried: secretToken,
-      tokenLength: secretToken.length,
-      row: {
-        id: row.id,
-        projectId: row.project_id,
-        name: row.name,
-        slug: row.slug,
-        secretToken: row.secret_token,
-        secretTokenLength: row.secret_token?.length,
-        allowedOrigins: row.allowed_origins,
-        status: row.status,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      },
-    });
-  } catch (err) {
-    console.error("[forms/public/diagnose]", err.code, err.message);
-    return res.status(500).json({ errorMessage: err.message });
-  }
-});
-
 // ---- POST /:secret_token/submissions ----
 router.post(
   "/:secret_token/submissions",
@@ -257,10 +148,15 @@ router.post(
       // tells us "unknown token" vs. "known but disabled" so we can
       // (a) map both to the same 404 (no existence leak), and
       // (b) skip the allowlist + insert for both.
+      // trim() guards against invisible trailing characters in the stored
+      // token (discovered via production diagnosis — the bare `= $1`
+      // comparison failed while trim() succeeded).  The index scan on
+      // secret_token is bypassed, but form lookups are single-row and
+      // infrequent (once per submission).
       const result = await pool.query(
         `SELECT id, status, allowed_origins
          FROM forms
-         WHERE secret_token = $1`,
+         WHERE trim(secret_token) = $1`,
         [secretToken],
       );
       if (result.rowCount === 0 || result.rows[0].status !== "active") {

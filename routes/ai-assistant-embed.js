@@ -133,7 +133,7 @@ router.get("/:secret_token/script.js", async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT id, status FROM ai_assistant_configs WHERE secret_token = $1`,
+      `SELECT id, status FROM ai_assistant_configs WHERE trim(secret_token) = $1`,
       [secretToken],
     );
     if (result.rowCount === 0 || result.rows[0].status !== "active") {
@@ -157,7 +157,7 @@ router.get("/:secret_token/script.js", async (req, res) => {
                 'greetingMessage', t.greeting_message,
                 'placeholder', t.placeholder
               )), '[]'::json) FROM ai_assistant_translations t WHERE t.assistant_id = c.id) AS translations_data
-       FROM ai_assistant_configs c WHERE c.secret_token = $1`,
+       FROM ai_assistant_configs c WHERE trim(c.secret_token) = $1`,
       [secretToken],
     );
     const cfg = configResult.rows[0];
@@ -218,7 +218,7 @@ router.get("/:secret_token/config", async (req, res) => {
         'greetingMessage', t.greeting_message,
         'placeholder', t.placeholder
       )), '[]'::json) FROM ai_assistant_translations t WHERE t.assistant_id = c.id) AS translations_data
-       FROM ai_assistant_configs c WHERE c.secret_token = $1 AND c.status = 'active'`,
+       FROM ai_assistant_configs c WHERE trim(c.secret_token) = $1 AND c.status = 'active'`,
       [secretToken],
     );
     if (result.rowCount === 0) {
@@ -270,7 +270,7 @@ router.post("/:secret_token/chat", burstLimiter, sustainedLimiter, async (req, r
     const configResult = await pool.query(
       `SELECT id, status, base_prompt, model, base_url, api_key_enc,
               default_language, allowed_origins
-       FROM ai_assistant_configs WHERE secret_token = $1`,
+       FROM ai_assistant_configs WHERE trim(secret_token) = $1`,
       [secretToken],
     );
     if (configResult.rowCount === 0 || configResult.rows[0].status !== "active") {
@@ -458,7 +458,7 @@ router.post("/:secret_token/language", async (req, res) => {
 
   try {
     const configResult = await pool.query(
-      `SELECT id, supported_languages, default_language FROM ai_assistant_configs WHERE secret_token = $1 AND status = 'active'`,
+      `SELECT id, supported_languages, default_language FROM ai_assistant_configs WHERE trim(secret_token) = $1 AND status = 'active'`,
       [secretToken],
     );
     if (configResult.rowCount === 0) return res.status(404).json({ errorMessage: "Not found" });

@@ -154,7 +154,7 @@ async function loadReservationByToken(secretToken) {
             lead_time_minutes, max_advance_days, extra_fields_enabled,
             disable_hungarian_holidays
      FROM reservations
-     WHERE secret_token = $1`,
+     WHERE trim(secret_token) = $1`,
     [secretToken],
   );
   if (rows.length === 0 || rows[0].status !== "active") return null;
