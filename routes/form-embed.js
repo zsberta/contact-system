@@ -108,23 +108,18 @@ router.get("/:secret_token/diagnose", async (req, res) => {
       const allForms = (await pool.query(
         `SELECT id, name, slug, secret_token,
                 length(secret_token) AS token_len,
-                encode(secret_token::bytea, 'hex') AS token_hex,
                 status
          FROM forms ORDER BY id`
       )).rows;
-      // Byte-level comparison: encode both the stored and queried tokens
+      // Raw comparison — no bytea casts, just text operations
       const comparison = await pool.query(
-        `SELECT id,
-                encode(secret_token::bytea, 'hex') AS stored_hex,
+        `SELECT id, secret_token,
                 length(secret_token) AS stored_len,
-                encode($1::bytea, 'hex') AS queried_hex,
-                length($1) AS queried_len,
-                octet_length(secret_token) AS stored_bytes,
-                octet_length($1) AS queried_bytes,
-                secret_token = $1 AS exact_match,
-                trim(secret_token) = $1 AS trimmed_match
-         FROM forms WHERE secret_token LIKE $2 || '%'`,
-        [secretToken, secretToken.slice(0, 10)],
+                trim(secret_token) = $1 AS trimmed_eq,
+                secret_token = $1 AS exact_eq,
+                position($1 in secret_token) AS token_position
+         FROM forms ORDER BY id`,
+        [secretToken],
       );
       return res.json({
         found: false,
