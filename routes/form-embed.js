@@ -98,21 +98,42 @@ router.get("/:secret_token/diagnose", async (req, res) => {
       [secretToken],
     );
     if (result.rowCount === 0) {
-      // Also check: is the token present with a different length?
+      // Deep diagnostic: the LIKE prefix match found the form but
+      // equality didn't — investigate byte-level differences.
       const approx = await pool.query(
         `SELECT id, secret_token, length(secret_token) AS token_len, status
          FROM forms WHERE secret_token LIKE $1 || '%'`,
         [secretToken.slice(0, 10)],
+      );
+      const allForms = (await pool.query(
+        `SELECT id, name, slug, secret_token,
+                length(secret_token) AS token_len,
+                encode(secret_token::bytea, 'hex') AS token_hex,
+                status
+         FROM forms ORDER BY id`
+      )).rows;
+      // Byte-level comparison: encode both the stored and queried tokens
+      const comparison = await pool.query(
+        `SELECT id,
+                encode(secret_token::bytea, 'hex') AS stored_hex,
+                length(secret_token) AS stored_len,
+                encode($1::bytea, 'hex') AS queried_hex,
+                length($1) AS queried_len,
+                secret_token = $1 AS exact_match,
+                trim(secret_token) = $1 AS trimmed_match,
+                btrim(secret_token, E'\\n\\r\\t ') = $1 AS btrim_match
+         FROM forms WHERE secret_token LIKE $2 || '%'`,
+        [secretToken, secretToken.slice(0, 10)],
       );
       return res.json({
         found: false,
         rowCount: result.rowCount,
         tokenQueried: secretToken,
         tokenLength: secretToken.length,
+        tokenHex: Buffer.from(secretToken).toString("hex"),
         approxMatches: approx.rows,
-        allForms: (await pool.query(
-          `SELECT id, name, slug, secret_token, length(secret_token) AS token_len, status FROM forms ORDER BY id`
-        )).rows,
+        byteComparison: comparison.rows,
+        allForms,
       });
     }
     const row = result.rows[0];
