@@ -111,13 +111,25 @@ router.get("/:secret_token/diagnose", async (req, res) => {
                 status
          FROM forms ORDER BY id`
       )).rows;
-      // Raw comparison — no bytea casts, just text operations
+      // Raw comparison — test WHERE vs SELECT with same equality
       const comparison = await pool.query(
         `SELECT id, secret_token,
                 length(secret_token) AS stored_len,
                 trim(secret_token) = $1 AS trimmed_eq,
                 secret_token = $1 AS exact_eq,
                 position($1 in secret_token) AS token_position
+         FROM forms ORDER BY id`,
+        [secretToken],
+      );
+      // Same equality in WHERE — does it filter differently?
+      const whereTest = await pool.query(
+        `SELECT id, secret_token, status FROM forms WHERE secret_token = $1`,
+        [secretToken],
+      );
+      // Test with explicit text type cast
+      const castTest = await pool.query(
+        `SELECT id, secret_token, status,
+                secret_token = $1::text AS cast_eq
          FROM forms ORDER BY id`,
         [secretToken],
       );
@@ -129,6 +141,8 @@ router.get("/:secret_token/diagnose", async (req, res) => {
         tokenHex: Buffer.from(secretToken).toString("hex"),
         approxMatches: approx.rows,
         byteComparison: comparison.rows,
+        whereTest: whereTest.rows,
+        castTest: castTest.rows,
         allForms,
       });
     }
