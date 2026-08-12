@@ -119,9 +119,10 @@ router.get("/:secret_token/diagnose", async (req, res) => {
                 length(secret_token) AS stored_len,
                 encode($1::bytea, 'hex') AS queried_hex,
                 length($1) AS queried_len,
+                octet_length(secret_token) AS stored_bytes,
+                octet_length($1) AS queried_bytes,
                 secret_token = $1 AS exact_match,
-                trim(secret_token) = $1 AS trimmed_match,
-                btrim(secret_token, E'\\n\\r\\t ') = $1 AS btrim_match
+                trim(secret_token) = $1 AS trimmed_match
          FROM forms WHERE secret_token LIKE $2 || '%'`,
         [secretToken, secretToken.slice(0, 10)],
       );
