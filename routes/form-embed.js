@@ -126,6 +126,24 @@ router.get("/:secret_token/diagnose", async (req, res) => {
         `SELECT id, secret_token, status FROM forms WHERE secret_token = $1`,
         [secretToken],
       );
+      // Test with explicit text cast in WHERE
+      const whereCastTest = await pool.query(
+        `SELECT id, secret_token, status FROM forms WHERE secret_token = $1::text`,
+        [secretToken],
+      );
+      // Test with hardcoded literal (rules out parameter binding entirely)
+      const literalTest = await pool.query(
+        `SELECT id, secret_token, status FROM forms WHERE secret_token = '-W73CtCvo8zLNvdRSckStw'`,
+      );
+      // Test with trim in WHERE
+      const whereTrimTest = await pool.query(
+        `SELECT id, secret_token, status FROM forms WHERE trim(secret_token) = $1`,
+        [secretToken],
+      );
+      // Check PostgreSQL version and server encoding
+      const pgVersion = await pool.query(
+        `SELECT version() AS pg_version, current_setting('server_encoding') AS encoding, current_setting('client_encoding') AS client_encoding`
+      );
       // Test with explicit text type cast
       const castTest = await pool.query(
         `SELECT id, secret_token, status,
@@ -142,6 +160,10 @@ router.get("/:secret_token/diagnose", async (req, res) => {
         approxMatches: approx.rows,
         byteComparison: comparison.rows,
         whereTest: whereTest.rows,
+        whereCastTest: whereCastTest.rows,
+        literalTest: literalTest.rows,
+        whereTrimTest: whereTrimTest.rows,
+        pgVersion: pgVersion.rows[0],
         castTest: castTest.rows,
         allForms,
       });
