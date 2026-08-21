@@ -1,9 +1,6 @@
 // ----------------------------------------------------------------------------
-// ReservationSnippetPanel — read-only card showing the rendered <form>
-// snippet for a given reservation id. Mirrors FormSnippetPanel but adds
-// display of the availability endpoint + granularity / slot / lead-time
-// / max-advance configuration so the operator can verify what the landing
-// page will see.
+// ReservationSnippetPanel — read-only card showing the iframe embed snippet
+// for a given reservation. Displays the embed URL and copy button.
 // ----------------------------------------------------------------------------
 
 import { useTranslation } from "react-i18next";
@@ -95,64 +92,31 @@ export function ReservationSnippetPanel({
               <code>{data?.html}</code>
             </pre>
 
-            {/* Configured endpoints */}
-            {data && (
-              <div className="space-y-2">
-                <div>
-                  <p className="text-xs text-muted-foreground break-all flex items-center gap-1">
-                    <LinkIcon className="h-3 w-3" />
-                    {t("reservations:availability_endpoint_label")}:
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <InputReadOnly
-                      value={data.availabilityEndpoint}
-                      aria-label={t(
-                        "reservations:availability_endpoint_label",
-                      )}
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        handleCopy(
-                          data.availabilityEndpoint,
-                          "reservations:availability_endpoint_copied",
-                        )
-                      }
-                    >
-                      <Copy className="mr-2 h-3 w-3" />
-                      {t("reservations:copy")}
-                    </Button>
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground break-all flex items-center gap-1">
-                    <LinkIcon className="h-3 w-3" />
-                    {t("reservations:submission_endpoint_label")}:
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <InputReadOnly
-                      value={data.submissionEndpoint}
-                      aria-label={t(
-                        "reservations:submission_endpoint_label",
-                      )}
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        handleCopy(
-                          data.submissionEndpoint,
-                          "reservations:submission_endpoint_copied",
-                        )
-                      }
-                    >
-                      <Copy className="mr-2 h-3 w-3" />
-                      {t("reservations:copy")}
-                    </Button>
-                  </div>
+            {/* Embed URL */}
+            {data?.embedUrl && (
+              <div>
+                <p className="text-xs text-muted-foreground break-all flex items-center gap-1">
+                  <LinkIcon className="h-3 w-3" />
+                  {t("reservations:embed_url")}:
+                </p>
+                <div className="flex items-center gap-2">
+                  <InputReadOnly
+                    value={data.embedUrl}
+                    aria-label={t("reservations:embed_url")}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      handleCopy(
+                        data.embedUrl,
+                        "reservations:embed_url_copied",
+                      )
+                    }
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
                 </div>
               </div>
             )}

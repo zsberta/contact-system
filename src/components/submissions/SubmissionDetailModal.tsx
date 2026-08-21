@@ -93,9 +93,9 @@ export function SubmissionDetailModal({
                         </span>
                         <span className="text-sm font-medium">
                           {startDate.toLocaleDateString()}{" "}
-                          {startDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}{" "}
+                          {startDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}{" "}
                           –{" "}
-                          {endDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          {endDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
                         </span>
                       </div>
                     ) : (

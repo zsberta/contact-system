@@ -7,6 +7,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 import { showError, showSuccess } from "@/utils/toast";
 import { ServiceItemDTO, ServiceItemUpdateDTO } from "@/types/service";
 import { getServiceItemById, updateServiceItem } from "@/lib/service";
@@ -69,12 +70,14 @@ const ServiceEditPage: React.FC = () => {
 
   const updateMutation = useMutation({
     mutationFn: (data: ServiceItemUpdateDTO) => updateServiceItem(itemId, data),
-    onSuccess: (data: ServiceItemDTO) => {
+    onSuccess: async (data: ServiceItemDTO) => {
       showSuccess(t("service:saved_toast", { title: data.titleHu }));
       queryClient.invalidateQueries({ queryKey: ["service"] });
       queryClient.invalidateQueries({ queryKey: ["service", "detail", itemId] });
-      const isPortal = window.location.pathname.startsWith("/portal");
-      navigate(isPortal ? `/portal/services/view/${data.id}` : `/services/view/${data.id}`);
+      if (data.projectId) {
+        const path = await resolveModulePath(data.projectId, "service");
+        if (path) navigate(path);
+      }
     },
     onError: (err: Error) => {
       showError(err.message || t("service:save_failed_toast"));
@@ -123,8 +126,7 @@ const ServiceEditPage: React.FC = () => {
     <div className="container mx-auto p-4 max-w-5xl space-y-6">
       <div className="flex items-center gap-2">
         <Button variant="outline" size="sm" onClick={() => {
-          const isPortal = window.location.pathname.startsWith("/portal");
-          navigate(isPortal ? `/portal/services/view/${itemId}` : `/services/view/${itemId}`);
+          navigate(`/services/view/${itemId}`);
         }}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           {t("common:back")}
@@ -247,8 +249,7 @@ const ServiceEditPage: React.FC = () => {
             {/* Submit */}
             <div className="flex justify-end gap-2 pt-4">
               <Button type="button" variant="outline" onClick={() => {
-                const isPortal = window.location.pathname.startsWith("/portal");
-                navigate(isPortal ? `/portal/services/view/${itemId}` : `/services/view/${itemId}`);
+                navigate(`/services/view/${itemId}`);
               }}>
                 {t("common:cancel")}
               </Button>

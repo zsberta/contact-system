@@ -45,7 +45,7 @@ const DashboardPage = () => {
         <CardHeader>
           <CardTitle>{t("dashboard:welcome")}</CardTitle>
           <CardDescription>
-            {user ? `${user.firstName} ${user.lastName} (${user.email})` : ""}
+            {user ? `${user.lastName} ${user.firstName} (${user.email})` : ""}
           </CardDescription>
         </CardHeader>
         <CardContent>

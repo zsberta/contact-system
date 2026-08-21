@@ -13,6 +13,7 @@ import type {
   ReservationDTO,
 } from "@/types/reservation";
 import { createReservation } from "@/lib/reservations";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 import ReservationForm from "@/components/reservations/ReservationForm";
 
 const ReservationCreatePage: React.FC = () => {
@@ -28,12 +29,15 @@ const ReservationCreatePage: React.FC = () => {
 
   const createMutation = useMutation({
     mutationFn: (data: ReservationCreateDTO) => createReservation(data),
-    onSuccess: (data: ReservationDTO) => {
+    onSuccess: async (data: ReservationDTO) => {
       showSuccess(
         t("common:create_success", { item: t("reservations:reservation") }),
       );
       queryClient.invalidateQueries({ queryKey: ["reservations"] });
-      navigate(`/reservations/view/${data.id}`);
+      if (initialProjectId) {
+        const path = await resolveModulePath(initialProjectId, "reservation");
+        if (path) navigate(path);
+      }
     },
     onError: (err: Error) => {
       showError(t("common:operation_failed", { error: err.message }));

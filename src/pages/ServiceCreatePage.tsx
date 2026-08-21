@@ -1,19 +1,17 @@
 // ----------------------------------------------------------------------------
 // ServiceCreatePage — create form for a new Service item.
 // Each item has bilingual fields (HU + EN).
-// In portal mode (/?projectId=N deep-link), project is auto-set from context
-// and shown as read-only. In admin mode, a project selector modal is shown.
 // ----------------------------------------------------------------------------
 
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 import { showError, showSuccess } from "@/utils/toast";
 import { ServiceItemCreateDTO, ServiceItemDTO } from "@/types/service";
 import { createServiceItem } from "@/lib/service";
 import { ServiceProjectSelectorModal } from "@/components/service/ServiceProjectSelectorModal";
-import { useProjectContext } from "@/context/ProjectContext";
 import type { ProjectDTO } from "@/types/project";
 import {
   Card,
@@ -40,15 +38,10 @@ const ServiceCreatePage: React.FC = () => {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
 
-  const isPortal = window.location.pathname.startsWith("/portal");
-  const { selectedId: contextProjectId } = useProjectContext();
-
   const projectIdParam = searchParams.get("projectId");
-  const initialProjectId = isPortal
-    ? contextProjectId
-    : projectIdParam && /^\d+$/.test(projectIdParam)
-      ? Number(projectIdParam)
-      : null;
+  const initialProjectId = projectIdParam && /^\d+$/.test(projectIdParam)
+    ? Number(projectIdParam)
+    : null;
 
   const [selectedProjectId, setSelectedProjectId] = React.useState<number | null>(initialProjectId);
   const [titleHu, setTitleHu] = React.useState("");
@@ -62,10 +55,13 @@ const ServiceCreatePage: React.FC = () => {
 
   const createMutation = useMutation({
     mutationFn: (data: ServiceItemCreateDTO) => createServiceItem(data),
-    onSuccess: (data: ServiceItemDTO) => {
+    onSuccess: async (data: ServiceItemDTO) => {
       showSuccess(t("service:created_toast", { title: data.titleHu }));
       queryClient.invalidateQueries({ queryKey: ["service"] });
-      navigate(isPortal ? `/portal/services/view/${data.id}` : `/services`);
+      if (data.projectId) {
+        const path = await resolveModulePath(data.projectId, "service");
+        if (path) navigate(path);
+      }
     },
     onError: (err: Error) => {
       showError(err.message || t("service:create_failed_toast"));
@@ -95,15 +91,14 @@ const ServiceCreatePage: React.FC = () => {
     });
   };
 
-  // Resolve project name for read-only display in portal mode
-  const { projects } = useProjectContext();
-  const selectedProjectName = projects?.find((p) => p.id === selectedProjectId)?.name ?? "";
-
   return (
     <div className="container mx-auto p-4 max-w-5xl space-y-6">
       <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" onClick={() => {
-          navigate(isPortal ? "/portal/services" : "/services");
+        <Button variant="outline" size="sm" onClick={async () => {
+          if (selectedProjectId) {
+            const path = await resolveModulePath(selectedProjectId, "service");
+            if (path) navigate(path);
+          }
         }}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           {t("common:back")}
@@ -119,17 +114,13 @@ const ServiceCreatePage: React.FC = () => {
             <CardTitle>{t("service:create_title")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Project selector — read-only in portal, modal in admin */}
+            {/* Project selector */}
             <div className="space-y-2">
               <Label>{t("service:project")}</Label>
-              {isPortal ? (
-                <Input value={selectedProjectName} disabled />
-              ) : (
-                <ServiceProjectSelectorModal
-                  selectedId={selectedProjectId}
-                  onSelect={(project: ProjectDTO) => setSelectedProjectId(project.id)}
-                />
-              )}
+              <ServiceProjectSelectorModal
+                selectedId={selectedProjectId}
+                onSelect={(project: ProjectDTO) => setSelectedProjectId(project.id)}
+              />
             </div>
 
             {/* Hungarian fields */}
@@ -232,8 +223,11 @@ const ServiceCreatePage: React.FC = () => {
 
             {/* Submit */}
             <div className="flex justify-end gap-2 pt-4">
-              <Button type="button" variant="outline" onClick={() => {
-                navigate(isPortal ? "/portal/services" : "/services");
+              <Button type="button" variant="outline" onClick={async () => {
+                if (selectedProjectId) {
+                  const path = await resolveModulePath(selectedProjectId, "service");
+                  if (path) navigate(path);
+                }
               }}>
                 {t("common:cancel")}
               </Button>

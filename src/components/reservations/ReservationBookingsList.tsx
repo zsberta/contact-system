@@ -1,8 +1,7 @@
 // ----------------------------------------------------------------------------
 // ReservationBookingsList — paged DataTable of received reservation bookings.
-// Bookings have a structured date/time window + an optional JSONB data bag
-// (only when the reservation has extra_fields_enabled). Opens the details
-// sheet on the "View details" action.
+// Shows service, customer, schedule, status, and worker info. Opens a
+// centered Dialog on the "View details" action.
 // ----------------------------------------------------------------------------
 
 import { useCallback, useState } from "react";
@@ -10,11 +9,12 @@ import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/DataTable";
 import { Eye } from "lucide-react";
 import { getReservationBookings } from "@/lib/reservations";
 import type { ReservationBookingDTO } from "@/types/reservation";
-import { ReservationBookingDetailsSheet } from "@/components/reservations/ReservationBookingDetailsSheet";
+import { ReservationBookingDetailModal } from "@/components/reservations/ReservationBookingDetailModal";
 
 interface Props {
   reservationId: number;
@@ -23,25 +23,26 @@ interface Props {
 interface QueryState {
   page: number;
   size: number;
-  sortField: "startsAt" | "endsAt" | "bookedAt" | "ipAddress" | "locale";
+  sortField: "startsAt" | "endsAt" | "bookedAt" | "serviceName" | "customerName" | "workerFirstName" | "status";
   sortOrder: "asc" | "desc";
   queries: string[];
+  searchText: string;
   filterType: "any" | "all";
 }
 
-const maskIpv4 = (ip: string | null): string => {
-  if (!ip) return "—";
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
-    const parts = ip.split(".");
-    return `${parts[0]}.${parts[1]}.${parts[2]}.xxx`;
-  }
-  return ip;
+const isSameDay = (a: string, b: string) => {
+  const da = new Date(a);
+  const db = new Date(b);
+  return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
 };
 
 export function ReservationBookingsList({ reservationId }: Props) {
-  const { t } = useTranslation(["reservations", "common"]);
+  const { t, i18n } = useTranslation(["reservations", "common"]);
+  const locale = i18n.language?.startsWith("hu") ? "hu" : "en";
+  const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(locale, { year: "numeric", month: "numeric", day: "numeric" });
+  const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false });
   const [selectedBookingId, setSelectedBookingId] = useState<number | null>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   const [queryState, setQueryState] = useState<QueryState>({
     page: 0,
@@ -49,6 +50,7 @@ export function ReservationBookingsList({ reservationId }: Props) {
     sortField: "bookedAt",
     sortOrder: "desc",
     queries: [],
+    searchText: "",
     filterType: "any",
   });
 
@@ -65,13 +67,9 @@ export function ReservationBookingsList({ reservationId }: Props) {
     (size: number) => setQueryState((s) => ({ ...s, size, page: 0 })),
     [],
   );
-  const handleSearch = useCallback(
-    (query: string) =>
-      setQueryState((s) => ({
-        ...s,
-        queries: query ? [query] : [],
-        page: 0,
-      })),
+  const handleSearchTextChange = useCallback(
+    (searchText: string) =>
+      setQueryState((s) => ({ ...s, searchText, page: 0 })),
     [],
   );
   const handleQueriesChange = useCallback(
@@ -96,7 +94,7 @@ export function ReservationBookingsList({ reservationId }: Props) {
 
   const openDetails = (id: number) => {
     setSelectedBookingId(id);
-    setSheetOpen(true);
+    setDialogOpen(true);
   };
 
   const handleRowDoubleClick = (row: ReservationBookingDTO) =>
@@ -104,29 +102,46 @@ export function ReservationBookingsList({ reservationId }: Props) {
 
   const columns = [
     {
+      accessorKey: "serviceName",
+      header: t("reservations:booking_service"),
+      cell: (row: ReservationBookingDTO) =>
+        row.serviceName || row.serviceNameSnapshot || "—",
+      enableSorting: true,
+    },
+    {
+      accessorKey: "customerName",
+      header: t("reservations:booking_customer"),
+      cell: (row: ReservationBookingDTO) => {
+        const name = row.customerName || [row.lastName, row.firstName].filter(Boolean).join(" ");
+        return name || "—";
+      },
+      enableSorting: true,
+    },
+    {
       accessorKey: "startsAt",
-      header: t("reservations:booking_starts_at"),
-      cell: (row: ReservationBookingDTO) =>
-        new Date(row.startsAt).toLocaleString(),
+      header: t("reservations:booking_reservation"),
+      cell: (row: ReservationBookingDTO) => isSameDay(row.startsAt, row.endsAt)
+        ? <>{fmtDate(row.startsAt)} <span className="font-semibold">{fmtTime(row.startsAt)} – {fmtTime(row.endsAt)}</span></>
+        : <>{fmtDate(row.startsAt)} {fmtTime(row.startsAt)} – {fmtDate(row.endsAt)} {fmtTime(row.endsAt)}</>,
       enableSorting: true,
     },
     {
-      accessorKey: "endsAt",
-      header: t("reservations:booking_ends_at"),
-      cell: (row: ReservationBookingDTO) =>
-        new Date(row.endsAt).toLocaleString(),
+      accessorKey: "workerFirstName",
+      header: t("reservations:booking_worker"),
+      cell: (row: ReservationBookingDTO) => {
+        const name = [row.workerLastName, row.workerFirstName].filter(Boolean).join(" ");
+        return name || "—";
+      },
       enableSorting: true,
     },
     {
-      accessorKey: "locale",
-      header: t("reservations:submission_locale"),
-      cell: (row: ReservationBookingDTO) => row.locale ?? "—",
-      enableSorting: true,
-    },
-    {
-      accessorKey: "ipAddress",
-      header: t("reservations:submission_ip"),
-      cell: (row: ReservationBookingDTO) => maskIpv4(row.ipAddress),
+      accessorKey: "status",
+      header: t("reservations:booking_status"),
+      cell: (row: ReservationBookingDTO) => (
+        <Badge variant={row.status === "confirmed" ? "default" : row.status === "cancelled" ? "destructive" : row.status === "no_show" ? "outline" : "secondary"}>
+          {t(`reservations:booking_status_${row.status}`)}
+        </Badge>
+      ),
       enableSorting: true,
     },
     {
@@ -138,11 +153,10 @@ export function ReservationBookingsList({ reservationId }: Props) {
           variant="ghost"
           size="sm"
           onClick={() => openDetails(row.id)}
-          aria-label={t("reservations:submission_view_json")}
-          title={t("reservations:submission_view_json")}
+          aria-label={t("reservations:booking_details")}
+          title={t("reservations:booking_details")}
         >
-          <Eye className="mr-1 h-4 w-4" />
-          {t("reservations:submission_view_json")}
+          <Eye className="h-4 w-4" />
         </Button>
       ),
     },
@@ -163,10 +177,11 @@ export function ReservationBookingsList({ reservationId }: Props) {
             pageInfo={data as never}
             onPageChange={handlePageChange}
             onPageSizeChange={handlePageSizeChange}
-            onSearch={handleSearch}
+            onSearch={() => {}}
             queries={queryState.queries}
             filterType={queryState.filterType}
             onQueriesChange={handleQueriesChange}
+            onSearchTextChange={handleSearchTextChange}
             onFilterTypeChange={handleFilterTypeChange}
             isLoading={isLoading}
             onSortChange={handleSortChange}
@@ -178,12 +193,12 @@ export function ReservationBookingsList({ reservationId }: Props) {
         </CardContent>
       </Card>
 
-      <ReservationBookingDetailsSheet
+      <ReservationBookingDetailModal
         reservationId={reservationId}
         bookingId={selectedBookingId}
-        open={sheetOpen}
+        open={dialogOpen}
         onClose={() => {
-          setSheetOpen(false);
+          setDialogOpen(false);
           setSelectedBookingId(null);
         }}
       />

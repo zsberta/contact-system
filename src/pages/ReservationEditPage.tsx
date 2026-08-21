@@ -1,17 +1,20 @@
 // ----------------------------------------------------------------------------
 // ReservationEditPage — wraps ReservationForm in edit mode. Mirrors
-// FormEditPage structurally.
+// FormEditPage structurally. Supports both legacy /reservations/edit/:id
+// and workspace /workspace/.../reservation/:moduleId/edit routes.
 // ----------------------------------------------------------------------------
 
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
+import { useModuleResolution } from "@/hooks/useModuleResolution";
 import { showError, showSuccess } from "@/utils/toast";
 import type {
   ReservationDTO,
   ReservationUpdateDTO,
 } from "@/types/reservation";
 import { getReservationById, updateReservation } from "@/lib/reservations";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 import ReservationForm from "@/components/reservations/ReservationForm";
 
 const ReservationEditPage: React.FC = () => {
@@ -19,7 +22,10 @@ const ReservationEditPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { id } = useParams<{ id: string }>();
-  const reservationId = id ? Number.parseInt(id) : null;
+  const { resourceId } = useModuleResolution();
+
+  // Support both legacy (id param) and workspace (resourceId from module resolution)
+  const reservationId = id ? Number.parseInt(id) : (resourceId as number | null);
 
   const { data: initialData, isLoading, error } = useQuery<ReservationDTO, Error>({
     queryKey: ["reservations", reservationId],
@@ -30,13 +36,16 @@ const ReservationEditPage: React.FC = () => {
   const updateMutation = useMutation({
     mutationFn: (data: ReservationUpdateDTO) =>
       updateReservation(reservationId!, data),
-    onSuccess: () => {
+    onSuccess: async () => {
       showSuccess(
         t("common:update_success", { item: t("reservations:reservation") }),
       );
       queryClient.invalidateQueries({ queryKey: ["reservations"] });
       queryClient.invalidateQueries({ queryKey: ["reservations", reservationId] });
-      navigate(`/reservations/view/${reservationId}`);
+      if (initialData?.projectId) {
+        const path = await resolveModulePath(initialData.projectId, "reservation");
+        if (path) navigate(path);
+      }
     },
     onError: (err: Error) => {
       showError(t("common:operation_failed", { error: err.message }));

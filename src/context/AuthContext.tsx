@@ -48,8 +48,7 @@ const initialAuthState: AuthState = {
 // source of truth for post-login redirects — every place that calls
 // login() ultimately lands on one of these.
 export function landingRouteForRole(role) {
-  if (role === "enduser") return "/portal";
-  return "/dashboard";
+  return "/workspace";
 }
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({

@@ -121,11 +121,11 @@ const ResetPasswordPage: React.FC = () => {
             <div className="flex flex-row items-center justify-center space-x-2">
               <img
                 src="/logo.svg"
-                alt="Zsolt's CRM Logo"
+                alt="Nexus Logo"
                 className="h-16 w-auto object-contain"
               />
               <h1 className="text-3xl font-extrabold text-primary tracking-wider">
-                Zsolt's CRM
+                Nexus
               </h1>
             </div>
           </CardHeader>

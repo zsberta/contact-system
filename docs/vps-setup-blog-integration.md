@@ -339,7 +339,7 @@ re-runs the prerender (the cheap part) — Vite is not invoked.
 
 After the above is in place:
 
-1. Log into the CRM admin at `https://crm.zsoltberta.hu`.
+1. Log into the CRM admin at `https://nexus.zsoltberta.hu`.
 2. Go to `/blog`, create a new post, mark it `published`.
 3. Within ~60 seconds (cron interval), check
    `/home/zsolt/www/zsoltberta.hu/dist/blog/<slug>/index.html`

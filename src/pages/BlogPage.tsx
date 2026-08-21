@@ -42,10 +42,6 @@ const statusBadgeVariant = (status: BlogPostStatus) => {
 };
 
 interface BlogPageProps {
-  /** Base path for navigation links. Defaults to "/blog" for admin.
-   *  Pass "/portal/blog" from PortalBlogPage so double-click navigates
-   *  to the correct route (admin vs enduser portal). */
-  basePath?: string;
   /** Show the "New post" button. Defaults to true. Set to false for
    *  enduser portal views where creating posts is not allowed. */
   showCreateButton?: boolean;
@@ -54,7 +50,7 @@ interface BlogPageProps {
   showRowActions?: boolean;
 }
 
-const BlogPage: React.FC<BlogPageProps> = ({ basePath = "/blog", showCreateButton = true, showRowActions = true }) => {
+const BlogPage: React.FC<BlogPageProps> = ({ showCreateButton = true, showRowActions = true }) => {
   const { t } = useTranslation(["blog", "common"]);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -141,14 +137,14 @@ const BlogPage: React.FC<BlogPageProps> = ({ basePath = "/blog", showCreateButto
     [],
   );
   const handleRowDoubleClick = useCallback(
-    (row: BlogPostDTO) => navigate(`${basePath}/view/${row.id}`),
-    [navigate, basePath],
+    (row: BlogPostDTO) => navigate(`/blog/view/${row.id}`),
+    [navigate],
   );
 
   const createLink =
     projectIdFilter !== undefined
-      ? `${basePath}/create?projectId=${projectIdFilter}`
-      : `${basePath}/create`;
+      ? `/blog/create?projectId=${projectIdFilter}`
+      : `/blog/create`;
 
   const columns = [
     {
@@ -215,7 +211,7 @@ const BlogPage: React.FC<BlogPageProps> = ({ basePath = "/blog", showCreateButto
             cell: (row: BlogPostDTO) => (
               <div className="flex items-center gap-1">
                 <BlogPublishButton post={row} variant="compact" />
-                <BlogActions post={row} basePath={basePath} />
+                <BlogActions post={row} />
               </div>
             ),
           },

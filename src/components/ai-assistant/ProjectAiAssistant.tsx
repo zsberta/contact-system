@@ -7,6 +7,7 @@
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 import {
   Card,
   CardContent,
@@ -38,7 +39,7 @@ export function ProjectAiAssistant({ projectId }: ProjectAiAssistantProps) {
 
   const enableMutation = useMutation({
     mutationFn: () => getOrCreateAiAssistantConfigByProject(projectId),
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       showSuccess(
         t("common:create_success", {
           item: t("ai-assistant:ai_assistant_config"),
@@ -48,7 +49,8 @@ export function ProjectAiAssistant({ projectId }: ProjectAiAssistantProps) {
       queryClient.invalidateQueries({
         queryKey: ["ai-assistant", "project", projectId],
       });
-      navigate(`/ai-assistant/view/${data.id}`);
+      const path = await resolveModulePath(projectId, "ai-assistant");
+      if (path) navigate(path);
     },
     onError: (err: Error) => {
       showError(t("common:operation_failed", { error: err.message }));
@@ -73,6 +75,11 @@ export function ProjectAiAssistant({ projectId }: ProjectAiAssistantProps) {
   if (error) {
     console.error("[project-ai-assistant] query error:", error);
   }
+
+  const handleConfigClick = async () => {
+    const path = await resolveModulePath(projectId, "ai-assistant");
+    if (path) navigate(path);
+  };
 
   return (
     <Card>
@@ -113,7 +120,7 @@ export function ProjectAiAssistant({ projectId }: ProjectAiAssistantProps) {
           <ul className="space-y-2">
             <li
               className="flex items-center justify-between p-3 border rounded-md cursor-pointer hover:bg-muted/50"
-              onClick={() => navigate(`/ai-assistant/view/${data!.id}`)}
+              onClick={handleConfigClick}
             >
               <div className="flex items-center gap-3 min-w-0 flex-1">
                 <Bot className="h-4 w-4 text-muted-foreground flex-shrink-0" />

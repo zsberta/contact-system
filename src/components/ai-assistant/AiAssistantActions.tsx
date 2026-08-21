@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MoreVertical, Eye, Edit, Trash2, Power, PowerOff } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   DropdownMenu,
@@ -33,6 +33,7 @@ import {
   updateAiAssistantConfig,
 } from "@/lib/ai-assistant";
 import { showError, showSuccess } from "@/utils/toast";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 
 interface AiAssistantActionsProps {
   config: AiAssistantConfigDTO;
@@ -41,8 +42,14 @@ interface AiAssistantActionsProps {
 const AiAssistantActions = ({ config }: AiAssistantActionsProps) => {
   const { t } = useTranslation(["ai-assistant", "common"]);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false);
+
+  const handleView = async () => {
+    const path = await resolveModulePath(config.projectId, "ai-assistant");
+    if (path) navigate(path);
+  };
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteAiAssistantConfig(config.id),
@@ -104,11 +111,9 @@ const AiAssistantActions = ({ config }: AiAssistantActionsProps) => {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuLabel>{t("common:actions")}</DropdownMenuLabel>
-          <DropdownMenuItem asChild>
-            <Link to={`/ai-assistant/view/${config.id}`}>
-              <Eye className="mr-2 h-4 w-4" />
-              {t("common:view")}
-            </Link>
+          <DropdownMenuItem onClick={handleView}>
+            <Eye className="mr-2 h-4 w-4" />
+            {t("common:view")}
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
             <Link to={`/ai-assistant/edit/${config.id}`}>

@@ -16,6 +16,7 @@ import {
   updateAiAssistantConfig,
 } from "@/lib/ai-assistant";
 import AiAssistantConfigForm from "@/components/ai-assistant/AiAssistantConfigForm";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 
 const AiAssistantEditPage: React.FC = () => {
   const { t } = useTranslation(["ai-assistant", "common"]);
@@ -37,7 +38,7 @@ const AiAssistantEditPage: React.FC = () => {
   const updateMutation = useMutation({
     mutationFn: (data: AiAssistantUpdateDTO) =>
       updateAiAssistantConfig(configId!, data),
-    onSuccess: () => {
+    onSuccess: async () => {
       showSuccess(
         t("common:update_success", {
           item: t("ai-assistant:ai_assistant_config"),
@@ -45,7 +46,10 @@ const AiAssistantEditPage: React.FC = () => {
       );
       queryClient.invalidateQueries({ queryKey: ["ai-assistant"] });
       queryClient.invalidateQueries({ queryKey: ["ai-assistant", configId] });
-      navigate(`/ai-assistant/view/${configId}`);
+      if (initialData?.projectId) {
+        const path = await resolveModulePath(initialData.projectId, "ai-assistant");
+        if (path) navigate(path);
+      }
     },
     onError: (err: Error) => {
       showError(t("common:operation_failed", { error: err.message }));

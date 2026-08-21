@@ -13,6 +13,7 @@ import { showError, showSuccess } from "@/utils/toast";
 import type { FormCreateDTO, FormDTO } from "@/types/form";
 import { createForm } from "@/lib/forms";
 import FormForm from "@/components/forms/FormForm";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 
 const FormCreatePage: React.FC = () => {
   const { t } = useTranslation(["forms", "common"]);
@@ -27,12 +28,15 @@ const FormCreatePage: React.FC = () => {
 
   const createMutation = useMutation({
     mutationFn: (data: FormCreateDTO) => createForm(data),
-    onSuccess: (data: FormDTO) => {
+    onSuccess: async (data: FormDTO) => {
       showSuccess(
         t("common:create_success", { item: t("forms:form") }),
       );
       queryClient.invalidateQueries({ queryKey: ["forms"] });
-      navigate(`/forms/view/${data.id}`);
+      if (data.projectId) {
+        const path = await resolveModulePath(data.projectId, "form");
+        if (path) navigate(path);
+      }
     },
     onError: (err: Error) => {
       showError(t("common:operation_failed", { error: err.message }));

@@ -66,6 +66,7 @@ interface DataTableProps<TData, TValue> {
   queries?: string[];
   filterType?: "any" | "all";
   onQueriesChange?: (queries: string[]) => void;
+  onSearchTextChange?: (searchText: string) => void;
   onFilterTypeChange?: (filterType: "any" | "all") => void;
 
   onSortChange: (sortField: string, sortOrder: "asc" | "desc") => void;
@@ -124,6 +125,7 @@ export function DataTable<TData, TValue>({
   queries = EMPTY_QUERIES,
   filterType = "any",
   onQueriesChange,
+  onSearchTextChange,
   onFilterTypeChange,
   onSortChange,
   currentSortField,
@@ -240,9 +242,9 @@ export function DataTable<TData, TValue>({
       <DataTableSearch
         queries={queries}
         filterType={filterType}
-        onQueriesChange={onQueriesChange || (() => {})}
-        onFilterTypeChange={onFilterTypeChange || (() => {})}
-        disabled={isLoading}
+        onQueriesChange={onQueriesChange}
+        onSearchTextChange={onSearchTextChange}
+        onFilterTypeChange={onFilterTypeChange}
         placeholder={t("common:search")}
         constrainedHeight={constrainedHeight}
       />
@@ -284,7 +286,7 @@ export function DataTable<TData, TValue>({
                         "whitespace-nowrap",
                         isLastColumn &&
                           freezeLastColumn &&
-                          "sticky right-0 bg-background shadow-lg z-20", // Freeze last column header
+                          "sticky right-0 bg-background z-20", // Freeze last column header
                         isMobile && "px-2 py-3 text-xs", // Smaller padding and text on mobile
                       )}
                       onClick={() => isSortable && handleSort(accessorKey)}
@@ -327,7 +329,7 @@ export function DataTable<TData, TValue>({
                           "whitespace-nowrap",
                           colIndex === lastColumnIndex &&
                             freezeLastColumn &&
-                            "sticky right-0 bg-card shadow-lg z-10",
+                            "sticky right-0 bg-card z-10",
                           isMobile && "px-2",
                         )}
                       >
@@ -397,7 +399,7 @@ export function DataTable<TData, TValue>({
                               "whitespace-nowrap",
                               isLastColumn &&
                                 freezeLastColumn &&
-                                "sticky right-0 bg-card shadow-lg z-10",
+                                "sticky right-0 bg-card z-10",
                               isMobile && "px-2 py-3 text-sm",
                             )}
                           >

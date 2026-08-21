@@ -7,6 +7,7 @@
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 import {
   Card,
   CardContent,
@@ -44,6 +45,11 @@ export function ProjectForms({ projectId }: ProjectFormsProps) {
       }),
   });
 
+  const handleFormClick = async (formId: number) => {
+    const path = await resolveModulePath(projectId, "form");
+    if (path) navigate(path);
+  };
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
@@ -75,7 +81,7 @@ export function ProjectForms({ projectId }: ProjectFormsProps) {
               <li
                 key={form.id}
                 className="flex items-center justify-between p-3 border rounded-md cursor-pointer hover:bg-muted/50"
-                onClick={() => navigate(`/forms/view/${form.id}`)}
+                onClick={() => handleFormClick(form.id)}
               >
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />

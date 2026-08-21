@@ -9,6 +9,7 @@ import React, { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/DataTable";
@@ -89,7 +90,10 @@ const ReservationsPage: React.FC = () => {
     [],
   );
   const handleRowDoubleClick = useCallback(
-    (row: ReservationDTO) => navigate(`/reservations/view/${row.id}`),
+    async (row: ReservationDTO) => {
+      const path = await resolveModulePath(row.projectId, "reservation");
+      if (path) navigate(path);
+    },
     [navigate],
   );
 
@@ -105,14 +109,7 @@ const ReservationsPage: React.FC = () => {
       cell: (row: ReservationDTO) => row.name || "—",
       enableSorting: true,
     },
-    {
-      accessorKey: "slug",
-      header: t("reservations:slug"),
-      cell: (row: ReservationDTO) => (
-        <span className="font-mono text-xs">{row.slug}</span>
-      ),
-      enableSorting: true,
-    },
+
     {
       accessorKey: "projectName",
       header: t("reservations:project"),

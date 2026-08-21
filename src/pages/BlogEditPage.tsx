@@ -13,6 +13,7 @@ import { showError, showSuccess } from "@/utils/toast";
 import { BlogPostDTO, BlogPostUpdateDTO } from "@/types/blog";
 import { getBlogPostById, updateBlogPost } from "@/lib/blog";
 import BlogForm from "@/components/blog/BlogForm";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 
 const BlogEditPage: React.FC = () => {
   const { t } = useTranslation(["blog", "common"]);
@@ -29,12 +30,14 @@ const BlogEditPage: React.FC = () => {
 
   const updateMutation = useMutation({
     mutationFn: (data: BlogPostUpdateDTO) => updateBlogPost(postId, data),
-    onSuccess: (data: BlogPostDTO) => {
+    onSuccess: async (data: BlogPostDTO) => {
       showSuccess(t("blog:saved_toast", { title: data.title }));
       queryClient.invalidateQueries({ queryKey: ["blog"] });
       queryClient.invalidateQueries({ queryKey: ["blog", "detail", postId] });
-      const isPortal = window.location.pathname.startsWith("/portal");
-      navigate(isPortal ? `/portal/blog/view/${data.id}` : `/blog/view/${data.id}`);
+      if (data.projectId) {
+        const path = await resolveModulePath(data.projectId, "blog");
+        if (path) navigate(path);
+      }
     },
     onError: (err: Error) => {
       showError(err.message || t("blog:save_failed_toast"));

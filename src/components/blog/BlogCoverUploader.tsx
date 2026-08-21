@@ -194,7 +194,7 @@ export const BlogCoverUploader: React.FC<BlogCoverUploaderProps> = ({
   // Legacy data: pre-fix uploads stored relative URLs like
   // "/api/public/blog/attachments/<uuid>.webp" — those resolve
   // relative to whatever origin the SPA is served from, which is
-  // wrong when the SPA is on crm.zsoltberta.hu but the image is
+  // wrong when the SPA is on nexus.zsoltberta.hu but the image is
   // served by the same host (it works) — but when the SPA is on a
   // landing (a different origin) or the upload was made before
   // APP_PUBLIC_URL was wired, the relative URL breaks. The

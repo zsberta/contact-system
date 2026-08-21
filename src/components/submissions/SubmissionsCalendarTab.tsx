@@ -91,7 +91,7 @@ function BookingRow({
   const start = new Date(booking.startsAt);
   const end = new Date(booking.endsAt);
 
-  const timeRange = `${start.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })} – ${end.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}`;
+  const timeRange = `${start.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false })} – ${end.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false })}`;
 
   return (
     <div className="border rounded-md overflow-hidden">
@@ -124,7 +124,7 @@ function BookingRow({
             return sameDay ? (
               <DetailRow
                 label={t("submissions:time_range")}
-                value={`${start.toLocaleDateString()} ${start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} – ${end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+                value={`${start.toLocaleDateString()} ${start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })} – ${end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}`}
               />
             ) : (
               <>
@@ -433,16 +433,18 @@ export default function SubmissionsCalendarTab({ projectId }: Props) {
                           <div
                             key={b.id}
                             className="text-[10px] leading-tight bg-primary/15 text-primary rounded px-1 py-0.5 truncate"
-                            title={`${b.reservationName} ${start.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })} – ${end.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}`}
+                            title={`${b.reservationName} ${start.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false })} – ${end.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false })}`}
                           >
                             {start.toLocaleTimeString(locale, {
                               hour: "2-digit",
                               minute: "2-digit",
+                              hour12: false,
                             })}{" "}
                             –{" "}
                             {end.toLocaleTimeString(locale, {
                               hour: "2-digit",
                               minute: "2-digit",
+                              hour12: false,
                             })}
                           </div>
                         );

@@ -4,11 +4,8 @@
 // Pattern: RHF + zod, Controller-wrapped Selects, conditional fields.
 //
 // Differences vs. FormForm:
-//   - Adds Granularity Select (day / hour / minute)
-//   - Adds Slot duration minutes Input (only when granularity is hour/minute)
-//   - Adds Lead time minutes Input (≥ 0)
-//   - Adds Max advance days Input (≥ 1)
 //   - Adds Extra fields enabled Switch
+//   - Adds Embed title Input
 //
 // secretToken, slug, projectId behave exactly like the form module:
 // immutable in edit mode; secretToken copy button is read-only with copy.
@@ -52,16 +49,12 @@ import {
   Globe,
   Lock,
   Trash2,
-  Clock,
-  Hourglass,
-  CalendarRange,
   CalendarOff,
   FilePen,
 } from "lucide-react";
 import type {
   ReservationCreateDTO,
   ReservationDTO,
-  ReservationGranularity,
   ReservationStatus,
   ReservationUpdateDTO,
 } from "@/types/reservation";
@@ -72,14 +65,13 @@ interface ReservationFormValues {
   projectId: number | null;
   projectName: string;
   name: string;
-  slug: string;
   status: ReservationStatus;
-  granularity: ReservationGranularity;
-  slotDurationMinutes: string | null | undefined;
-  leadTimeMinutes: number;
-  maxAdvanceDays: number;
   extraFieldsEnabled: boolean;
   disableHungarianHolidays: boolean;
+  embedTitle: string;
+  brandColor: string;
+  iframeWidth: string;
+  iframeHeight: string;
 }
 
 interface ReservationFormProps {
@@ -90,11 +82,7 @@ interface ReservationFormProps {
 }
 
 const STATUS_OPTIONS: ReservationStatus[] = ["active", "disabled"];
-const GRANULARITY_OPTIONS: ReservationGranularity[] = [
-  "day",
-  "hour",
-  "minute",
-];
+
 
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
@@ -106,12 +94,6 @@ const ReservationForm = ({
 }: ReservationFormProps) => {
   const { t } = useTranslation(["reservations", "common"]);
 
-  const slugSchema = z
-    .string()
-    .min(1, { message: "reservations:slug_required" })
-    .max(50)
-    .regex(SLUG_RE, { message: "reservations:slug_invalid" });
-
   const formSchema = z.object({
     projectId: z
       .number({ invalid_type_error: "reservations:project_required" })
@@ -122,33 +104,13 @@ const ReservationForm = ({
       .string()
       .min(1, { message: "reservations:required_field" })
       .max(200, { message: "reservations:max_length" }),
-    slug: slugSchema,
     status: z.enum(["active", "disabled"]),
-    granularity: z.enum(["day", "hour", "minute"]),
-    // Editable string-shaped field that converts to number on submit.
-    // Using string here keeps the FE validation simple (max length, etc.)
-    // — we parse to a positive int at submit time.
-    slotDurationMinutes: z
-      .union([
-        z
-          .string()
-          .max(6, { message: "reservations:max_length" })
-          .regex(/^\d+$/, { message: "reservations:slot_duration_invalid" }),
-        z.null(),
-      ])
-      .optional(),
-    leadTimeMinutes: z.coerce
-      .number({ invalid_type_error: "reservations:required_field" })
-      .int()
-      .min(0)
-      .max(60 * 24 * 30, { message: "reservations:max_length" }),
-    maxAdvanceDays: z.coerce
-      .number({ invalid_type_error: "reservations:required_field" })
-      .int()
-      .min(1)
-      .max(365, { message: "reservations:max_length" }),
     extraFieldsEnabled: z.boolean(),
     disableHungarianHolidays: z.boolean(),
+    embedTitle: z.string().min(1),
+    brandColor: z.string(),
+    iframeWidth: z.string(),
+    iframeHeight: z.string(),
   });
 
   const form = useForm<ReservationFormValues, unknown, ReservationFormValues>({
@@ -157,18 +119,13 @@ const ReservationForm = ({
       projectId: initialData?.projectId ?? null,
       projectName: initialData?.projectName ?? "",
       name: initialData?.name ?? "",
-      slug: initialData?.slug ?? "",
       status: initialData?.status ?? "active",
-      granularity: initialData?.granularity ?? "hour",
-      slotDurationMinutes:
-        initialData?.slotDurationMinutes === null ||
-        initialData?.slotDurationMinutes === undefined
-          ? null
-          : String(initialData.slotDurationMinutes),
-      leadTimeMinutes: initialData?.leadTimeMinutes ?? 60,
-      maxAdvanceDays: initialData?.maxAdvanceDays ?? 90,
       extraFieldsEnabled: initialData?.extraFieldsEnabled ?? false,
       disableHungarianHolidays: initialData?.disableHungarianHolidays ?? false,
+      embedTitle: initialData?.embedTitle ?? "Időpont foglalás",
+      brandColor: initialData?.brandColor ?? "#0A2540",
+      iframeWidth: initialData?.iframeWidth ?? "100%",
+      iframeHeight: initialData?.iframeHeight ?? "760px",
     },
   });
 
@@ -179,55 +136,36 @@ const ReservationForm = ({
     return [];
   });
 
-  const granularity = form.watch("granularity");
-  const showSlotDuration = granularity === "hour" || granularity === "minute";
-
   const handleSubmit = (values: ReservationFormValues) => {
     const cleanedOrigins = allowedOrigins
       .map((d) => d.trim())
       .filter((d) => d.length > 0);
 
-    let slot: number | null;
-    if (!showSlotDuration) {
-      slot = null;
-    } else if (
-      values.slotDurationMinutes === null ||
-      values.slotDurationMinutes === undefined ||
-      values.slotDurationMinutes === ""
-    ) {
-      slot = null;
-    } else {
-      const n = parseInt(String(values.slotDurationMinutes), 10);
-      slot = Number.isFinite(n) && n > 0 ? n : null;
-    }
-
     if (mode === "create") {
       const payload: ReservationCreateDTO = {
         name: values.name.trim(),
-        slug: values.slug.trim(),
         projectId: values.projectId!,
         allowedOrigins: cleanedOrigins,
         status: values.status,
-        granularity: values.granularity,
-        slotDurationMinutes: slot,
-        leadTimeMinutes: values.leadTimeMinutes,
-        maxAdvanceDays: values.maxAdvanceDays,
         extraFieldsEnabled: values.extraFieldsEnabled,
         disableHungarianHolidays: values.disableHungarianHolidays,
+        embedTitle: values.embedTitle,
+        brandColor: values.brandColor,
+        iframeWidth: values.iframeWidth,
+        iframeHeight: values.iframeHeight,
       };
       onSubmit(payload);
     } else {
       const payload: ReservationUpdateDTO = {
         name: values.name.trim(),
-        slug: values.slug.trim(),
         allowedOrigins: cleanedOrigins,
         status: values.status,
-        granularity: values.granularity,
-        slotDurationMinutes: slot,
-        leadTimeMinutes: values.leadTimeMinutes,
-        maxAdvanceDays: values.maxAdvanceDays,
         extraFieldsEnabled: values.extraFieldsEnabled,
         disableHungarianHolidays: values.disableHungarianHolidays,
+        embedTitle: values.embedTitle,
+        brandColor: values.brandColor,
+        iframeWidth: values.iframeWidth,
+        iframeHeight: values.iframeHeight,
       };
       onSubmit(payload);
     }
@@ -336,36 +274,6 @@ const ReservationForm = ({
               )}
             />
 
-            {/* Slug — read-only in edit (orchestrator chose strict lock) */}
-            <FormField
-              control={form.control}
-              name="slug"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel required>{t("reservations:slug")}</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder={t("reservations:slug_placeholder")}
-                      maxLength={50}
-                      readOnly={isEdit}
-                      title={
-                        isEdit
-                          ? t("reservations:slug_immutable_tooltip")
-                          : undefined
-                      }
-                      aria-readonly={isEdit}
-                      className={isEdit ? "bg-muted font-mono text-xs" : "font-mono text-xs"}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t("reservations:slug_help")}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
             {/* Secret token — always read-only with a copy button */}
             {isEdit && initialData?.secretToken && (
               <FormItem>
@@ -466,145 +374,6 @@ const ReservationForm = ({
               </div>
             </div>
 
-            {/* Granularity */}
-            <FormField
-              control={form.control}
-              name="granularity"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel required className="flex items-center gap-2">
-                    <CalendarRange className="h-4 w-4" />
-                    {t("reservations:granularity")}
-                  </FormLabel>
-                  <FormControl>
-                    <Controller
-                      control={form.control}
-                      name="granularity"
-                      render={({ field: ctrlField }) => (
-                        <Select
-                          value={ctrlField.value}
-                          onValueChange={(v) =>
-                            ctrlField.onChange(v as ReservationGranularity)
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue
-                              placeholder={t("reservations:granularity_placeholder")}
-                            />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {GRANULARITY_OPTIONS.map((g) => (
-                              <SelectItem key={g} value={g}>
-                                {t(`reservations:granularity_${g}`)}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t("reservations:granularity_help")}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Slot duration minutes — only when hour/minute */}
-            {showSlotDuration && (
-              <FormField
-                control={form.control}
-                name="slotDurationMinutes"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="flex items-center gap-2">
-                      <Clock className="h-4 w-4" />
-                      {t("reservations:slot_duration_minutes")}
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={1440}
-                        step={1}
-                        placeholder={t(
-                          "reservations:slot_duration_minutes_placeholder",
-                        )}
-                        value={field.value ?? ""}
-                        onChange={(e) =>
-                          field.onChange(
-                            e.target.value === "" ? null : e.target.value,
-                          )
-                        }
-                        className="font-mono text-xs"
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t("reservations:slot_duration_minutes_help")}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
-
-            {/* Lead time minutes */}
-            <FormField
-              control={form.control}
-              name="leadTimeMinutes"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="flex items-center gap-2">
-                    <Hourglass className="h-4 w-4" />
-                    {t("reservations:lead_time_minutes")}
-                  </FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={60 * 24 * 30}
-                      step={1}
-                      className="font-mono text-xs"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t("reservations:lead_time_minutes_help")}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Max advance days */}
-            <FormField
-              control={form.control}
-              name="maxAdvanceDays"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="flex items-center gap-2">
-                    <CalendarRange className="h-4 w-4" />
-                    {t("reservations:max_advance_days")}
-                  </FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={365}
-                      step={1}
-                      className="font-mono text-xs"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t("reservations:max_advance_days_help")}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
             {/* Extra fields enabled */}
             <FormField
               control={form.control}
@@ -662,6 +431,70 @@ const ReservationForm = ({
                 </FormItem>
               )}
             />
+
+            {/* Embed widget title */}
+            <FormField
+              control={form.control}
+              name="embedTitle"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("reservations:embed_title", { defaultValue: "Embed widget title" })}</FormLabel>
+                  <FormControl>
+                    <Input {...field} placeholder="Időpont foglalás" />
+                  </FormControl>
+                  <FormDescription>
+                    {t("reservations:embed_title_help", { defaultValue: "Heading shown in the public booking widget" })}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {/* Embed widget settings */}
+            <div className="grid grid-cols-3 gap-4">
+              <FormField
+                control={form.control}
+                name="brandColor"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("reservations:brand_color", { defaultValue: "Brand color" })}</FormLabel>
+                    <FormControl>
+                      <div className="flex gap-2">
+                        <Input {...field} placeholder="#0A2540" className="font-mono text-xs" />
+                        <input type="color" value={field.value} onChange={field.onChange} className="h-9 w-9 rounded border cursor-pointer shrink-0" />
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="iframeWidth"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("reservations:iframe_width", { defaultValue: "Iframe width" })}</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="100%" className="font-mono text-xs" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="iframeHeight"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("reservations:iframe_height", { defaultValue: "Iframe height" })}</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="760px" className="font-mono text-xs" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
 
             {/* Status */}
             <FormField

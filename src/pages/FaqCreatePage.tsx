@@ -1,8 +1,6 @@
 // ----------------------------------------------------------------------------
 // FaqCreatePage — create form for a new FAQ (GYIK) item.
 // Each item has bilingual fields (HU + EN).
-// In portal mode (/?projectId=N deep-link), project is auto-set from context
-// and shown as read-only. In admin mode, a project selector modal is shown.
 // ----------------------------------------------------------------------------
 
 import React from "react";
@@ -13,7 +11,6 @@ import { showError, showSuccess } from "@/utils/toast";
 import { FaqItemCreateDTO, FaqItemDTO } from "@/types/faq";
 import { createFaqItem } from "@/lib/faq";
 import { FaqProjectSelectorModal } from "@/components/faq/FaqProjectSelectorModal";
-import { useProjectContext } from "@/context/ProjectContext";
 import type { ProjectDTO } from "@/types/project";
 import {
   Card,
@@ -33,6 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ArrowLeft, Loader2, Save } from "lucide-react";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 
 const FaqCreatePage: React.FC = () => {
   const { t } = useTranslation(["faq", "common"]);
@@ -40,15 +38,10 @@ const FaqCreatePage: React.FC = () => {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
 
-  const isPortal = window.location.pathname.startsWith("/portal");
-  const { selectedId: contextProjectId } = useProjectContext();
-
   const projectIdParam = searchParams.get("projectId");
-  const initialProjectId = isPortal
-    ? contextProjectId
-    : projectIdParam && /^\d+$/.test(projectIdParam)
-      ? Number(projectIdParam)
-      : null;
+  const initialProjectId = projectIdParam && /^\d+$/.test(projectIdParam)
+    ? Number(projectIdParam)
+    : null;
 
   const [selectedProjectId, setSelectedProjectId] = React.useState<number | null>(initialProjectId);
   const [questionHu, setQuestionHu] = React.useState("");
@@ -60,10 +53,13 @@ const FaqCreatePage: React.FC = () => {
 
   const createMutation = useMutation({
     mutationFn: (data: FaqItemCreateDTO) => createFaqItem(data),
-    onSuccess: (data: FaqItemDTO) => {
+    onSuccess: async (data: FaqItemDTO) => {
       showSuccess(t("faq:created_toast", { title: data.questionHu }));
       queryClient.invalidateQueries({ queryKey: ["faq"] });
-      navigate(isPortal ? `/portal/faq/view/${data.id}` : `/faq`);
+      if (data.projectId) {
+        const path = await resolveModulePath(data.projectId, "faq");
+        if (path) navigate(path);
+      }
     },
     onError: (err: Error) => {
       showError(err.message || t("faq:create_failed_toast"));
@@ -95,15 +91,14 @@ const FaqCreatePage: React.FC = () => {
     });
   };
 
-  // Resolve project name for read-only display in portal mode
-  const { projects } = useProjectContext();
-  const selectedProjectName = projects?.find((p) => p.id === selectedProjectId)?.name ?? "";
-
   return (
     <div className="container mx-auto p-4 max-w-5xl space-y-6">
       <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" onClick={() => {
-          navigate(isPortal ? "/portal/faq" : "/faq");
+        <Button variant="outline" size="sm" onClick={async () => {
+          if (selectedProjectId) {
+            const path = await resolveModulePath(selectedProjectId, "faq");
+            if (path) navigate(path);
+          }
         }}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           {t("common:back")}
@@ -119,17 +114,13 @@ const FaqCreatePage: React.FC = () => {
             <CardTitle>{t("faq:create_title")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Project selector — read-only in portal, modal in admin */}
+            {/* Project selector */}
             <div className="space-y-2">
               <Label>{t("faq:project")}</Label>
-              {isPortal ? (
-                <Input value={selectedProjectName} disabled />
-              ) : (
-                <FaqProjectSelectorModal
-                  selectedId={selectedProjectId}
-                  onSelect={(project: ProjectDTO) => setSelectedProjectId(project.id)}
-                />
-              )}
+              <FaqProjectSelectorModal
+                selectedId={selectedProjectId}
+                onSelect={(project: ProjectDTO) => setSelectedProjectId(project.id)}
+              />
             </div>
 
             {/* Hungarian fields */}
@@ -214,8 +205,11 @@ const FaqCreatePage: React.FC = () => {
 
             {/* Submit */}
             <div className="flex justify-end gap-2 pt-4">
-              <Button type="button" variant="outline" onClick={() => {
-                navigate(isPortal ? "/portal/faq" : "/faq");
+              <Button type="button" variant="outline" onClick={async () => {
+                if (selectedProjectId) {
+                  const path = await resolveModulePath(selectedProjectId, "faq");
+                  if (path) navigate(path);
+                }
               }}>
                 {t("common:cancel")}
               </Button>

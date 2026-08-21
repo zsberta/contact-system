@@ -7,6 +7,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 import {
   Card,
   CardContent,
@@ -50,7 +51,6 @@ const ServiceViewPage: React.FC = () => {
   const itemId = id && /^\d+$/.test(id) ? Number(id) : NaN;
 
   const [deleteOpen, setDeleteOpen] = React.useState(false);
-  const isPortal = typeof window !== "undefined" && window.location.pathname.startsWith("/portal");
 
   const { data: item, isLoading } = useQuery({
     queryKey: ["service", "detail", itemId],
@@ -60,11 +60,14 @@ const ServiceViewPage: React.FC = () => {
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteServiceItem(itemId),
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ["service"] });
       showSuccess(t("service:deleted_toast", { title: item?.titleHu ?? "" }));
       setDeleteOpen(false);
-      navigate(isPortal ? "/portal/services" : "/services");
+      if (item?.projectId) {
+        const path = await resolveModulePath(item.projectId, "service");
+        if (path) navigate(path);
+      }
     },
     onError: (err: Error) => {
       showError(err.message || t("service:delete_failed_toast"));
@@ -112,14 +115,24 @@ const ServiceViewPage: React.FC = () => {
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             <Button
               variant="outline"
-              onClick={() => navigate(isPortal ? "/portal/services" : "/services")}
+              onClick={async () => {
+                if (item?.projectId) {
+                  const path = await resolveModulePath(item.projectId, "service");
+                  if (path) navigate(path);
+                }
+              }}
               className="w-full sm:w-auto"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               {t("common:back")}
             </Button>
             <Button
-              onClick={() => navigate(isPortal ? `/portal/services/edit/${item.id}` : `/services/edit/${item.id}`)}
+              onClick={async () => {
+                if (item?.projectId) {
+                  const path = await resolveModulePath(item.projectId, "service", "items");
+                  if (path) navigate(`${path}/edit/${item.id}`);
+                }
+              }}
               className="w-full sm:w-auto"
             >
               <Pencil className="mr-2 h-4 w-4" />

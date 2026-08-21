@@ -18,6 +18,7 @@ import {
   updateAnalyticsConfig,
 } from "@/lib/analytics";
 import AnalyticsConfigForm from "@/components/analytics/AnalyticsConfigForm";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 
 const AnalyticsEditPage: React.FC = () => {
   const { t } = useTranslation(["analytics", "common"]);
@@ -38,7 +39,7 @@ const AnalyticsEditPage: React.FC = () => {
   const updateMutation = useMutation({
     mutationFn: (data: AnalyticsConfigUpdateDTO) =>
       updateAnalyticsConfig(configId!, data),
-    onSuccess: () => {
+    onSuccess: async () => {
       showSuccess(
         t("common:update_success", {
           item: t("analytics:analytics_config"),
@@ -46,7 +47,10 @@ const AnalyticsEditPage: React.FC = () => {
       );
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
       queryClient.invalidateQueries({ queryKey: ["analytics", configId] });
-      navigate(`/analytics/view/${configId}`);
+      if (initialData?.projectId) {
+        const path = await resolveModulePath(initialData.projectId, "analytics");
+        if (path) navigate(path);
+      }
     },
     onError: (err: Error) => {
       showError(t("common:operation_failed", { error: err.message }));

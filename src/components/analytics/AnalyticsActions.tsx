@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MoreVertical, Eye, Edit, Trash2, Power, PowerOff } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   DropdownMenu,
@@ -30,6 +30,7 @@ import {
 import type { AnalyticsConfigDTO } from "@/types/analytics";
 import { deleteAnalyticsConfig, updateAnalyticsConfig } from "@/lib/analytics";
 import { showError, showSuccess } from "@/utils/toast";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 
 interface AnalyticsActionsProps {
   config: AnalyticsConfigDTO;
@@ -38,8 +39,14 @@ interface AnalyticsActionsProps {
 const AnalyticsActions = ({ config }: AnalyticsActionsProps) => {
   const { t } = useTranslation(["analytics", "common"]);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false);
+
+  const handleView = async () => {
+    const path = await resolveModulePath(config.projectId, "analytics");
+    if (path) navigate(path);
+  };
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteAnalyticsConfig(config.id),
@@ -99,11 +106,9 @@ const AnalyticsActions = ({ config }: AnalyticsActionsProps) => {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuLabel>{t("common:actions")}</DropdownMenuLabel>
-          <DropdownMenuItem asChild>
-            <Link to={`/analytics/view/${config.id}`}>
-              <Eye className="mr-2 h-4 w-4" />
-              {t("common:view")}
-            </Link>
+          <DropdownMenuItem onClick={handleView}>
+            <Eye className="mr-2 h-4 w-4" />
+            {t("common:view")}
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
             <Link to={`/analytics/edit/${config.id}`}>

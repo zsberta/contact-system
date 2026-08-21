@@ -1,10 +1,12 @@
 // AiAssistantViewPage — details tab of the admin AI assistant view.
-// Navigation between tabs is URL-based via NavLink (see AiAssistantViewNav).
+// Navigation is handled by sidebar links (see Sidebar.tsx).
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { useModuleResolution } from "@/hooks/useModuleResolution";
+import { buildWorkspaceModulePath } from "@/lib/workspace-navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -35,15 +37,13 @@ import {
   getAiAssistantConfigById,
   updateAiAssistantConfig,
 } from "@/lib/ai-assistant";
-import { AiAssistantViewNav } from "@/components/ai-assistant/AiAssistantViewNav";
 import { AiChatPreview } from "@/components/ai-assistant/AiChatPreview";
 
 const AiAssistantViewPage: React.FC = () => {
   const { t } = useTranslation(["ai-assistant", "common"]);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { id } = useParams<{ id: string }>();
-  const configId = id ? Number.parseInt(id) : null;
+  const { resourceId: configId, moduleId } = useModuleResolution();
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false);
@@ -66,7 +66,9 @@ const AiAssistantViewPage: React.FC = () => {
         }),
       );
       queryClient.invalidateQueries({ queryKey: ["ai-assistant"] });
-      navigate("/ai-assistant");
+      if (config?.projectId && moduleId) {
+        navigate(buildWorkspaceModulePath(config.projectId, "ai-assistant", moduleId));
+      }
     },
     onError: (err: Error) => {
       showError(t("common:operation_failed", { error: err.message }));
@@ -263,14 +265,16 @@ const AiAssistantViewPage: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <AiAssistantViewNav configId={config.id} />
-
       <div className="flex items-center gap-2">
         <Button
           type="button"
           variant="outline"
           size="sm"
-          onClick={() => navigate("/ai-assistant")}
+          onClick={() => {
+            if (config?.projectId && moduleId) {
+              navigate(buildWorkspaceModulePath(config.projectId, "ai-assistant", moduleId));
+            }
+          }}
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
           {t("common:back")}
@@ -279,7 +283,11 @@ const AiAssistantViewPage: React.FC = () => {
           type="button"
           variant="outline"
           size="sm"
-          onClick={() => navigate(`/ai-assistant/edit/${config.id}`)}
+          onClick={() => {
+            if (config?.projectId && moduleId) {
+              navigate(buildWorkspaceModulePath(config.projectId, "ai-assistant", moduleId, "edit"));
+            }
+          }}
         >
           <Pencil className="mr-2 h-4 w-4" />
           {t("common:edit")}

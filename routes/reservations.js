@@ -1,10 +1,9 @@
 // Admin CRUD for the Reservations module.
 //
-// Mirrors routes/forms.js (ADR 0009) 1:1 for the operator-config columns:
-//   - project_id, name, slug, secret_token, allowed_origins, status
+// Mirrors routes/forms.js (ADR 0009) for the operator-config columns:
+//   - project_id, name, secret_token, allowed_origins, status
 //   - paged list with projectId filter, search, sort whitelist
 //   - server-generated secret_token at create time, immutable thereafter
-//   - slug immutable on PUT (orchestrator decision — same as forms)
 //
 // Differences from forms (operator-side):
 //   - granularity            TEXT CHECK ('day'|'hour'|'minute'), default 'hour'
@@ -27,16 +26,23 @@ import {
   parseStrictIso,
   SLOT_GRID_MAX_MINUTES,
   validateBookingItem,
+  validateReservationContact,
+  validateReservationServiceFields,
 } from "../lib/booking-validation.js";
+import {
+  createReservationBooking,
+  rowToReservationBookingDTO,
+  rowToReservationCustomerDTO,
+  upsertReservationCustomer,
+} from "../lib/reservation-booking.js";
+import { getServiceAvailability } from "../lib/reservation-availability.js";
+import { notifySubmitter } from "../lib/email.js";
+import multer from "multer";
+import { fileTypeFromBuffer } from "file-type";
+import path from "node:path";
+import fs from "node:fs";
 
-// Read-only for endusers. Mutations are rejected with 403.
 const isEnduser = (req) => req.user && req.user.role === "enduser";
-const forbidEnduserMutation = (req, res) => {
-  if (isEnduser(req)) {
-    return res.status(403).json({ errorMessage: "Endusers have read-only access" });
-  }
-  return null;
-};
 
 export const router = express.Router();
 router.use(requireAuth);
@@ -131,18 +137,15 @@ const rowToReservationDTO = (row) => {
     projectId: Number(row.project_id),
     projectName: row.project_name ?? null,
     name: row.name ?? "",
-    slug: row.slug,
     secretToken: row.secret_token,
     allowedOrigins,
     status: row.status,
-    granularity: row.granularity,
-    slotDurationMinutes: row.slot_duration_minutes === null || row.slot_duration_minutes === undefined
-      ? null
-      : Number(row.slot_duration_minutes),
-    leadTimeMinutes: Number(row.lead_time_minutes),
-    maxAdvanceDays: Number(row.max_advance_days),
     extraFieldsEnabled: !!row.extra_fields_enabled,
     disableHungarianHolidays: !!row.disable_hungarian_holidays,
+    embedTitle: row.embed_title ?? "Időpont foglalás",
+    brandColor: row.brand_color ?? "#0A2540",
+    iframeWidth: row.iframe_width ?? "100%",
+    iframeHeight: row.iframe_height ?? "760px",
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
@@ -151,7 +154,6 @@ const rowToReservationDTO = (row) => {
 const SORTABLE = {
   id: "id",
   name: "name",
-  slug: "slug",
   status: "status",
   granularity: "granularity",
   createdAt: "created_at",
@@ -162,7 +164,7 @@ const SORTABLE = {
 // SELECT joins projects p (which also exposes a `name` column); an
 // unqualified `name` would trip PG `42702 ambiguous column`. Fix: see
 // git history and sessions/2026-07-04-reservation-api-curl-tests.
-const SEARCH_COLUMNS = ["r.name", "r.slug"];
+const SEARCH_COLUMNS = ["r.name"];
 
 function makePlaceholderAllocator(startIndex = 1) {
   let n = startIndex;
@@ -200,6 +202,490 @@ function buildProjectFilterClause(projectId, allocator) {
   const n = typeof projectId === "number" ? projectId : parseInt(projectId, 10);
   if (!Number.isFinite(n) || n <= 0) return { sql: "", params: [] };
   return { sql: `r.project_id = ${allocator.next()}`, params: [n] };
+}
+
+const MONTH_RE = /^\d{4}-\d{2}$/;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseReservationIdParam(value) {
+  const n = parseInt(value, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function startOfMonthUtc(year, month) {
+  return new Date(Date.UTC(year, month, 1));
+}
+
+function startOfNextMonthUtc(year, month) {
+  return new Date(Date.UTC(year, month + 1, 1));
+}
+
+function formatMonthKey(year, month) {
+  return `${String(year).padStart(4, "0")}-${String(month + 1).padStart(2, "0")}`;
+}
+
+function formatDateKey(date) {
+  return `${String(date.getUTCFullYear()).padStart(4, "0")}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
+function formatTimeFromIso(iso) {
+  return typeof iso === "string" ? iso.slice(11, 16) : iso;
+}
+
+function calendarDayOfWeek(date) {
+  return date.getUTCDay();
+}
+
+function calendarDayOfMonth(date) {
+  return date.getUTCDate();
+}
+
+function matchesSchedule(schedule, date) {
+  if (!schedule) return false;
+  const freq = schedule.frequency;
+  if (freq === "daily") return true;
+  if (freq === "weekly") return Number(schedule.day_of_week) === calendarDayOfWeek(date);
+  if (freq === "monthly") return Number(schedule.day_of_month) === calendarDayOfMonth(date);
+  return false;
+}
+
+function collectScheduleWindows(schedules, date) {
+  if (!schedules || schedules.length === 0) {
+    return [{ start_time: "00:00", end_time: "24:00" }];
+  }
+  return schedules.filter((s) => matchesSchedule(s, date));
+}
+
+function parseTimeToMinutes(value) {
+  const text = typeof value === "string" ? value.slice(0, 5) : String(value);
+  const [hours, minutes] = text.split(":").map(Number);
+  return (hours || 0) * 60 + (minutes || 0);
+}
+
+function normalizeScheduleTime(value) {
+  return typeof value === "string" ? value.slice(0, 5) : String(value);
+}
+
+function buildUtcDateFromLocalParts(year, month, day, hour, minute) {
+  return new Date(Date.UTC(year, month, day, hour || 0, minute || 0, 0));
+}
+
+function dayRangeForUtcDate(dateStr, tz) {
+  const [yearRaw, monthRaw, dayRaw] = dateStr.split("-").map(Number);
+  const year = yearRaw;
+  const month = monthRaw - 1;
+  const day = dayRaw;
+
+  const startLocal = buildUtcDateFromLocalParts(year, month, day, 0, 0);
+  const startOffset = getUtcOffsetMinutes(startLocal, tz);
+  const startUtc = new Date(startLocal.getTime() - startOffset * 60000);
+  const endUtc = new Date(startUtc.getTime() + 24 * 60 * 60 * 1000);
+  return { startUtc, endUtc };
+}
+
+function getUtcOffsetMinutes(utcReferenceDate, timezone) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(utcReferenceDate);
+  const map = Object.create(null);
+  for (const part of parts) {
+    if (part.type !== "literal") {
+      map[part.type] = parseInt(part.value, 10);
+    }
+  }
+
+  const tzAsUtc = Date.UTC(
+    map.year,
+    map.month - 1,
+    map.day,
+    map.hour === 24 ? 0 : map.hour,
+    map.minute,
+    map.second || 0,
+  );
+
+  return (utcReferenceDate.getTime() - tzAsUtc) / 60000;
+}
+
+async function loadReservationTimezone(reservationId, db = pool) {
+  const result = await db.query(
+    `SELECT timezone, disable_hungarian_holidays FROM reservations WHERE id = $1`,
+    [reservationId],
+  );
+  if (result.rowCount === 0) return null;
+  const row = result.rows[0];
+  return {
+    timezone: row.timezone || "UTC",
+    disableHungarianHolidays: !!row.disable_hungarian_holidays,
+  };
+}
+
+async function loadActiveReservationServices(reservationId, db = pool) {
+  const result = await db.query(
+    `SELECT rs.id, rs.reservation_id, rs.status, rs.sort_order, rs.duration_minutes,
+            rs.price_amount, rs.currency, rs.capacity, rs.worker_user_id,
+            rs.granularity, rs.slot_duration_minutes, rs.lead_time_minutes, rs.max_advance_days,
+            COALESCE(rst.name, 'Untitled') AS service_name,
+            u.first_name AS worker_first_name, u.last_name AS worker_last_name
+     FROM reservation_services rs
+     LEFT JOIN reservation_service_translations rst
+       ON rst.service_id = rs.id AND rst.locale = (
+         SELECT default_locale FROM reservations WHERE id = rs.reservation_id
+       )
+     LEFT JOIN users u ON u.id = rs.worker_user_id
+     WHERE rs.reservation_id = $1 AND rs.status = 'active'
+     ORDER BY rs.sort_order, rs.id`,
+    [reservationId],
+  );
+  return result.rows;
+}
+
+async function loadServiceSchedules(serviceIds, db = pool) {
+  if (serviceIds.length === 0) return {};
+  const result = await db.query(
+    `SELECT service_id, frequency, day_of_week, day_of_month, start_time, end_time
+     FROM reservation_service_availability_schedules
+     WHERE service_id = ANY($1::bigint[])`,
+    [serviceIds],
+  );
+  const map = Object.create(null);
+  for (const row of result.rows) {
+    if (!map[row.service_id]) map[row.service_id] = [];
+    map[row.service_id].push(row);
+  }
+  return map;
+}
+
+async function loadReservationSchedules(reservationId, db = pool) {
+  const result = await db.query(
+    `SELECT frequency, day_of_week, day_of_month, start_time, end_time
+     FROM reservation_availability_schedules
+     WHERE reservation_id = $1`,
+    [reservationId],
+  );
+  return result.rows;
+}
+
+async function loadDisabledRanges(reservationId, startUtc, endUtc, disableHungarianHolidays, db = pool) {
+  const result = await db.query(
+    `SELECT starts_at, ends_at, source, enabled
+     FROM reservation_disabled_ranges
+     WHERE reservation_id = $1
+       AND tstzrange(starts_at, ends_at, '[)') &&
+           tstzrange($2::timestamptz, $3::timestamptz, '[)')
+       AND (
+         (source = 'manual' AND enabled = true)
+         OR
+         (source = 'auto_holiday' AND enabled = true AND $4 = true)
+       )`,
+    [reservationId, startUtc.toISOString(), endUtc.toISOString(), disableHungarianHolidays],
+  );
+  return result.rows;
+}
+
+function overlapsDisabledRange(startUtc, endUtc, disabledRanges) {
+  const startMs = startUtc.getTime();
+  const endMs = endUtc.getTime();
+  return disabledRanges.some((range) => {
+    const rangeStartMs = new Date(range.starts_at).getTime();
+    const rangeEndMs = new Date(range.ends_at).getTime();
+    return startMs < rangeEndMs && rangeStartMs < endMs;
+  });
+}
+
+function generateServiceSlotsForDate({ service, schedules, timezone, dateStr, disabledRanges, bookingsForDate }) {
+  const date = new Date(`${dateStr}T00:00:00Z`);
+  const windows = collectScheduleWindows(schedules, date);
+  const slots = [];
+  const durationMin = Number(service.duration_minutes || 0);
+  const capacity = Number(service.capacity || 0);
+
+  for (const window of windows) {
+    const windowStartMin = parseTimeToMinutes(window.start_time);
+    const windowEndMin = parseTimeToMinutes(window.end_time);
+    const interval = Number(service.slot_duration_minutes || durationMin || 60);
+
+    for (let cursorMin = windowStartMin; cursorMin + durationMin <= windowEndMin; cursorMin += interval) {
+      const cursorHour = Math.floor(cursorMin / 60);
+      const cursorMinute = cursorMin % 60;
+      const endCursorMin = cursorMin + durationMin;
+      const endHour = Math.floor(endCursorMin / 60);
+      const endMinute = endCursorMin % 60;
+
+      const [yearRaw, monthRaw, dayRaw] = dateStr.split("-").map(Number);
+      const slotStartLocal = buildUtcDateFromLocalParts(yearRaw, monthRaw - 1, dayRaw, cursorHour, cursorMinute);
+      const slotStartOffset = getUtcOffsetMinutes(slotStartLocal, timezone);
+      const startUtc = new Date(slotStartLocal.getTime() - slotStartOffset * 60000);
+      const endUtc = new Date(startUtc.getTime() + durationMin * 60000);
+
+      const now = new Date();
+      const leadTimeMs = Number(service.lead_time_minutes || 0) * 60000;
+      if (startUtc.getTime() < now.getTime() + leadTimeMs) continue;
+      if (service.max_advance_days) {
+        const maxAdvanceMs = Number(service.max_advance_days) * 24 * 60 * 60 * 1000;
+        if (startUtc.getTime() > now.getTime() + maxAdvanceMs) continue;
+      }
+      if (overlapsDisabledRange(startUtc, endUtc, disabledRanges)) continue;
+
+      const startIso = startUtc.toISOString();
+      const endIso = endUtc.toISOString();
+      const overlapCount = bookingsForDate.filter((booking) => {
+        const bookingStartMs = new Date(booking.starts_at).getTime();
+        const bookingEndMs = new Date(booking.ends_at).getTime();
+        return startUtc.getTime() < bookingEndMs && bookingStartMs < endUtc.getTime();
+      }).length;
+
+      const seatsTaken = Math.min(capacity, overlapCount);
+      slots.push({
+        serviceId: service.id,
+        serviceName: service.service_name,
+        workerUserId: service.worker_user_id != null ? Number(service.worker_user_id) : null,
+        workerFirstName: service.worker_first_name || null,
+        workerInitial: (service.worker_first_name || "").trim().charAt(0) || null,
+        startTime: formatTimeFromIso(startIso),
+        endTime: formatTimeFromIso(endIso),
+        startsAt: startIso,
+        endsAt: endIso,
+        seatsTaken,
+        capacity,
+      });
+    }
+  }
+
+  return slots;
+}
+
+async function loadBookingsForDate(reservationId, dateStr, db = pool) {
+  const { startUtc, endUtc } = dayRangeForUtcDate(dateStr, "UTC");
+  const result = await db.query(
+    `SELECT b.id, b.reservation_id, b.starts_at, b.ends_at, b.booked_at, b.data, b.locale,
+            b.service_id, b.first_name, b.last_name, b.email, b.phone, b.comment,
+            b.customer_id, b.created_by_user_id, b.worker_user_id,
+            b.service_name_snapshot, b.duration_minutes_snapshot,
+            b.price_amount_snapshot, b.currency_snapshot, b.timezone,
+            b.status, b.source,
+            COALESCE(
+              rst_default.name,
+              rst_fallback.name,
+              b.service_name_snapshot
+            ) AS service_name,
+            COALESCE(wb.first_name, ws.first_name) AS worker_first_name,
+            COALESCE(wb.last_name, ws.last_name) AS worker_last_name
+     FROM reservation_bookings b
+     LEFT JOIN reservations r ON r.id = b.reservation_id
+     LEFT JOIN reservation_service_translations rst_default
+       ON rst_default.service_id = b.service_id
+       AND rst_default.locale = r.default_locale
+     LEFT JOIN reservation_service_translations rst_fallback
+       ON rst_fallback.service_id = b.service_id
+       AND rst_fallback.locale = 'hu'
+     LEFT JOIN users wb ON wb.id = b.worker_user_id
+     LEFT JOIN reservation_services svc ON svc.id = b.service_id
+     LEFT JOIN users ws ON ws.id = svc.worker_user_id
+     WHERE b.reservation_id = $1
+       AND b.starts_at >= $2::timestamptz
+       AND b.starts_at < $3::timestamptz
+     ORDER BY b.starts_at, b.id`,
+    [reservationId, startUtc.toISOString(), endUtc.toISOString()],
+  );
+  return result.rows;
+}
+
+function aggregateActiveBookings(bookings) {
+  return bookings.filter((booking) => booking.status !== "cancelled");
+}
+
+async function getCalendarMonthSlots({ reservationId, monthKey, db = pool }) {
+  if (!monthKey || !MONTH_RE.test(monthKey)) return null;
+
+  const [yearStr, monthStr] = monthKey.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr) - 1;
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return null;
+
+  const reservationMeta = await loadReservationTimezone(reservationId, db);
+  if (!reservationMeta) return null;
+
+  const services = await loadActiveReservationServices(reservationId, db);
+  if (services.length === 0) return { month: monthKey, slots: [] };
+
+  const serviceIds = services.map((service) => service.id);
+  const [serviceSchedulesMap, reservationSchedules, disabledRanges] = await Promise.all([
+    loadServiceSchedules(serviceIds, db),
+    loadReservationSchedules(reservationId, db),
+    loadDisabledRanges(
+      reservationId,
+      startOfMonthUtc(year, month),
+      startOfNextMonthUtc(year, month),
+      reservationMeta.disableHungarianHolidays,
+      db,
+    ),
+  ]);
+
+  const startDate = startOfMonthUtc(year, month);
+  const endDate = startOfNextMonthUtc(year, month);
+  const bookingsResult = await db.query(
+    `SELECT b.service_id, b.starts_at, b.ends_at
+     FROM reservation_bookings b
+     WHERE b.reservation_id = $1
+       AND b.status = 'confirmed'
+       AND b.starts_at >= $2::timestamptz
+       AND b.starts_at < $3::timestamptz`,
+    [reservationId, startDate.toISOString(), endDate.toISOString()],
+  );
+
+  const bookingsByDateAndService = Object.create(null);
+  for (const booking of bookingsResult.rows) {
+    const bookingDate = new Date(booking.starts_at).toISOString().slice(0, 10);
+    const key = `${bookingDate}:${booking.service_id}`;
+    if (!bookingsByDateAndService[key]) bookingsByDateAndService[key] = [];
+    bookingsByDateAndService[key].push(booking);
+  }
+
+  const slots = [];
+  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = `${String(year).padStart(4, "0")}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+    for (const service of services) {
+      const serviceBookings = bookingsByDateAndService[`${dateStr}:${service.id}`] || [];
+      const generatedSlots = generateServiceSlotsForDate({
+        service,
+        schedules: serviceSchedulesMap[service.id] || reservationSchedules,
+        timezone: reservationMeta.timezone,
+        dateStr,
+        disabledRanges,
+        bookingsForDate: aggregateActiveBookings(serviceBookings),
+      });
+
+      for (const slot of generatedSlots) {
+        slots.push({
+          date: dateStr,
+          serviceId: slot.serviceId,
+          serviceName: slot.serviceName,
+          workerUserId: slot.workerUserId,
+          workerInitial: slot.workerInitial,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          seatsTaken: slot.seatsTaken,
+          capacity: slot.capacity,
+        });
+      }
+    }
+  }
+
+  return { month: monthKey, slots };
+}
+
+async function getCalendarDayDetails({ reservationId, dateStr, db = pool }) {
+  if (!dateStr || !ISO_DATE_RE.test(dateStr)) return null;
+
+  const reservationMeta = await loadReservationTimezone(reservationId, db);
+  if (!reservationMeta) return null;
+
+  const services = await loadActiveReservationServices(reservationId, db);
+  const bookings = await loadBookingsForDate(reservationId, dateStr, db);
+  const activeBookings = aggregateActiveBookings(bookings);
+  const bookingsByService = Object.create(null);
+  for (const booking of activeBookings) {
+    const key = Number(booking.service_id);
+    if (!bookingsByService[key]) bookingsByService[key] = [];
+    bookingsByService[key].push(booking);
+  }
+
+  const serviceGroups = [];
+  for (const service of services) {
+    const serviceBookings = bookingsByService[Number(service.id)] || [];
+    if (serviceBookings.length === 0) continue;
+
+    const sessions = [];
+    const bookingsByStart = Object.create(null);
+    for (const booking of serviceBookings) {
+      const startKey = booking.starts_at instanceof Date
+        ? booking.starts_at.toISOString()
+        : String(booking.starts_at);
+      if (!bookingsByStart[startKey]) bookingsByStart[startKey] = [];
+      bookingsByStart[startKey].push(booking);
+    }
+
+    for (const [startKey, groupBookings] of Object.entries(bookingsByStart)) {
+      const booking = groupBookings[0];
+      const startIso = booking.starts_at instanceof Date
+        ? booking.starts_at.toISOString()
+        : String(booking.starts_at);
+      const endIso = booking.ends_at instanceof Date
+        ? booking.ends_at.toISOString()
+        : String(booking.ends_at);
+      const overlapCount = bookingsForRange(serviceBookings, startIso, endIso);
+      const capacity = Number(service.capacity || 0);
+
+      sessions.push({
+        workerFirstName: booking.worker_first_name || service.worker_first_name || null,
+        workerLastName: booking.worker_last_name || service.worker_last_name || null,
+        startTime: formatTimeFromIso(startIso),
+        endTime: formatTimeFromIso(endIso),
+        startsAt: startIso,
+        endsAt: endIso,
+        seatsTaken: Math.min(capacity, overlapCount),
+        capacity,
+        bookings: groupBookings.map((row) => ({
+          id: Number(row.id),
+          customer: {
+            firstName: row.first_name || null,
+            lastName: row.last_name || null,
+            email: row.email || null,
+            phone: row.phone || null,
+          },
+          status: row.status,
+        })),
+      });
+    }
+
+    sessions.sort((a, b) => (a.startsAt || "").localeCompare(b.startsAt || ""));
+
+    serviceGroups.push({
+      serviceId: service.id,
+      serviceName: service.service_name,
+      price: Number(service.price_amount || 0),
+      sessions,
+    });
+  }
+
+  serviceGroups.sort((a, b) => a.serviceName.localeCompare(b.serviceName));
+  return { date: dateStr, services: serviceGroups };
+}
+
+function bookingsForRange(bookings, startIso, endIso) {
+  const startMs = new Date(startIso).getTime();
+  const endMs = new Date(endIso).getTime();
+  return bookings.filter((booking) => {
+    const bookingStartMs = new Date(booking.starts_at).getTime();
+    const bookingEndMs = new Date(booking.ends_at).getTime();
+    return startMs < bookingEndMs && bookingStartMs < endMs;
+  }).length;
+}
+
+function rowToCalendarSlotSummary(row) {
+  return {
+    date: row.date,
+    serviceId: row.serviceId,
+    serviceName: row.serviceName,
+    workerUserId: row.workerUserId || null,
+    workerInitial: row.workerInitial || null,
+    startTime: row.startTime,
+    endTime: row.endTime,
+    seatsTaken: row.seatsTaken,
+    capacity: row.capacity,
+  };
 }
 
 // Validate POST/PUT body. POST is strict (all required fields must be
@@ -243,20 +729,26 @@ function validateReservationBody(body, { partial = false } = {}) {
     errors.push("name is required");
   }
 
-  // slug — kebab-case, immutable on PUT (orchestrator chose strict lock).
-  if (body.slug !== undefined) {
+  // slug — optional, auto-generated from name if not provided. Immutable on PUT.
+  if (body.slug !== undefined && body.slug !== null && body.slug !== "") {
     if (typeof body.slug !== "string") {
       errors.push("slug must be a string");
     } else {
       const trimmed = body.slug.trim();
-      if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(trimmed) || trimmed.length < 1 || trimmed.length > SLUG_MAX) {
-        errors.push(`slug must be 1..${SLUG_MAX} chars, lowercase kebab-case (a-z, 0-9, hyphens)`);
+      if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(trimmed) || trimmed.length > SLUG_MAX) {
+        errors.push(`slug must be lowercase kebab-case (a-z, 0-9, hyphens), max ${SLUG_MAX} chars`);
       } else {
         out.slug = trimmed;
       }
     }
   } else if (!partial) {
-    errors.push("slug is required");
+    // Auto-generate slug from name
+    const base = (body.name || "reservation")
+      .toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
+      .slice(0, SLUG_MAX);
+    out.slug = base || `reservation-${Date.now()}`;
   }
 
   // secret_token is REJECTED on PUT (immutable). On POST it is
@@ -304,64 +796,6 @@ function validateReservationBody(body, { partial = false } = {}) {
     out.allowed_origins = [];
   }
 
-  // granularity — required on POST, optional on PUT.
-  if (body.granularity !== undefined) {
-    if (typeof body.granularity !== "string" || !GRANULARITY_VALUES.has(body.granularity)) {
-      errors.push(`granularity must be one of ${[...GRANULARITY_VALUES].join(", ")}`);
-    } else {
-      out.granularity = body.granularity;
-    }
-  } else if (!partial) {
-    out.granularity = "hour";
-  }
-
-  // slotDurationMinutes — optional. Must be null or a positive integer ≤ 1440.
-  // If granularity is 'day', the BE-level CHECK rejects non-null anyway,
-  // and we pre-validate here with a friendly message.
-  if (body.slotDurationMinutes !== undefined && body.slotDurationMinutes !== null) {
-    const raw = typeof body.slotDurationMinutes === "number"
-      ? String(body.slotDurationMinutes)
-      : body.slotDurationMinutes;
-    const n = parseStrictInt(raw, { min: 1, max: SLOT_DURATION_MAX_MINUTES });
-    if (n === null) {
-      errors.push(`slotDurationMinutes must be a positive integer (1..${SLOT_DURATION_MAX_MINUTES})`);
-    } else {
-      out.slot_duration_minutes = n;
-    }
-  } else if (body.slotDurationMinutes === null) {
-    out.slot_duration_minutes = null;
-  }
-
-  // leadTimeMinutes — required ≥ 0.
-  if (body.leadTimeMinutes !== undefined) {
-    const raw = typeof body.leadTimeMinutes === "number"
-      ? String(body.leadTimeMinutes)
-      : body.leadTimeMinutes;
-    const n = parseStrictInt(raw, { min: 0, max: LEAD_TIME_MAX_MINUTES });
-    if (n === null) {
-      errors.push(`leadTimeMinutes must be an integer 0..${LEAD_TIME_MAX_MINUTES}`);
-    } else {
-      out.lead_time_minutes = n;
-    }
-  } else if (!partial) {
-    out.lead_time_minutes = 60;
-  }
-
-  // maxAdvanceDays — required ≥ 1.
-  if (body.maxAdvanceDays !== undefined) {
-    const raw = typeof body.maxAdvanceDays === "number"
-      ? String(body.maxAdvanceDays)
-      : body.maxAdvanceDays;
-    const n = parseStrictInt(raw, { min: 1, max: MAX_ADVANCE_DAYS_MAX });
-    if (n === null) {
-      errors.push(`maxAdvanceDays must be an integer 1..${MAX_ADVANCE_DAYS_MAX}`);
-    } else {
-      out.max_advance_days = n;
-    }
-  } else if (!partial) {
-    out.max_advance_days = 90;
-  }
-
   // extraFieldsEnabled — boolean.
   if (body.extraFieldsEnabled !== undefined) {
     if (typeof body.extraFieldsEnabled !== "boolean") {
@@ -384,18 +818,48 @@ function validateReservationBody(body, { partial = false } = {}) {
     out.disable_hungarian_holidays = false;
   }
 
-  // Cross-field: slot_duration_minutes only meaningful for hour/minute granularity.
-  // We reject explicitly to give a friendly message; the DB CHECK is the
-  // authoritative guard.
-  const slotDefined = Object.prototype.hasOwnProperty.call(out, "slot_duration_minutes");
-  if (slotDefined && out.slot_duration_minutes !== null && out.slot_duration_minutes !== undefined) {
-    // Resolve the effective granularity. For PUT, the operator may have
-    // omitted it — if so we don't reject (existing DB granularity could
-    // be 'day'). For POST, granularity is always present.
-    const effGranularity = out.granularity; // undefined means PUT omitted granularity
-    if (effGranularity && effGranularity === "day") {
-      errors.push("slotDurationMinutes must be null when granularity is 'day'");
+  // embedTitle — optional text, shown as heading in the public embed widget.
+  if (body.embedTitle !== undefined) {
+    if (body.embedTitle !== null && typeof body.embedTitle !== "string") {
+      errors.push("embedTitle must be a string or null");
+    } else {
+      out.embed_title = body.embedTitle || "Időpont foglalás";
     }
+  } else if (!partial) {
+    out.embed_title = "Időpont foglalás";
+  }
+
+  // brandColor — hex color for the embed widget.
+  if (body.brandColor !== undefined) {
+    if (typeof body.brandColor !== "string" || !/^#[0-9a-fA-F]{3,8}$/.test(body.brandColor)) {
+      errors.push("brandColor must be a valid hex color (e.g. #0A2540)");
+    } else {
+      out.brand_color = body.brandColor;
+    }
+  } else if (!partial) {
+    out.brand_color = "#0A2540";
+  }
+
+  // iframeWidth — CSS width for the embed iframe.
+  if (body.iframeWidth !== undefined) {
+    if (typeof body.iframeWidth !== "string") {
+      errors.push("iframeWidth must be a string");
+    } else {
+      out.iframe_width = body.iframeWidth || "100%";
+    }
+  } else if (!partial) {
+    out.iframe_width = "100%";
+  }
+
+  // iframeHeight — CSS height for the embed iframe.
+  if (body.iframeHeight !== undefined) {
+    if (typeof body.iframeHeight !== "string") {
+      errors.push("iframeHeight must be a string");
+    } else {
+      out.iframe_height = body.iframeHeight || "760px";
+    }
+  } else if (!partial) {
+    out.iframe_height = "760px";
   }
 
   if (errors.length > 0) {
@@ -473,7 +937,7 @@ router.get("/", async (req, res) => {
                                   r.status, r.granularity, r.slot_duration_minutes,
                                   r.lead_time_minutes, r.max_advance_days,
                                   r.extra_fields_enabled, r.disable_hungarian_holidays,
-                                  r.created_at, r.updated_at
+                                  r.embed_title, r.created_at, r.updated_at
                            FROM reservations r
                            JOIN projects p ON p.id = r.project_id
                            ${whereSql}
@@ -516,6 +980,768 @@ router.get("/", async (req, res) => {
   }
 });
 
+// ===========================================================================
+// Image upload constants (mirrors routes/blog-attachments.js exactly)
+// ===========================================================================
+const UPLOAD_ROOT = process.env.UPLOADS_DIR || "/app/uploads";
+const IMAGE_MAX_SIZE = 10 * 1024 * 1024; // 10 MB
+const ALLOWED_MIME = ["image/webp", "image/png", "image/jpeg", "image/avif"];
+const ALLOWED_MIME_SET = new Set(ALLOWED_MIME);
+const EXT_FOR_MIME = { "image/webp": "webp", "image/png": "png", "image/jpeg": "jpg", "image/avif": "avif" };
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: IMAGE_MAX_SIZE },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_MIME_SET.has(file.mimetype)) cb(null, true);
+    else cb(new Error(`Unsupported image type: ${file.mimetype}`));
+  },
+});
+
+// ===========================================================================
+// Service CRUD routes — registered before /:id to avoid param conflicts
+// ===========================================================================
+
+// ---- GET /api/reservations/:reservationId/services ----
+router.get("/:reservationId/services", async (req, res, next) => {
+  try {
+    const reservationId = parseInt(req.params.reservationId, 10);
+    if (!Number.isFinite(reservationId) || reservationId <= 0) {
+      return res.status(400).json({ errorMessage: "Invalid reservation id" });
+    }
+    const scopedIds = await getScopedProjectIds(req);
+    if (scopedIds !== null && scopedIds.length === 0) {
+      return res.status(403).json({ errorMessage: "No accessible projects" });
+    }
+    const result = await pool.query(
+      `SELECT rs.*, rst.name, rst.description,
+              u.first_name AS worker_first_name, u.last_name AS worker_last_name, u.email AS worker_email,
+              rsa.stored_filename AS image_stored_filename
+       FROM reservation_services rs
+       LEFT JOIN reservation_service_translations rst ON rst.service_id = rs.id AND rst.locale = (
+         SELECT default_locale FROM reservations WHERE id = rs.reservation_id
+       )
+       LEFT JOIN users u ON u.id = rs.worker_user_id
+       LEFT JOIN reservation_service_attachments rsa ON rsa.service_id = rs.id AND rsa.purpose = 'cover'
+       WHERE rs.reservation_id = $1
+       ORDER BY rs.sort_order, rs.id`,
+      [reservationId],
+    );
+    return res.json(result.rows.map(rowToServiceDTO));
+  } catch (err) {
+    console.error("[reservations/services/list]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+// ---- GET /api/reservations/:reservationId/services/:serviceId ----
+router.get("/:reservationId/services/:serviceId", async (req, res, next) => {
+  try {
+    const reservationId = parseInt(req.params.reservationId, 10);
+    const serviceId = parseInt(req.params.serviceId, 10);
+    if (!Number.isFinite(reservationId) || !Number.isFinite(serviceId)) {
+      return res.status(400).json({ errorMessage: "Invalid ids" });
+    }
+    const result = await pool.query(
+      `SELECT rs.*,
+              rst.name, rst.description,
+              u.first_name AS worker_first_name, u.last_name AS worker_last_name, u.email AS worker_email,
+              rsa.stored_filename AS image_stored_filename
+       FROM reservation_services rs
+       LEFT JOIN reservation_service_translations rst ON rst.service_id = rs.id AND rst.locale = (
+         SELECT default_locale FROM reservations WHERE id = rs.reservation_id
+       )
+       LEFT JOIN users u ON u.id = rs.worker_user_id
+       LEFT JOIN reservation_service_attachments rsa ON rsa.service_id = rs.id AND rsa.purpose = 'cover'
+       WHERE rs.id = $1 AND rs.reservation_id = $2`,
+      [serviceId, reservationId],
+    );
+    if (result.rowCount === 0) return res.status(404).json({ errorMessage: "Service not found" });
+    const svc = result.rows[0];
+    // Load translations
+    const transResult = await pool.query(
+      `SELECT locale, name, description FROM reservation_service_translations WHERE service_id = $1`,
+      [serviceId],
+    );
+    // Load fields
+    const fieldsResult = await pool.query(
+      `SELECT rsf.*, json_agg(rfft.*) AS translations
+       FROM reservation_service_fields rsf
+       LEFT JOIN reservation_service_field_translations rfft ON rfft.field_id = rsf.id
+       WHERE rsf.service_id = $1
+       GROUP BY rsf.id
+       ORDER BY rsf.sort_order`,
+      [serviceId],
+    );
+    const dto = rowToServiceDTO(svc);
+    dto.translations = transResult.rows;
+    dto.fields = fieldsResult.rows.map((f) => ({
+      id: f.id, fieldKey: f.field_key, fieldType: f.field_type,
+      required: f.required, sortOrder: f.sort_order, options: f.options,
+      translations: (f.translations || []).filter((t) => t.field_id != null),
+    }));
+    return res.json(dto);
+  } catch (err) {
+    console.error("[reservations/services/get]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+// ---- POST /api/reservations/:reservationId/services ----
+router.post("/:reservationId/services", async (req, res, next) => {
+  try {
+    const reservationId = parseInt(req.params.reservationId, 10);
+    if (!Number.isFinite(reservationId) || reservationId <= 0) {
+      return res.status(400).json({ errorMessage: "Invalid reservation id" });
+    }
+    const body = req.body ?? {};
+    const { status, sortOrder, durationMinutes, priceAmount, currency, capacity, workerUserId, translations, fields } = body;
+
+    if (!durationMinutes || durationMinutes <= 0) return res.status(400).json({ errorMessage: "durationMinutes must be > 0" });
+    if (priceAmount !== undefined && priceAmount < 0) return res.status(400).json({ errorMessage: "priceAmount must be >= 0" });
+    if (capacity !== undefined && capacity < 1) return res.status(400).json({ errorMessage: "capacity must be >= 1" });
+    if (currency && !/^[A-Z]{3}$/.test(currency)) return res.status(400).json({ errorMessage: "currency must be 3 uppercase letters" });
+
+    // Validate worker if provided
+    if (workerUserId) {
+      const projResult = await pool.query(`SELECT project_id FROM reservations WHERE id = $1`, [reservationId]);
+      if (projResult.rowCount === 0) return res.status(404).json({ errorMessage: "Reservation not found" });
+      const projectId = projResult.rows[0].project_id;
+      const wCheck = await pool.query(
+        `SELECT id FROM users WHERE id = $1 AND role = 'enduser' AND enabled = true AND id IN (
+          SELECT user_id FROM user_project_assignments WHERE project_id = $2
+        )`, [workerUserId, projectId]);
+      if (wCheck.rowCount === 0) return res.status(400).json({ errorMessage: "Invalid worker: must be an active enduser assigned to this project" });
+    }
+
+    // Validate translations — default locale name required
+    const reservationResult = await pool.query(`SELECT default_locale FROM reservations WHERE id = $1`, [reservationId]);
+    const defaultLocale = reservationResult.rows[0]?.default_locale || "hu";
+    if (!translations || typeof translations !== "object") {
+      return res.status(400).json({ errorMessage: "translations is required" });
+    }
+    const defaultTrans = translations[defaultLocale];
+    if (!defaultTrans?.name) {
+      return res.status(400).json({ errorMessage: `Name is required for default locale (${defaultLocale})` });
+    }
+
+    const insertResult = await pool.query(
+      `INSERT INTO reservation_services (reservation_id, status, sort_order, duration_minutes, price_amount, currency, capacity, worker_user_id,
+                                          granularity, slot_duration_minutes, lead_time_minutes, max_advance_days)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       RETURNING *`,
+      [reservationId, status || "active", sortOrder || 0, durationMinutes, priceAmount || 0, currency || "HUF", capacity || 1, workerUserId || null,
+       body.granularity || "hour", body.slotDurationMinutes ?? null, body.leadTimeMinutes ?? 60, body.maxAdvanceDays ?? 90],
+    );
+    const service = insertResult.rows[0];
+
+    // Insert translations
+    for (const [locale, trans] of Object.entries(translations)) {
+      if (trans.name || trans.description) {
+        await pool.query(
+          `INSERT INTO reservation_service_translations (service_id, locale, name, description)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (service_id, locale) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description`,
+          [service.id, locale, trans.name || null, trans.description || null],
+        );
+      }
+    }
+
+    // Insert fields
+    if (fields && Array.isArray(fields)) {
+      for (const field of fields) {
+        const fieldResult = await pool.query(
+          `INSERT INTO reservation_service_fields (service_id, field_key, field_type, required, sort_order, options)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+          [service.id, field.fieldKey, field.fieldType || "text", field.required || false, field.sortOrder || 0, field.options ? JSON.stringify(field.options) : null],
+        );
+        if (field.translations) {
+          for (const [locale, t] of Object.entries(field.translations)) {
+            await pool.query(
+              `INSERT INTO reservation_service_field_translations (field_id, locale, label, placeholder)
+               VALUES ($1, $2, $3, $4)`,
+              [fieldResult.rows[0].id, locale, t.label || field.fieldKey, t.placeholder || null],
+            );
+          }
+        }
+      }
+    }
+
+    return res.status(201).json(rowToServiceDTO(service));
+  } catch (err) {
+    console.error("[reservations/services/create]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+// ---- PUT /api/reservations/:reservationId/services/:serviceId ----
+router.put("/:reservationId/services/:serviceId", async (req, res, next) => {
+  try {
+    const reservationId = parseInt(req.params.reservationId, 10);
+    const serviceId = parseInt(req.params.serviceId, 10);
+    if (!Number.isFinite(reservationId) || !Number.isFinite(serviceId)) {
+      return res.status(400).json({ errorMessage: "Invalid ids" });
+    }
+    const body = req.body ?? {};
+    const { status, sortOrder, durationMinutes, priceAmount, currency, capacity, workerUserId, translations, fields } = body;
+
+    // Check service exists
+    const existCheck = await pool.query(`SELECT id FROM reservation_services WHERE id = $1 AND reservation_id = $2`, [serviceId, reservationId]);
+    if (existCheck.rowCount === 0) return res.status(404).json({ errorMessage: "Service not found" });
+
+    // Validate worker if provided
+    if (workerUserId) {
+      const projResult = await pool.query(`SELECT project_id FROM reservations WHERE id = $1`, [reservationId]);
+      if (projResult.rowCount === 0) return res.status(404).json({ errorMessage: "Reservation not found" });
+      const projectId = projResult.rows[0].project_id;
+      const wCheck = await pool.query(
+        `SELECT id FROM users WHERE id = $1 AND role = 'enduser' AND enabled = true AND id IN (
+          SELECT user_id FROM user_project_assignments WHERE project_id = $2
+        )`, [workerUserId, projectId]);
+      if (wCheck.rowCount === 0) return res.status(400).json({ errorMessage: "Invalid worker" });
+    }
+
+    // Update service
+    const sets = [];
+    const params = [];
+    let pi = 1;
+    if (status !== undefined) { sets.push(`status = $${pi++}`); params.push(status); }
+    if (sortOrder !== undefined) { sets.push(`sort_order = $${pi++}`); params.push(sortOrder); }
+    if (durationMinutes !== undefined) { sets.push(`duration_minutes = $${pi++}`); params.push(durationMinutes); }
+    if (priceAmount !== undefined) { sets.push(`price_amount = $${pi++}`); params.push(priceAmount); }
+    if (currency !== undefined) { sets.push(`currency = $${pi++}`); params.push(currency); }
+    if (capacity !== undefined) { sets.push(`capacity = $${pi++}`); params.push(capacity); }
+    if (body.granularity !== undefined) { sets.push(`granularity = $${pi++}`); params.push(body.granularity); }
+    if (body.slotDurationMinutes !== undefined) { sets.push(`slot_duration_minutes = $${pi++}`); params.push(body.slotDurationMinutes ?? null); }
+    if (body.leadTimeMinutes !== undefined) { sets.push(`lead_time_minutes = $${pi++}`); params.push(body.leadTimeMinutes); }
+    if (body.maxAdvanceDays !== undefined) { sets.push(`max_advance_days = $${pi++}`); params.push(body.maxAdvanceDays); }
+    if (workerUserId !== undefined) { sets.push(`worker_user_id = $${pi++}`); params.push(workerUserId || null); }
+    if (sets.length > 0) {
+      params.push(serviceId, reservationId);
+      await pool.query(`UPDATE reservation_services SET ${sets.join(", ")} WHERE id = $${pi++} AND reservation_id = $${pi}`, params);
+    }
+
+    // Update translations
+    if (translations && typeof translations === "object") {
+      for (const [locale, trans] of Object.entries(translations)) {
+        if (trans.name !== undefined || trans.description !== undefined) {
+          await pool.query(
+            `INSERT INTO reservation_service_translations (service_id, locale, name, description)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (service_id, locale) DO UPDATE SET name = COALESCE(EXCLUDED.name, reservation_service_translations.name), description = COALESCE(EXCLUDED.description, reservation_service_translations.description)`,
+            [serviceId, locale, trans.name || null, trans.description || null],
+          );
+        }
+      }
+    }
+
+    // Update fields (replace all)
+    if (fields && Array.isArray(fields)) {
+      await pool.query(`DELETE FROM reservation_service_fields WHERE service_id = $1`, [serviceId]);
+      for (const field of fields) {
+        const fieldResult = await pool.query(
+          `INSERT INTO reservation_service_fields (service_id, field_key, field_type, required, sort_order, options)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+          [serviceId, field.fieldKey, field.fieldType || "text", field.required || false, field.sortOrder || 0, field.options ? JSON.stringify(field.options) : null],
+        );
+        if (field.translations) {
+          for (const [locale, t] of Object.entries(field.translations)) {
+            await pool.query(
+              `INSERT INTO reservation_service_field_translations (field_id, locale, label, placeholder)
+               VALUES ($1, $2, $3, $4)`,
+              [fieldResult.rows[0].id, locale, t.label || field.fieldKey, t.placeholder || null],
+            );
+          }
+        }
+      }
+    }
+
+    const result = await pool.query(`SELECT * FROM reservation_services WHERE id = $1 AND reservation_id = $2`, [serviceId, reservationId]);
+    return res.json(rowToServiceDTO(result.rows[0]));
+  } catch (err) {
+    console.error("[reservations/services/update]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+// ---- DELETE /api/reservations/:reservationId/services/:serviceId ----
+router.delete("/:reservationId/services/:serviceId", async (req, res, next) => {
+  try {
+    const reservationId = parseInt(req.params.reservationId, 10);
+    const serviceId = parseInt(req.params.serviceId, 10);
+    if (!Number.isFinite(reservationId) || !Number.isFinite(serviceId)) {
+      return res.status(400).json({ errorMessage: "Invalid ids" });
+    }
+    // Check if bookings exist — archive instead of hard-delete
+    const bookingCheck = await pool.query(
+      `SELECT 1 FROM reservation_bookings WHERE service_id = $1 AND reservation_id = $2 LIMIT 1`,
+      [serviceId, reservationId],
+    );
+    if (bookingCheck.rowCount > 0) {
+      // Archive (disable) instead of delete
+      await pool.query(
+        `UPDATE reservation_services SET status = 'disabled' WHERE id = $1 AND reservation_id = $2`,
+        [serviceId, reservationId],
+      );
+      return res.json({ message: "Service archived (disabled)" });
+    }
+    // Hard delete — no bookings exist
+    await pool.query(`DELETE FROM reservation_service_fields WHERE service_id = $1`, [serviceId]);
+    await pool.query(`DELETE FROM reservation_service_translations WHERE service_id = $1`, [serviceId]);
+    await pool.query(`DELETE FROM reservation_service_attachments WHERE service_id = $1`, [serviceId]);
+    await pool.query(`DELETE FROM reservation_services WHERE id = $1 AND reservation_id = $2`, [serviceId, reservationId]);
+    return res.json({ message: "Service deleted" });
+  } catch (err) {
+    console.error("[reservations/services/delete]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+// ===========================================================================
+// Workers route — admin-only list of project-assigned endusers
+// ===========================================================================
+router.get("/:reservationId/workers", async (req, res, next) => {
+  try {
+    const reservationId = parseInt(req.params.reservationId, 10);
+    if (!Number.isFinite(reservationId) || reservationId <= 0) {
+      return res.status(400).json({ errorMessage: "Invalid reservation id" });
+    }
+    const projResult = await pool.query(`SELECT project_id FROM reservations WHERE id = $1`, [reservationId]);
+    if (projResult.rowCount === 0) return res.status(404).json({ errorMessage: "Reservation not found" });
+    const projectId = projResult.rows[0].project_id;
+    const result = await pool.query(
+      `SELECT u.id, u.first_name AS "firstName", u.last_name AS "lastName", u.email
+       FROM users u
+       JOIN user_project_assignments upa ON upa.user_id = u.id AND upa.project_id = $1
+       WHERE u.role = 'enduser' AND u.enabled = true
+       ORDER BY u.first_name, u.last_name`,
+      [projectId],
+    );
+    return res.json(result.rows);
+  } catch (err) {
+    console.error("[reservations/workers]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+// ===========================================================================
+// Service image upload/delete — mirrors routes/blog-attachments.js
+// ===========================================================================
+router.post("/services/:serviceId/image", async (req, res, next) => {
+  try {
+    const serviceId = parseInt(req.params.serviceId, 10);
+    if (!Number.isFinite(serviceId) || serviceId <= 0) {
+      return res.status(400).json({ errorMessage: "Invalid service id" });
+    }
+    // Check service exists and user has project access
+    const svcCheck = await pool.query(
+      `SELECT rs.id, rs.reservation_id, r.project_id
+       FROM reservation_services rs
+       JOIN reservations r ON r.id = rs.reservation_id
+       WHERE rs.id = $1`, [serviceId]);
+    if (svcCheck.rowCount === 0) return res.status(404).json({ errorMessage: "Service not found" });
+    const scopedIds = await getScopedProjectIds(req);
+    if (scopedIds !== null && !scopedIds.includes(Number(svcCheck.rows[0].project_id))) {
+      return res.status(403).json({ errorMessage: "Access denied" });
+    }
+
+    imageUpload.single("file")(req, res, async (err) => {
+      if (err) {
+        if (err.code === "LIMIT_FILE_SIZE") return res.status(400).json({ errorMessage: "File exceeds 10 MB limit" });
+        return res.status(400).json({ errorMessage: err.message });
+      }
+      if (!req.file) return res.status(400).json({ errorMessage: "No file provided" });
+
+      const buffer = req.file.buffer;
+      const sniffed = await fileTypeFromBuffer(buffer);
+      if (!sniffed || !ALLOWED_MIME_SET.has(sniffed.mime)) {
+        return res.status(400).json({ errorMessage: "Unsupported image type" });
+      }
+      const ext = EXT_FOR_MIME[sniffed.mime] || "bin";
+      const storedFilename = `${crypto.randomUUID()}.${ext}`;
+      const uploadDir = path.join(UPLOAD_ROOT, "reservation-services", String(serviceId));
+      fs.mkdirSync(uploadDir, { recursive: true });
+      fs.writeFileSync(path.join(uploadDir, storedFilename), buffer);
+
+      // Delete old cover if exists
+      await pool.query(`DELETE FROM reservation_service_attachments WHERE service_id = $1 AND purpose = 'cover'`, [serviceId]);
+      // Insert new
+      const insertResult = await pool.query(
+        `INSERT INTO reservation_service_attachments (service_id, original_filename, stored_filename, mime_type, size_bytes, purpose, uploaded_by)
+         VALUES ($1, $2, $3, $4, $5, 'cover', $6) RETURNING *`,
+        [serviceId, req.file.originalname, storedFilename, sniffed.mime, buffer.length, req.user?.id || null],
+      );
+      const att = insertResult.rows[0];
+      const imageUrl = `/api/public/reservations/assets/${storedFilename}`;
+      return res.json({ imageUrl, id: att.id, storedFilename, mimeType: att.mime_type, sizeBytes: att.size_bytes, uploadedAt: att.uploaded_at });
+    });
+  } catch (err) {
+    console.error("[reservations/service-image/upload]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+router.delete("/services/:serviceId/image", async (req, res, next) => {
+  try {
+    const serviceId = parseInt(req.params.serviceId, 10);
+    if (!Number.isFinite(serviceId) || serviceId <= 0) {
+      return res.status(400).json({ errorMessage: "Invalid service id" });
+    }
+    const result = await pool.query(
+      `DELETE FROM reservation_service_attachments WHERE service_id = $1 AND purpose = 'cover' RETURNING stored_filename`,
+      [serviceId],
+    );
+    if (result.rowCount > 0) {
+      const filePath = path.join(UPLOAD_ROOT, "reservation-services", String(serviceId), result.rows[0].stored_filename);
+      try { fs.unlinkSync(filePath); } catch { /* file may already be gone */ }
+    }
+    return res.json({ message: "Image deleted" });
+  } catch (err) {
+    console.error("[reservations/service-image/delete]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+// ===========================================================================
+// Customer routes — project-scoped CRUD
+// ===========================================================================
+router.get("/customers", async (req, res, next) => {
+  try {
+    const scopedIds = await getScopedProjectIds(req);
+    if (scopedIds !== null && scopedIds.length === 0) {
+      return res.status(403).json({ errorMessage: "No accessible projects" });
+    }
+    const projectId = parseInt(req.query.projectId, 10);
+    const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+    const page = Math.max(0, parseInt(req.query.page ?? "0", 10) || 0);
+    const size = Math.min(100, Math.max(1, parseInt(req.query.size ?? "20", 10) || 20));
+
+    const conditions = [];
+    const params = [];
+    let pi = 1;
+    if (scopedIds !== null) {
+      conditions.push(`rc.project_id = ANY($${pi++}::bigint[])`);
+      params.push(scopedIds);
+    }
+    if (projectId && Number.isFinite(projectId)) {
+      conditions.push(`rc.project_id = $${pi++}`);
+      params.push(projectId);
+    }
+    if (search) {
+      conditions.push(`(rc.first_name ILIKE $${pi} OR rc.last_name ILIKE $${pi} OR rc.email ILIKE $${pi} OR rc.phone ILIKE $${pi})`);
+      params.push(`%${search}%`);
+      pi++;
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const countResult = await pool.query(`SELECT COUNT(*)::int AS total FROM reservation_customers rc ${where}`, params);
+    const total = countResult.rows[0]?.total || 0;
+    const totalPages = Math.max(1, Math.ceil(total / size));
+
+    params.push(size, page * size);
+    const result = await pool.query(
+      `SELECT rc.*, p.name AS project_name
+       FROM reservation_customers rc
+       LEFT JOIN projects p ON p.id = rc.project_id
+       ${where}
+       ORDER BY rc.last_name, rc.first_name
+       LIMIT $${pi++} OFFSET $${pi}`,
+      params,
+    );
+
+    return res.json({
+      content: result.rows.map(rowToReservationCustomerDTO),
+      totalElements: total,
+      page,
+      size,
+      totalPages,
+    });
+  } catch (err) {
+    console.error("[reservations/customers/list]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+router.get("/customers/:customerId", async (req, res, next) => {
+  try {
+    const customerId = parseInt(req.params.customerId, 10);
+    if (!Number.isFinite(customerId) || customerId <= 0) {
+      return res.status(400).json({ errorMessage: "Invalid customer id" });
+    }
+    const scopedIds = await getScopedProjectIds(req);
+    if (scopedIds !== null && scopedIds.length === 0) {
+      return res.status(403).json({ errorMessage: "No accessible projects" });
+    }
+    let query = `SELECT * FROM reservation_customers WHERE id = $1`;
+    const params = [customerId];
+    if (scopedIds !== null) {
+      query += ` AND project_id = ANY($2::bigint[])`;
+      params.push(scopedIds);
+    }
+    const result = await pool.query(query, params);
+    if (result.rowCount === 0) return res.status(404).json({ errorMessage: "Customer not found" });
+    return res.json(rowToReservationCustomerDTO(result.rows[0]));
+  } catch (err) {
+    console.error("[reservations/customers/get]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+router.post("/customers", async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const contactResult = validateReservationContact(body);
+    if (!contactResult.ok) return res.status(400).json({ errorMessage: contactResult.error });
+    const projectId = parseInt(body.projectId, 10);
+    if (!Number.isFinite(projectId) || projectId <= 0) {
+      return res.status(400).json({ errorMessage: "projectId is required" });
+    }
+    // Scope check: endusers may only create customers in assigned projects
+    const scopedIds = await getScopedProjectIds(req);
+    if (scopedIds !== null && !scopedIds.includes(projectId)) {
+      return res.status(404).json({ errorMessage: "Customer not found" });
+    }
+    const customer = await upsertReservationCustomer({ db: pool, projectId, contact: contactResult.value });
+    return res.status(201).json(rowToReservationCustomerDTO(customer));
+  } catch (err) {
+    console.error("[reservations/customers/create]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+router.put("/customers/:customerId", async (req, res, next) => {
+  try {
+    const customerId = parseInt(req.params.customerId, 10);
+    if (!Number.isFinite(customerId) || customerId <= 0) {
+      return res.status(400).json({ errorMessage: "Invalid customer id" });
+    }
+    // Scope check: load customer and verify it belongs to an accessible project
+    const scopedIds = await getScopedProjectIds(req);
+    const existing = await pool.query(`SELECT * FROM reservation_customers WHERE id = $1`, [customerId]);
+    if (existing.rowCount === 0) return res.status(404).json({ errorMessage: "Customer not found" });
+    if (scopedIds !== null && !scopedIds.includes(Number(existing.rows[0].project_id))) {
+      return res.status(404).json({ errorMessage: "Customer not found" });
+    }
+    const body = req.body ?? {};
+    const sets = [];
+    const params = [];
+    let pi = 1;
+    if (body.firstName !== undefined) { sets.push(`first_name = $${pi++}`); params.push(body.firstName); }
+    if (body.lastName !== undefined) { sets.push(`last_name = $${pi++}`); params.push(body.lastName); }
+    if (body.email !== undefined) { sets.push(`email = $${pi++}`); params.push(body.email.toLowerCase()); }
+    if (body.phone !== undefined) { sets.push(`phone = $${pi++}`); params.push(body.phone); }
+    if (body.status !== undefined) { sets.push(`status = $${pi++}`); params.push(body.status); }
+    if (sets.length === 0) return res.status(400).json({ errorMessage: "No fields to update" });
+    params.push(customerId);
+    await pool.query(`UPDATE reservation_customers SET ${sets.join(", ")} WHERE id = $${pi}`, params);
+    const result = await pool.query(`SELECT * FROM reservation_customers WHERE id = $1`, [customerId]);
+    return res.json(rowToReservationCustomerDTO(result.rows[0]));
+  } catch (err) {
+    console.error("[reservations/customers/update]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+router.delete("/customers/:customerId", async (req, res, next) => {
+  try {
+    const customerId = parseInt(req.params.customerId, 10);
+    if (!Number.isFinite(customerId) || customerId <= 0) {
+      return res.status(400).json({ errorMessage: "Invalid customer id" });
+    }
+    // Scope check
+    const scopedIds = await getScopedProjectIds(req);
+    const existing = await pool.query(`SELECT id, project_id FROM reservation_customers WHERE id = $1`, [customerId]);
+    if (existing.rowCount === 0) return res.status(404).json({ errorMessage: "Customer not found" });
+    if (scopedIds !== null && !scopedIds.includes(Number(existing.rows[0].project_id))) {
+      return res.status(404).json({ errorMessage: "Customer not found" });
+    }
+    await pool.query(`DELETE FROM reservation_customers WHERE id = $1`, [customerId]);
+    // FK ON DELETE SET NULL preserves all reservation_bookings rows
+    return res.status(204).end();
+  } catch (err) {
+    console.error("[reservations/customers/delete]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+router.get("/customers/:customerId/bookings", async (req, res, next) => {
+  try {
+    const customerId = parseInt(req.params.customerId, 10);
+    if (!Number.isFinite(customerId) || customerId <= 0) {
+      return res.status(400).json({ errorMessage: "Invalid customer id" });
+    }
+    const scopedIds = await getScopedProjectIds(req);
+    if (scopedIds !== null && scopedIds.length === 0) {
+      return res.status(403).json({ errorMessage: "No accessible projects" });
+    }
+    // Verify customer belongs to an accessible project
+    let custQuery = `SELECT id FROM reservation_customers WHERE id = $1`;
+    const custParams = [customerId];
+    if (scopedIds !== null) {
+      custQuery += ` AND project_id = ANY($2::bigint[])`;
+      custParams.push(scopedIds);
+    }
+    const custCheck = await pool.query(custQuery, custParams);
+    if (custCheck.rowCount === 0) return res.status(404).json({ errorMessage: "Customer not found" });
+
+    const result = await pool.query(
+      `SELECT rb.*,
+              COALESCE(rst.name, rb.service_name_snapshot) AS service_name,
+              r.name AS reservation_name,
+              p.name AS project_name,
+              u.first_name AS worker_first_name, u.last_name AS worker_last_name
+       FROM reservation_bookings rb
+       LEFT JOIN reservation_service_translations rst ON rst.service_id = rb.service_id AND rst.locale = 'hu'
+       LEFT JOIN reservations r ON r.id = rb.reservation_id
+       LEFT JOIN projects p ON p.id = r.project_id
+       LEFT JOIN users u ON u.id = rb.worker_user_id
+       WHERE rb.customer_id = $1
+       ORDER BY rb.starts_at DESC`,
+      [customerId],
+    );
+    return res.json(result.rows.map(rowToReservationBookingDTO));
+  } catch (err) {
+    console.error("[reservations/customers/bookings]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+// ===========================================================================
+// Service availability schedule routes — mirrors reservation schedule routes
+// ===========================================================================
+router.get("/:reservationId/services/:serviceId/availability-schedules", async (req, res, next) => {
+  try {
+    const serviceId = parseInt(req.params.serviceId, 10);
+    if (!Number.isFinite(serviceId) || serviceId <= 0) {
+      return res.status(400).json({ errorMessage: "Invalid service id" });
+    }
+    const result = await pool.query(
+      `SELECT * FROM reservation_service_availability_schedules WHERE service_id = $1 ORDER BY frequency, day_of_week, day_of_month, start_time`,
+      [serviceId],
+    );
+    return res.json(result.rows.map(rowToServiceScheduleDTO));
+  } catch (err) {
+    console.error("[reservations/service-schedules/list]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+router.post("/:reservationId/services/:serviceId/availability-schedules", async (req, res, next) => {
+  try {
+    const serviceId = parseInt(req.params.serviceId, 10);
+    if (!Number.isFinite(serviceId) || serviceId <= 0) {
+      return res.status(400).json({ errorMessage: "Invalid service id" });
+    }
+    const body = req.body ?? {};
+    const { frequency, dayOfWeek, dayOfMonth, startTime, endTime } = body;
+    if (!FREQUENCY_VALUES.has(frequency)) return res.status(400).json({ errorMessage: "Invalid frequency" });
+    if (!startTime || !endTime) return res.status(400).json({ errorMessage: "startTime and endTime are required" });
+    if (frequency === "weekly" && (dayOfWeek === undefined || dayOfWeek === null)) return res.status(400).json({ errorMessage: "dayOfWeek required for weekly" });
+    if (frequency === "monthly" && (dayOfMonth === undefined || dayOfMonth === null)) return res.status(400).json({ errorMessage: "dayOfMonth required for monthly" });
+
+    const result = await pool.query(
+      `INSERT INTO reservation_service_availability_schedules (service_id, frequency, day_of_week, day_of_month, start_time, end_time)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [serviceId, frequency, dayOfWeek || null, dayOfMonth || null, startTime, endTime],
+    );
+    return res.status(201).json(rowToServiceScheduleDTO(result.rows[0]));
+  } catch (err) {
+    console.error("[reservations/service-schedules/create]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+router.delete("/:reservationId/services/:serviceId/availability-schedules/:scheduleId", async (req, res, next) => {
+  try {
+    const scheduleId = parseInt(req.params.scheduleId, 10);
+    if (!Number.isFinite(scheduleId) || scheduleId <= 0) {
+      return res.status(400).json({ errorMessage: "Invalid schedule id" });
+    }
+    await pool.query(`DELETE FROM reservation_service_availability_schedules WHERE id = $1`, [scheduleId]);
+    return res.json({ message: "Schedule deleted" });
+  } catch (err) {
+    console.error("[reservations/service-schedules/delete]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+router.put("/:reservationId/services/:serviceId/availability-schedules/:scheduleId", async (req, res, next) => {
+  try {
+    const scheduleId = parseInt(req.params.scheduleId, 10);
+    if (!Number.isFinite(scheduleId) || scheduleId <= 0) {
+      return res.status(400).json({ errorMessage: "Invalid schedule id" });
+    }
+    const body = req.body ?? {};
+    const { frequency, dayOfWeek, dayOfMonth, startTime, endTime } = body;
+    const sets = [];
+    const params = [];
+    let pi = 1;
+    if (frequency !== undefined) { sets.push(`frequency = $${pi++}`); params.push(frequency); }
+    if (dayOfWeek !== undefined) { sets.push(`day_of_week = $${pi++}`); params.push(dayOfWeek); }
+    if (dayOfMonth !== undefined) { sets.push(`day_of_month = $${pi++}`); params.push(dayOfMonth); }
+    if (startTime !== undefined) { sets.push(`start_time = $${pi++}`); params.push(startTime); }
+    if (endTime !== undefined) { sets.push(`end_time = $${pi++}`); params.push(endTime); }
+    if (sets.length > 0) {
+      params.push(scheduleId);
+      await pool.query(`UPDATE reservation_service_availability_schedules SET ${sets.join(", ")} WHERE id = $${pi}`, params);
+    }
+    const result = await pool.query(`SELECT * FROM reservation_service_availability_schedules WHERE id = $1`, [scheduleId]);
+    if (result.rowCount === 0) return res.status(404).json({ errorMessage: "Schedule not found" });
+    return res.json(rowToServiceScheduleDTO(result.rows[0]));
+  } catch (err) {
+    console.error("[reservations/service-schedules/update]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+// ===========================================================================
+// Service schedule DTO helper
+// ===========================================================================
+function rowToServiceScheduleDTO(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    serviceId: row.service_id,
+    frequency: row.frequency,
+    dayOfWeek: row.day_of_week,
+    dayOfMonth: row.day_of_month,
+    startTime: typeof row.start_time === "string" ? row.start_time.slice(0, 5) : row.start_time,
+    endTime: typeof row.end_time === "string" ? row.end_time.slice(0, 5) : row.end_time,
+    createdAt: row.created_at,
+  };
+}
+
+// ===========================================================================
+// Service DTO helper
+// ===========================================================================
+function rowToServiceDTO(row) {
+  if (!row) return null;
+  const imageUrl = row.image_stored_filename
+    ? `/api/public/reservations/assets/${row.image_stored_filename}`
+    : null;
+  return {
+    id: row.id,
+    reservationId: row.reservation_id,
+    status: row.status,
+    sortOrder: row.sort_order,
+    durationMinutes: row.duration_minutes,
+    priceAmount: row.price_amount != null ? Number(row.price_amount) : 0,
+    currency: row.currency,
+    capacity: row.capacity,
+    granularity: row.granularity || "hour",
+    slotDurationMinutes: row.slot_duration_minutes ?? null,
+    leadTimeMinutes: row.lead_time_minutes ?? 60,
+    maxAdvanceDays: row.max_advance_days ?? 90,
+    workerUserId: row.worker_user_id,
+    workerFirstName: row.worker_first_name || null,
+    workerLastName: row.worker_last_name || null,
+    name: row.name || null,
+    description: row.description || null,
+    imageUrl,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 // ---- GET /api/reservations/:id ----
 router.get("/:id", async (req, res) => {
   const id = parseInt(req.params.id, 10);
@@ -544,9 +1770,9 @@ router.get("/:id", async (req, res) => {
     const { rows } = await pool.query(
       `SELECT r.id, r.project_id, p.name AS project_name,
               r.name, r.slug, r.secret_token, r.allowed_origins,
-              r.status, r.granularity, r.slot_duration_minutes,
-              r.lead_time_minutes, r.max_advance_days,
+              r.status,
               r.extra_fields_enabled, r.disable_hungarian_holidays,
+              r.embed_title, r.brand_color, r.iframe_width, r.iframe_height,
               r.created_at, r.updated_at
        FROM reservations r
        JOIN projects p ON p.id = r.project_id
@@ -565,8 +1791,6 @@ router.get("/:id", async (req, res) => {
 
 // ---- POST /api/reservations ----
 router.post("/", async (req, res) => {
-  const guard = forbidEnduserMutation(req, res);
-  if (guard) return guard;
   const validation = validateReservationBody(req.body, { partial: false });
   if (!validation.ok) {
     return res.status(400).json({ errorMessage: validation.error });
@@ -593,26 +1817,46 @@ router.post("/", async (req, res) => {
   const secretToken = crypto.randomBytes(16).toString("base64url");
 
   try {
+    // Create or reuse the project_module registry row for this project's reservation.
+    const { rows: pmRows } = await pool.query(
+      `INSERT INTO project_modules (project_id, module_type)
+       VALUES ($1, 'reservation')
+       ON CONFLICT (project_id, module_type) DO NOTHING
+       RETURNING id`,
+      [v.project_id],
+    );
+    let moduleId;
+    if (pmRows.length > 0) {
+      moduleId = pmRows[0].id;
+    } else {
+      const { rows: existing } = await pool.query(
+        `SELECT id FROM project_modules WHERE project_id = $1 AND module_type = 'reservation'`,
+        [v.project_id],
+      );
+      moduleId = existing[0].id;
+    }
+
     const insertResult = await pool.query(
       `INSERT INTO reservations
-        (project_id, name, slug, secret_token, allowed_origins, status,
-         granularity, slot_duration_minutes, lead_time_minutes, max_advance_days,
-         extra_fields_enabled, disable_hungarian_holidays)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        (project_id, module_id, name, slug, secret_token, allowed_origins, status,
+         extra_fields_enabled, disable_hungarian_holidays, embed_title,
+         brand_color, iframe_width, iframe_height)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING id`,
       [
         v.project_id,
+        moduleId,
         v.name,
         v.slug,
         secretToken,
         Array.isArray(v.allowed_origins) ? v.allowed_origins : [],
         v.status ?? "active",
-        v.granularity ?? "hour",
-        v.slot_duration_minutes ?? null,
-        v.lead_time_minutes ?? 60,
-        v.max_advance_days ?? 90,
         !!v.extra_fields_enabled,
         !!v.disable_hungarian_holidays,
+        v.embed_title ?? "Időpont foglalás",
+        v.brand_color ?? "#0A2540",
+        v.iframe_width ?? "100%",
+        v.iframe_height ?? "760px",
       ],
     );
     const newId = Number(insertResult.rows[0].id);
@@ -621,9 +1865,9 @@ router.post("/", async (req, res) => {
     const { rows: joined } = await pool.query(
       `SELECT r.id, r.project_id, p.name AS project_name,
               r.name, r.slug, r.secret_token, r.allowed_origins,
-              r.status, r.granularity, r.slot_duration_minutes,
-              r.lead_time_minutes, r.max_advance_days,
+              r.status,
               r.extra_fields_enabled, r.disable_hungarian_holidays,
+              r.embed_title, r.brand_color, r.iframe_width, r.iframe_height,
               r.created_at, r.updated_at
        FROM reservations r
        JOIN projects p ON p.id = r.project_id
@@ -633,12 +1877,17 @@ router.post("/", async (req, res) => {
     return res.status(201).json(rowToReservationDTO(joined[0]));
   } catch (err) {
     // 23505 = unique_violation. For slug, return 409 with the user-facing
-    // message; for secret_token (astronomically rare) we fall through to
-    // the 409 generic message.
+    // message; for module_id (one reservation per project), return PROJECT_MODULE_EXISTS.
     if (err.code === "23505") {
       const constraint = err.constraint || "";
       if (constraint.includes("slug")) {
         return res.status(409).json({ errorMessage: "Slug already in use" });
+      }
+      if (constraint.includes("module_id")) {
+        return res.status(409).json({
+          errorMessage: "A module of this type already exists for this project",
+          errorCode: "PROJECT_MODULE_EXISTS",
+        });
       }
       return res.status(409).json({ errorMessage: "Conflict, please retry" });
     }
@@ -652,33 +1901,6 @@ router.post("/", async (req, res) => {
 
 // ---- PUT /api/reservations/:id ----
 router.put("/:id", async (req, res) => {
-  // Endusers can only toggle disableHungarianHolidays on their assigned reservations.
-  if (isEnduser(req)) {
-    const allowedFields = new Set(["disableHungarianHolidays"]);
-    const bodyKeys = Object.keys(req.body ?? {});
-    const nonAllowed = bodyKeys.filter((k) => !allowedFields.has(k));
-    if (nonAllowed.length > 0) {
-      return res.status(403).json({ errorMessage: "Read-only access for endusers" });
-    }
-    // Scope check: enduser must own this reservation's project.
-    const id = parseInt(req.params.id, 10);
-    if (!Number.isFinite(id) || id <= 0) {
-      return res.status(400).json({ errorMessage: "Invalid id" });
-    }
-    const pre = await pool.query("SELECT project_id FROM reservations WHERE id = $1", [id]);
-    if (pre.rowCount === 0) {
-      return res.status(404).json({ errorMessage: "Reservation not found" });
-    }
-    const allowed = Array.isArray(req.user.projectIds)
-      ? req.user.projectIds.includes(Number(pre.rows[0].project_id))
-      : false;
-    if (!allowed) {
-      return res.status(404).json({ errorMessage: "Reservation not found" });
-    }
-  } else {
-    const guard = forbidEnduserMutation(req, res);
-    if (guard) return guard;
-  }
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) {
     return res.status(400).json({ errorMessage: "Invalid id" });
@@ -734,9 +1956,9 @@ router.put("/:id", async (req, res) => {
     const { rows: joined } = await pool.query(
       `SELECT r.id, r.project_id, p.name AS project_name,
               r.name, r.slug, r.secret_token, r.allowed_origins,
-              r.status, r.granularity, r.slot_duration_minutes,
-              r.lead_time_minutes, r.max_advance_days,
+              r.status,
               r.extra_fields_enabled, r.disable_hungarian_holidays,
+              r.embed_title, r.brand_color, r.iframe_width, r.iframe_height,
               r.created_at, r.updated_at
        FROM reservations r
        JOIN projects p ON p.id = r.project_id
@@ -765,19 +1987,22 @@ router.put("/:id", async (req, res) => {
 // decided not to enforce a 409 "has bookings" guard — operators can wipe a
 // reservation along with its bookings via the FK CASCADE.
 router.delete("/:id", async (req, res) => {
-  const guard = forbidEnduserMutation(req, res);
-  if (guard) return guard;
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) {
     return res.status(400).json({ errorMessage: "Invalid id" });
   }
   try {
-    const { rowCount } = await pool.query(
-      `DELETE FROM reservations WHERE id = $1`,
+    const { rows } = await pool.query(
+      `DELETE FROM reservations WHERE id = $1 RETURNING module_id`,
       [id],
     );
-    if (rowCount === 0) {
+    if (rows.length === 0) {
       return res.status(404).json({ errorMessage: "Reservation not found" });
+    }
+    // Clean up the registry row (one-per-project, so always safe to remove).
+    const moduleId = rows[0].module_id;
+    if (moduleId) {
+      await pool.query(`DELETE FROM project_modules WHERE id = $1`, [moduleId]);
     }
     return res.status(204).send();
   } catch (err) {
@@ -797,8 +2022,7 @@ router.get("/:id/snippet", async (req, res) => {
   }
   try {
     const { rows } = await pool.query(
-      `SELECT name, slug, secret_token, granularity, slot_duration_minutes,
-              lead_time_minutes, max_advance_days, allowed_origins
+      `SELECT name, secret_token, allowed_origins, iframe_width, iframe_height
        FROM reservations WHERE id = $1`,
       [id],
     );
@@ -812,22 +2036,15 @@ router.get("/:id/snippet", async (req, res) => {
     // The snippet is a self-contained <form> tag that POSTs directly to the
     // public endpoint, plus a separate GET availability endpoint the FE
     // hits to render greyed-out slots before the visitor submits.
-    const snippet = `<!-- CMS Reservation "${r.name}" (slug=${r.slug}) -->
-<form id="cms-reservation-${r.slug}"
-      action="${origin}/api/public/reservations/${r.secret_token}/bookings"
-      method="POST"
-      accept-charset="utf-8"
-      target="_self"
-      data-granularity="${r.granularity}"
-      ${r.slot_duration_minutes !== null ? `data-slot-duration-minutes="${r.slot_duration_minutes}" ` : ""}data-availability-endpoint="${origin}/api/public/reservations/${r.secret_token}/availability">
-  <!-- Required hidden fields: startsAt and endsAt in ISO 8601 UTC.
-       GET the availability endpoint (see data-availability-endpoint) and
-       grey-out already-booked ranges client-side before submitting. -->
-</form>`;
+    const embedUrl = `${origin}/embed/reservations/${r.secret_token}`;
+    const iframeWidth = r.iframe_width || "100%";
+    const iframeHeight = r.iframe_height || "760px";
+    const snippet = `<!-- CMS Reservation "${r.name}" -->
+<iframe src="${embedUrl}" title="${r.name}" loading="lazy" style="width:${iframeWidth};min-height:${iframeHeight};border:0" allow="clipboard-write"></iframe>`;
     return res.json({
       html: snippet,
+      embedUrl,
       secretToken: r.secret_token,
-      slug: r.slug,
       origin,
       granularity: r.granularity,
       slotDurationMinutes: r.slot_duration_minutes === null || r.slot_duration_minutes === undefined
@@ -860,16 +2077,173 @@ const ALLOWED_BOOKING_SORT_FIELDS = new Set([
   "startsAt",
   "endsAt",
   "bookedAt",
-  "ipAddress",
-  "locale",
+  "serviceName",
+  "customerName",
+  "workerFirstName",
+  "status",
 ]);
 const BOOKING_SORT_COLUMN_MAP = {
   startsAt: "starts_at",
   endsAt: "ends_at",
   bookedAt: "booked_at",
-  ipAddress: "ip_address",
-  locale: "locale",
+  serviceName: "COALESCE(rst.name, b.service_name_snapshot)",
+  customerName: "COALESCE(COALESCE(rc.last_name, b.last_name) || ' ' || COALESCE(rc.first_name, b.first_name), '')",
+  workerFirstName: "COALESCE(COALESCE(wb.last_name, ws.last_name) || ' ' || COALESCE(wb.first_name, ws.first_name), '')",
+  status: "b.status",
 };
+
+// ---------------------------------------------------------------------------
+// Date/time matching for bookings search.
+//
+// Tries every plausible user input format and returns SQL conditions +
+// params when matched, or null when the term isn't recognisable as a
+// date/time pattern.  Each returned condition is wrapped in parens so it
+// composes cleanly with the text-ILIKE clause via AND.
+//
+// Supported patterns (case-insensitive, leading/trailing whitespace ok):
+//   17                → day of month (any month)
+//   08.17 / 08-17     → month.day  (US style)
+//   17.08 / 17-08     → day.month  (EU style)
+//   17. / .17         → day of month
+//   08.2026 / 08/2026 → month.year
+//   17:00             → exact hour:minute
+//   17-18 / 17..18    → hour range (inclusive, wraps midnight)
+//   14:00-15:00       → time range (inclusive, wraps midnight)
+//   aug / august      → month name
+//   jan-dec           → month name
+// ---------------------------------------------------------------------------
+const MONTH_NAMES = {
+  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
+  apr: 4, april: 4, may: 5, jun: 6, june: 6,
+  jul: 7, july: 7, aug: 8, august: 8, sep: 9, september: 9,
+  oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12,
+};
+
+// All EXTRACTs use AT TIME ZONE 'Europe/Budapest' so the user sees local
+// time, matching what the UI displays.  DB stores UTC timestamps.
+const TZ = "'Europe/Budapest'";
+const startsLocal = `b.starts_at AT TIME ZONE ${TZ}`;
+const hExpr = `EXTRACT(HOUR FROM ${startsLocal})`;
+const mExpr = `EXTRACT(MINUTE FROM ${startsLocal})`;
+const dayExpr = `EXTRACT(DAY FROM ${startsLocal})`;
+const monthExpr = `EXTRACT(MONTH FROM ${startsLocal})`;
+const yearExpr = `EXTRACT(YEAR FROM ${startsLocal})`;
+const minuteOfDay = `${hExpr}*60+${mExpr}`;
+
+function buildBookingsDateConditions(term, pos) {
+  const t = term.trim().toLowerCase();
+
+  // --- Month name → match any day in that month ---
+  const mName = MONTH_NAMES[t];
+  if (mName !== undefined) {
+    return {
+      sql: `(${monthExpr} = $${pos})`,
+      params: [mName],
+    };
+  }
+
+  // --- Time range: HH:MM-HH:MM  or  HH:MM..HH:MM ---
+  const tr = t.match(/^(\d{1,2}):(\d{2})\s*(?:[-]{1,2}|[.]{2})\s*(\d{1,2}):(\d{2})$/);
+  if (tr) {
+    const sh = +tr[1], sm = +tr[2], eh = +tr[3], em = +tr[4];
+    if (sh >= 0 && sh < 24 && eh >= 0 && eh < 24 && sm >= 0 && sm < 60 && em >= 0 && em < 60) {
+      if (sh <= eh) {
+        return {
+          sql: `(${minuteOfDay} >= $${pos} AND ${minuteOfDay} <= $${pos + 1})`,
+          params: [sh * 60 + sm, eh * 60 + em],
+        };
+      } else {
+        // wraps midnight: 22:00-06:00
+        return {
+          sql: `(${minuteOfDay} >= $${pos} OR ${minuteOfDay} <= $${pos + 1})`,
+          params: [sh * 60 + sm, eh * 60 + em],
+        };
+      }
+    }
+  }
+
+  // --- Hour range: HH-HH  or  HH..HH ---
+  const hr = t.match(/^(\d{1,2})\s*(?:[-]{1,2}|[.]{2})\s*(\d{1,2})$/);
+  if (hr) {
+    const sh = +hr[1], eh = +hr[2];
+    if (sh >= 0 && sh < 24 && eh >= 0 && eh < 24 && sh !== eh) {
+      if (sh < eh) {
+        return {
+          sql: `(${hExpr} >= $${pos} AND ${hExpr} < $${pos + 1})`,
+          params: [sh, eh],
+        };
+      } else {
+        // wraps midnight: 22-6
+        return {
+          sql: `(${hExpr} >= $${pos} OR ${hExpr} < $${pos + 1})`,
+          params: [sh, eh],
+        };
+      }
+    }
+  }
+
+  // --- Time: HH:MM ---
+  const tm = t.match(/^(\d{1,2}):(\d{2})$/);
+  if (tm) {
+    const h = +tm[1], m = +tm[2];
+    if (h >= 0 && h < 24 && m >= 0 && m < 60) {
+      return {
+        sql: `(${hExpr} = $${pos} AND ${mExpr} = $${pos + 1})`,
+        params: [h, m],
+      };
+    }
+  }
+
+  // --- Month/year: MM.YYYY  or  MM-YYYY  or  MM/YYYY ---
+  const my = t.match(/^(\d{1,2})\s*[.\-/]\s*(\d{4})$/);
+  if (my) {
+    const m = +my[1], y = +my[2];
+    if (m >= 1 && m <= 12 && y >= 2000 && y <= 2100) {
+      return {
+        sql: `(${monthExpr} = $${pos} AND ${yearExpr} = $${pos + 1})`,
+        params: [m, y],
+      };
+    }
+  }
+
+  // --- Month/day: MM.DD / MM-DD  (US) ---
+  const md = t.match(/^(\d{1,2})\s*[.\-/]\s*(\d{1,2})$/);
+  if (md) {
+    const m = +md[1], d = +md[2];
+    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return {
+        sql: `(${monthExpr} = $${pos} AND ${dayExpr} = $${pos + 1})`,
+        params: [m, d],
+      };
+    }
+  }
+
+  // --- Day/month: DD.MM / DD-MM  (EU) ---
+  const dm = t.match(/^(\d{1,2})\s*[.\-/]\s*(\d{1,2})$/);
+  if (dm) {
+    const d = +dm[1], m = +dm[2];
+    if (d >= 1 && d <= 31 && m >= 1 && m <= 12) {
+      return {
+        sql: `(${dayExpr} = $${pos} AND ${monthExpr} = $${pos + 1})`,
+        params: [d, m],
+      };
+    }
+  }
+
+  // --- Day with dot/slash: 17. or .17 ---
+  const dd = t.match(/^\.?(\d{1,2})\.?$/);
+  if (dd) {
+    const d = +dd[1];
+    if (d >= 1 && d <= 31) {
+      return {
+        sql: `(${dayExpr} = $${pos})`,
+        params: [d],
+      };
+    }
+  }
+
+  return null;
+}
 
 function buildBookingsWhere({ queries = [], filterType = "any" }, baseIndex = 2) {
   const terms = queries.filter((q) => typeof q === "string" && q.trim().length > 0);
@@ -877,18 +2251,31 @@ function buildBookingsWhere({ queries = [], filterType = "any" }, baseIndex = 2)
   const conj = filterType === "all" ? " AND " : " OR ";
   const clauses = [];
   const params = [];
+  let paramOffset = 0;
   for (let i = 0; i < terms.length; i++) {
-    const pattern = `%${terms[i].replace(/[%_]/g, (m) => "\\" + m)}%`;
-    const pos = baseIndex + i;
-    // data::text ILIKE on the validated JSONB blob (only meaningful when
-    // extra_fields_enabled on the reservation). locale and ipAddress are
-    // also searchable.
-    clauses.push(
-      "(b.ip_address::text ILIKE $" + pos +
-      " OR b.locale ILIKE $" + pos +
-      " OR b.data::text ILIKE $" + pos + ")",
-    );
-    params.push(pattern);
+    const pos = baseIndex + paramOffset;
+    // Try date/time pattern matching first
+    const dateCond = buildBookingsDateConditions(terms[i], pos);
+    if (dateCond) {
+      clauses.push(dateCond.sql);
+      params.push(...dateCond.params);
+      paramOffset += dateCond.params.length;
+    } else {
+      // Fallback: text ILIKE across service name, customer name, email, phone, worker name, and data blob.
+      const pattern = `%${terms[i].replace(/[%_]/g, (m) => "\\" + m)}%`;
+      clauses.push(
+        "(COALESCE(rst.name, b.service_name_snapshot) ILIKE $" + pos +
+        " OR b.first_name ILIKE $" + pos +
+        " OR b.last_name ILIKE $" + pos +
+        " OR b.email ILIKE $" + pos +
+        " OR b.phone ILIKE $" + pos +
+        " OR COALESCE(wb.first_name, ws.first_name) ILIKE $" + pos +
+        " OR COALESCE(wb.last_name, ws.last_name) ILIKE $" + pos +
+        " OR b.data::text ILIKE $" + pos + ")",
+      );
+      params.push(pattern);
+      paramOffset += 1;
+    }
   }
   return {
     sql: " AND (" + clauses.join(conj) + ")",
@@ -926,6 +2313,108 @@ const rowToBookingDTO = (row) => {
   };
 };
 
+// ===========================================================================
+// Reservation calendar helpers — month summary + lazy day details
+// ===========================================================================
+
+// ---- GET /api/reservations/:reservationId/calendar?month=YYYY-MM ----
+router.get("/:reservationId/calendar", async (req, res, next) => {
+  try {
+    const reservationId = parseReservationIdParam(req.params.reservationId);
+    if (reservationId === null) {
+      return res.status(400).json({ errorMessage: "Invalid reservation id" });
+    }
+
+    const month = typeof req.query.month === "string" ? req.query.month.trim() : "";
+    if (!month || !MONTH_RE.test(month)) {
+      return res.status(400).json({ errorMessage: "month query parameter is required in YYYY-MM format" });
+    }
+
+    const preCheck = await pool.query(
+      `SELECT id, project_id FROM reservations WHERE id = $1`,
+      [reservationId],
+    );
+    if (preCheck.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "Reservation not found" });
+    }
+    if (isEnduser(req)) {
+      const allowed = Array.isArray(req.user.projectIds)
+        ? req.user.projectIds.includes(Number(preCheck.rows[0].project_id))
+        : false;
+      if (!allowed) {
+        return res.status(404).json({ errorMessage: "Reservation not found" });
+      }
+    }
+
+    const result = await getCalendarMonthSlots({ reservationId, monthKey: month });
+    if (!result) {
+      return res.status(404).json({ errorMessage: "Reservation not found" });
+    }
+
+    let slots = result.slots.map(rowToCalendarSlotSummary);
+
+    // Filter: hide empty slots (seatsTaken === 0)
+    if (req.query.hideEmpty === "true") {
+      slots = slots.filter((slot) => slot.seatsTaken > 0);
+    }
+
+    // Filter: only show slots for a specific worker
+    const workerIdParam = parseInt(req.query.workerId, 10);
+    if (Number.isFinite(workerIdParam) && workerIdParam > 0) {
+      slots = slots.filter((slot) => slot.workerUserId === workerIdParam);
+    }
+
+    return res.json({
+      month: result.month,
+      slots,
+    });
+  } catch (err) {
+    console.error("[reservations/calendar/month]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
+// ---- GET /api/reservations/:reservationId/calendar/:date ----
+router.get("/:reservationId/calendar/:date", async (req, res, next) => {
+  try {
+    const reservationId = parseReservationIdParam(req.params.reservationId);
+    if (reservationId === null) {
+      return res.status(400).json({ errorMessage: "Invalid reservation id" });
+    }
+
+    const dateStr = typeof req.params.date === "string" ? req.params.date.trim() : "";
+    if (!dateStr || !ISO_DATE_RE.test(dateStr)) {
+      return res.status(400).json({ errorMessage: "date path parameter must be YYYY-MM-DD" });
+    }
+
+    const preCheck = await pool.query(
+      `SELECT id, project_id FROM reservations WHERE id = $1`,
+      [reservationId],
+    );
+    if (preCheck.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "Reservation not found" });
+    }
+    if (isEnduser(req)) {
+      const allowed = Array.isArray(req.user.projectIds)
+        ? req.user.projectIds.includes(Number(preCheck.rows[0].project_id))
+        : false;
+      if (!allowed) {
+        return res.status(404).json({ errorMessage: "Reservation not found" });
+      }
+    }
+
+    const result = await getCalendarDayDetails({ reservationId, dateStr });
+    if (!result) {
+      return res.status(404).json({ errorMessage: "Reservation not found" });
+    }
+
+    return res.json(result);
+  } catch (err) {
+    console.error("[reservations/calendar/day]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});
+
 // ---- GET /api/reservations/:id/bookings ----
 router.get("/:id/bookings", async (req, res, next) => {
   try {
@@ -951,6 +2440,13 @@ router.get("/:id/bookings", async (req, res, next) => {
       : rawQueries
         ? [rawQueries]
         : [];
+    // Live search text from typing (not a chip) — merge into queries
+    const searchText = typeof req.query.searchText === "string" && req.query.searchText.trim()
+      ? req.query.searchText.trim()
+      : null;
+    if (searchText && !queries.includes(searchText)) {
+      queries.push(searchText);
+    }
     const filterType = req.query.filterType === "all" ? "all" : "any";
 
     // Verify the reservation exists so we 404 instead of returning [].
@@ -982,9 +2478,25 @@ router.get("/:id/bookings", async (req, res, next) => {
     const limitParam = dataParams.length - 1;
     const offsetParam = dataParams.length;
 
-    const dataSql = `SELECT id, reservation_id, starts_at, ends_at, booked_at,
-                            ip_address, user_agent, referer, data, locale
+    const dataSql = `SELECT b.id, b.reservation_id, b.starts_at, b.ends_at, b.booked_at,
+                            b.ip_address, b.user_agent, b.referer, b.data, b.locale,
+                            b.service_id, b.first_name, b.last_name, b.email, b.phone, b.comment,
+                            b.customer_id, b.created_by_user_id, b.worker_user_id,
+                            b.service_name_snapshot, b.duration_minutes_snapshot,
+                            b.price_amount_snapshot, b.currency_snapshot, b.timezone,
+                            b.status, b.source,
+                            b.cancelled_at, b.cancelled_by_user_id, b.cancellation_reason,
+                            COALESCE(rst.name, b.service_name_snapshot) AS service_name,
+                            rc.first_name AS customer_first_name, rc.last_name AS customer_last_name,
+                            rc.email AS customer_email, rc.phone AS customer_phone,
+                            COALESCE(wb.first_name, ws.first_name) AS worker_first_name,
+                            COALESCE(wb.last_name, ws.last_name) AS worker_last_name
                      FROM reservation_bookings b
+                     LEFT JOIN reservation_service_translations rst ON rst.service_id = b.service_id AND rst.locale = 'hu'
+                     LEFT JOIN reservation_customers rc ON rc.id = b.customer_id
+                     LEFT JOIN users wb ON wb.id = b.worker_user_id
+                     LEFT JOIN reservation_services svc ON svc.id = b.service_id
+                     LEFT JOIN users ws ON ws.id = svc.worker_user_id
                      WHERE b.reservation_id = $1${where.sql}
                      ${orderSql}
                      LIMIT $${limitParam} OFFSET $${offsetParam}`;
@@ -992,12 +2504,16 @@ router.get("/:id/bookings", async (req, res, next) => {
 
     const countSql = `SELECT COUNT(*)::bigint AS total
                       FROM reservation_bookings b
+                      LEFT JOIN reservation_service_translations rst ON rst.service_id = b.service_id AND rst.locale = 'hu'
+                      LEFT JOIN users wb ON wb.id = b.worker_user_id
+                      LEFT JOIN reservation_services svc ON svc.id = b.service_id
+                      LEFT JOIN users ws ON ws.id = svc.worker_user_id
                       WHERE b.reservation_id = $1${where.sql}`;
     const countResult = await pool.query(countSql, [reservationId, ...where.params]);
     const totalElements = Number(countResult.rows[0].total);
     const totalPages = Math.max(1, Math.ceil(totalElements / size));
 
-    const content = dataResult.rows.map(rowToBookingDTO);
+    const content = dataResult.rows.map(rowToReservationBookingDTO);
     const sorted = !!req.query.sortField;
 
     return res.json({
@@ -1057,19 +2573,98 @@ router.get("/:id/bookings/:bookingId", async (req, res, next) => {
       }
     }
     const { rows, rowCount } = await pool.query(
-      `SELECT id, reservation_id, starts_at, ends_at, booked_at,
-              ip_address, user_agent, referer, data, locale
-       FROM reservation_bookings
-       WHERE reservation_id = $1 AND id = $2`,
+      `SELECT b.id, b.reservation_id, b.starts_at, b.ends_at, b.booked_at,
+              b.ip_address, b.user_agent, b.referer, b.data, b.locale,
+              b.service_id, b.first_name, b.last_name, b.email, b.phone, b.comment,
+              b.customer_id, b.created_by_user_id, b.worker_user_id,
+              b.service_name_snapshot, b.duration_minutes_snapshot,
+              b.price_amount_snapshot, b.currency_snapshot, b.timezone,
+              b.status, b.source,
+              b.cancelled_at, b.cancelled_by_user_id, b.cancellation_reason,
+              COALESCE(rst.name, b.service_name_snapshot) AS service_name,
+              rc.first_name AS customer_first_name, rc.last_name AS customer_last_name,
+              rc.email AS customer_email, rc.phone AS customer_phone,
+              COALESCE(wb.first_name, ws.first_name) AS worker_first_name,
+              COALESCE(wb.last_name, ws.last_name) AS worker_last_name
+       FROM reservation_bookings b
+       LEFT JOIN reservation_service_translations rst ON rst.service_id = b.service_id AND rst.locale = 'hu'
+       LEFT JOIN reservation_customers rc ON rc.id = b.customer_id
+       LEFT JOIN users wb ON wb.id = b.worker_user_id
+       LEFT JOIN reservation_services svc ON svc.id = b.service_id
+       LEFT JOIN users ws ON ws.id = svc.worker_user_id
+       WHERE b.reservation_id = $1 AND b.id = $2`,
       [reservationId, bookingId],
     );
     if (rowCount === 0) {
       return res.status(404).json({ errorMessage: "Booking not found" });
     }
-    return res.json(rowToBookingDTO(rows[0]));
+    return res.json(rowToReservationBookingDTO(rows[0]));
   } catch (err) {
     console.error("[reservations/bookings/get]", err.code, err.message);
     next(err);
+  }
+});
+
+// ---- PATCH /api/reservations/:id/bookings/:bookingId — status update ----
+router.patch("/:id/bookings/:bookingId", async (req, res, next) => {
+  try {
+    const reservationId = parseInt(req.params.id, 10);
+    const bookingId = parseInt(req.params.bookingId, 10);
+    if (!Number.isFinite(reservationId) || !Number.isFinite(bookingId)) {
+      return res.status(400).json({ errorMessage: "Invalid ids" });
+    }
+    const body = req.body ?? {};
+    const VALID_STATUSES = new Set(["confirmed", "cancelled", "completed", "no_show"]);
+    if (!body.status || !VALID_STATUSES.has(body.status)) {
+      return res.status(400).json({ errorMessage: "Invalid status" });
+    }
+
+    // Load booking
+    const bookingResult = await pool.query(
+      `SELECT rb.*, rs.worker_user_id AS svc_worker_user_id
+       FROM reservation_bookings rb
+       LEFT JOIN reservation_services rs ON rs.id = rb.service_id
+       WHERE rb.reservation_id = $1 AND rb.id = $2`,
+      [reservationId, bookingId],
+    );
+    if (bookingResult.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "Booking not found" });
+    }
+    const booking = bookingResult.rows[0];
+
+    // Enduser scope check
+    if (isEnduser(req)) {
+      const pre = await pool.query(`SELECT project_id FROM reservations WHERE id = $1`, [reservationId]);
+      if (pre.rowCount === 0 || !req.user.projectIds?.includes(Number(pre.rows[0].project_id))) {
+        return res.status(404).json({ errorMessage: "Booking not found" });
+      }
+      // Endusers can only update bookings on their assigned services
+      if (booking.svc_worker_user_id && booking.svc_worker_user_id !== req.user.id) {
+        return res.status(403).json({ errorMessage: "Not authorized for this service" });
+      }
+    }
+
+    const sets = [`status = $1`];
+    const params = [body.status];
+    let pi = 2;
+    if (body.status === "cancelled") {
+      sets.push(`cancelled_at = NOW()`);
+      sets.push(`cancelled_by_user_id = $${pi++}`);
+      params.push(req.user?.id || null);
+      if (body.cancellationReason) {
+        sets.push(`cancellation_reason = $${pi++}`);
+        params.push(body.cancellationReason);
+      }
+    }
+    params.push(bookingId);
+    await pool.query(`UPDATE reservation_bookings SET ${sets.join(", ")} WHERE id = $${pi}`, params);
+
+    const updated = await pool.query(
+      `SELECT * FROM reservation_bookings WHERE id = $1`, [bookingId]);
+    return res.json(rowToReservationBookingDTO(updated.rows[0]));
+  } catch (err) {
+    console.error("[reservations/bookings/status]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
   }
 });
 
@@ -1087,8 +2682,6 @@ router.get("/:id/bookings/:bookingId", async (req, res, next) => {
 // ---------------------------------------------------------------------------
 router.post("/:id/bookings", async (req, res, next) => {
   try {
-    const guard = forbidEnduserMutation(req, res);
-    if (guard) return guard;
 
     const reservationId = parseInt(req.params.id, 10);
     if (!Number.isFinite(reservationId) || reservationId <= 0) {
@@ -1096,8 +2689,8 @@ router.post("/:id/bookings", async (req, res, next) => {
     }
 
     const reservationResult = await pool.query(
-      `SELECT id, status, granularity, slot_duration_minutes,
-              disable_hungarian_holidays, extra_fields_enabled
+      `SELECT id, project_id, status, granularity, slot_duration_minutes,
+              disable_hungarian_holidays, extra_fields_enabled, default_locale, timezone
        FROM reservations WHERE id = $1`,
       [reservationId],
     );
@@ -1110,48 +2703,132 @@ router.post("/:id/bookings", async (req, res, next) => {
     }
 
     const body = req.body ?? {};
+
+    // Resolve service: explicit serviceId or default service
+    let serviceId = parseInt(body.serviceId, 10);
+    let serviceRow;
+    if (serviceId && Number.isFinite(serviceId)) {
+      const svcResult = await pool.query(
+        `SELECT rs.id, rst.name, rs.duration_minutes, rs.price_amount, rs.currency, rs.capacity, rs.worker_user_id, rs.status
+         FROM reservation_services rs
+         LEFT JOIN reservation_service_translations rst ON rst.service_id = rs.id AND rst.locale = 'hu'
+         WHERE rs.id = $1 AND rs.reservation_id = $2`,
+        [serviceId, reservationId],
+      );
+      if (svcResult.rowCount === 0 || svcResult.rows[0].status !== "active") {
+        return res.status(400).json({ errorMessage: "Invalid or inactive service" });
+      }
+      serviceRow = svcResult.rows[0];
+    } else {
+      const defaultSvc = await pool.query(
+        `SELECT rs.id, rst.name, rs.duration_minutes, rs.price_amount, rs.currency, rs.capacity, rs.worker_user_id, rs.status
+         FROM reservation_services rs
+         LEFT JOIN reservation_service_translations rst ON rst.service_id = rs.id AND rst.locale = 'hu'
+         WHERE rs.reservation_id = $1 AND rs.status = 'active' ORDER BY rs.sort_order, rs.id LIMIT 1`,
+        [reservationId],
+      );
+      if (defaultSvc.rowCount === 0) {
+        return res.status(400).json({ errorMessage: "No active service found for this reservation" });
+      }
+      serviceRow = defaultSvc.rows[0];
+      serviceId = serviceRow.id;
+    }
+
+    // Validate contact
+    const contactResult = validateReservationContact(body);
+    if (!contactResult.ok) return res.status(400).json({ errorMessage: contactResult.error });
+
+    // Validate custom fields
+    const fieldDefs = await pool.query(
+      `SELECT field_key, field_type, required FROM reservation_service_fields WHERE service_id = $1`,
+      [serviceId],
+    );
+    if (body.fields) {
+      const fieldsResult = validateReservationServiceFields(fieldDefs.rows, body.fields);
+      if (!fieldsResult.ok) return res.status(400).json({ errorMessage: fieldsResult.error });
+    }
+
+    // Slot alignment validation
     const v = await validateBookingItem({
       body,
       reservation,
+      service: serviceRow,
       checkAvailability: checkSlotAvailability,
     });
-    if (!v.ok) {
-      return res.status(400).json({ errorMessage: v.error });
+    if (!v.ok) return res.status(400).json({ errorMessage: v.error });
+
+    const source = typeof body._source === "string" && body._source === "import"
+      ? "import" : (isEnduser(req) ? "portal" : "admin");
+
+    // Create booking via transaction with capacity enforcement
+    const result = await createReservationBooking({
+      reservation,
+      service: serviceRow,
+      startsAtIso: v.startsAtIso,
+      endsAtIso: v.endsAtIso,
+      contact: contactResult.value,
+      customerId: body.customerId || null,
+      customData: body.fields || null,
+      locale: body.locale || reservation.default_locale || "hu",
+      createdByUserId: req.user?.id || null,
+      source,
+      workerUserId: null,
+    });
+
+    if (result.error) {
+      return res.status(result.code === "SLOT_FULL" ? 409 : 400).json({ errorMessage: result.error });
     }
 
-    // Atomic insert — EXCLUDE constraint catches overlaps.
-    const insertResult = await pool.query(
-      `INSERT INTO reservation_bookings
-         (reservation_id, starts_at, ends_at, ip_address, user_agent, referer, locale, data)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
-       RETURNING id, starts_at, ends_at, booked_at`,
-      [
-        reservationId,
-        v.startsAtIso,
-        v.endsAtIso,
-        null,
-        // Tag with "admin-import" when the create came from the bulk
-        // importer so the calendar badge can distinguish manual admin
-        // creates from migration-imported rows.
-        typeof body._source === "string" && body._source === "import"
-          ? "admin-import"
-          : "admin-panel",
-        null,
-        null,
-        v.dataJson,
-      ],
-    );
+    // Fire-and-forget notifications
+    const customerName = `${contactResult.value.lastName} ${contactResult.value.firstName}`;
 
-    const row = insertResult.rows[0];
-    return res.status(201).json({
-      id: Number(row.id),
-      reservationId,
-      startsAt: row.starts_at instanceof Date ? row.starts_at.toISOString() : row.starts_at,
-      endsAt: row.ends_at instanceof Date ? row.ends_at.toISOString() : row.ends_at,
-      bookedAt: row.booked_at instanceof Date ? row.booked_at.toISOString() : row.booked_at,
-    });
+    // Resolve worker info if assigned
+    let workerEmail = null;
+    let workerName = null;
+    if (serviceRow.worker_user_id) {
+      try {
+        const workerResult = await pool.query(
+          `SELECT first_name, last_name, email FROM users WHERE id = $1 AND role = 'enduser' AND enabled = true`,
+          [serviceRow.worker_user_id],
+        );
+        if (workerResult.rowCount > 0) {
+          const w = workerResult.rows[0];
+          if (w.email) workerEmail = w.email.trim();
+          const parts = [w.last_name, w.first_name].filter(Boolean);
+          if (parts.length > 0) workerName = parts.join(" ");
+        }
+      } catch { /* ignore */ }
+    }
+
+    // Customer confirmation — footer "write to" = worker email, sign-off = worker name
+    notifySubmitter({
+      kind: "reservation", projectId: reservation.project_id,
+      formName: serviceRow.name || "Reservation", data: null,
+      locale: body.locale || "hu", startsAt: v.startsAtIso, endsAt: v.endsAtIso,
+      bookingId: result.booking.id, serviceName: serviceRow.name,
+      email: contactResult.value.email,
+      replyTo: workerEmail || undefined,
+      signerName: workerName || undefined,
+    }).catch(() => {});
+
+    // Worker notification — Nexus branding, customer details, no reply hint, no sign-off
+    if (workerEmail) {
+      notifySubmitter({
+        kind: "reservation", projectId: reservation.project_id,
+        formName: serviceRow.name || "Reservation", data: null,
+        locale: body.locale || "hu", startsAt: v.startsAtIso, endsAt: v.endsAtIso,
+        bookingId: result.booking.id, serviceName: serviceRow.name,
+        to: workerEmail,
+        useBrandDefaults: true,
+        customerName,
+        customerEmail: contactResult.value.email,
+        customerPhone: contactResult.value.phone,
+        comment: contactResult.value.comment || null,
+      }).catch(() => {});
+    }
+
+    return res.status(201).json(rowToReservationBookingDTO(result.booking));
   } catch (err) {
-    // 23P01 = exclusion_violation → slot already booked.
     if (err.code === "23P01") {
       return res.status(409).json({ errorMessage: "Slot already booked" });
     }
@@ -1178,8 +2855,6 @@ router.post("/:id/bookings", async (req, res, next) => {
 // ---------------------------------------------------------------------------
 router.post("/:id/bookings/dry-run", async (req, res, next) => {
   try {
-    const guard = forbidEnduserMutation(req, res);
-    if (guard) return guard;
 
     const reservationId = parseInt(req.params.id, 10);
     if (!Number.isFinite(reservationId) || reservationId <= 0) {

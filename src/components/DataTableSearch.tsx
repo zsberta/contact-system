@@ -1,4 +1,4 @@
-import React, { useState, KeyboardEvent, useRef, useEffect } from "react";
+import React, { useCallback, KeyboardEvent, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -16,60 +16,97 @@ export interface DataTableSearchProps {
   queries: string[];
   filterType: "any" | "all";
   onQueriesChange: (queries: string[]) => void;
+  onSearchTextChange?: (searchText: string) => void;
   onFilterTypeChange: (filterType: "any" | "all") => void;
   disabled?: boolean;
   placeholder?: string;
   constrainedHeight?: boolean;
 }
 
-export function DataTableSearch({
+// Memoized: never re-render from parent state changes.
+// Input is uncontrolled — React never touches its DOM node.
+export const DataTableSearch = React.memo(function DataTableSearch({
   queries,
   filterType,
-  onQueriesChange,
-  onFilterTypeChange,
+  onQueriesChange = () => {},
+  onSearchTextChange = () => {},
+  onFilterTypeChange = () => {},
   disabled = false,
   placeholder,
   constrainedHeight = false,
 }: DataTableSearchProps) {
   const { t } = useTranslation(["common"]);
-  const [inputValue, setInputValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef(-1);
+  const lastSentRef = useRef("");
+  // Stale-safe refs for callbacks
+  const queriesRef = useRef(queries);
+  queriesRef.current = queries;
+  const onQueriesChangeRef = useRef(onQueriesChange);
+  onQueriesChangeRef.current = onQueriesChange;
+  const onSearchTextChangeRef = useRef(onSearchTextChange);
+  onSearchTextChangeRef.current = onSearchTextChange;
 
-  const handleAddQuery = () => {
-    const trimmedValue = inputValue.trim();
+  const getValue = useCallback(() => inputRef.current?.value ?? "", []);
+
+  // Cleanup debounce on unmount
+  useEffect(() => () => clearTimeout(debounceRef.current), []);
+
+  const scheduleSearch = useCallback(() => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = window.setTimeout(() => {
+      const trimmed = getValue().trim();
+      if (trimmed === lastSentRef.current) return;
+      lastSentRef.current = trimmed;
+      onSearchTextChangeRef.current(trimmed);
+    }, 300);
+  }, [getValue]);
+
+  const handleAddQuery = useCallback(() => {
+    clearTimeout(debounceRef.current);
+    const trimmedValue = getValue().trim();
     if (!trimmedValue) {
-      setInputValue("");
+      if (inputRef.current) inputRef.current.value = "";
       return;
     }
 
     const separators = /[;,| ]/u;
+    const qs = queriesRef.current;
     const newQueries = trimmedValue
       .split(separators)
       .map((q) => q.trim())
-      .filter((q) => q && !queries.includes(q));
+      .filter((q) => q && !qs.includes(q));
 
     if (newQueries.length > 0) {
-      onQueriesChange([...queries, ...newQueries]);
+      onQueriesChangeRef.current([...qs, ...newQueries]);
     }
-    setInputValue("");
-  };
+    lastSentRef.current = "";
+    onSearchTextChangeRef.current("");
+    if (inputRef.current) inputRef.current.value = "";
+    inputRef.current?.focus();
+  }, [getValue]);
 
-  const handleRemoveQuery = (queryToRemove: string) => {
-    onQueriesChange(queries.filter((q) => q !== queryToRemove));
-  };
+  const handleRemoveQuery = useCallback((queryToRemove: string) => {
+    const qs = queriesRef.current;
+    onQueriesChangeRef.current(qs.filter((q) => q !== queryToRemove));
+  }, []);
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handleAddQuery();
-    } else if (
-      e.key === "Backspace" &&
-      inputValue === "" &&
-      queries.length > 0
-    ) {
-      onQueriesChange(queries.slice(0, -1));
-    }
-  };
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleAddQuery();
+      } else if (e.key === "Backspace" && getValue() === "" && queriesRef.current.length > 0) {
+        const qs = queriesRef.current;
+        onQueriesChangeRef.current(qs.slice(0, -1));
+      }
+    },
+    [handleAddQuery, getValue],
+  );
+
+  const handleInput = useCallback(() => {
+    scheduleSearch();
+  }, [scheduleSearch]);
 
   return (
     <div className={cn("w-full", constrainedHeight && "flex-shrink-0 mb-4")}>
@@ -85,8 +122,7 @@ export function DataTableSearch({
           <Input
             ref={inputRef}
             placeholder={placeholder || t("common:search")}
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
+            onInput={handleInput}
             onKeyDown={handleKeyDown}
             disabled={disabled}
             className="pl-10 pr-12 rounded-r-none border-r-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:z-10 h-10"
@@ -141,4 +177,4 @@ export function DataTableSearch({
       )}
     </div>
   );
-}
+});

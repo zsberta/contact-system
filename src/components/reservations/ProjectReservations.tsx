@@ -8,6 +8,7 @@
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 import {
   Card,
   CardContent,
@@ -45,6 +46,11 @@ export function ProjectReservations({ projectId }: ProjectReservationsProps) {
       }),
   });
 
+  const handleReservationClick = async (reservationId: number) => {
+    const path = await resolveModulePath(projectId, "reservation");
+    if (path) navigate(path);
+  };
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
@@ -78,7 +84,7 @@ export function ProjectReservations({ projectId }: ProjectReservationsProps) {
               <li
                 key={reservation.id}
                 className="flex items-center justify-between p-3 border rounded-md cursor-pointer hover:bg-muted/50"
-                onClick={() => navigate(`/reservations/view/${reservation.id}`)}
+                onClick={() => handleReservationClick(reservation.id)}
               >
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <CalendarClock className="h-4 w-4 text-muted-foreground flex-shrink-0" />

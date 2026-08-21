@@ -11,6 +11,7 @@ import React, { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/DataTable";
@@ -93,7 +94,10 @@ const FormsPage: React.FC = () => {
     [],
   );
   const handleRowDoubleClick = useCallback(
-    (row: FormDTO) => navigate(`/forms/view/${row.id}`),
+    async (row: FormDTO) => {
+      const path = await resolveModulePath(row.projectId, "form");
+      if (path) navigate(path);
+    },
     [navigate],
   );
 

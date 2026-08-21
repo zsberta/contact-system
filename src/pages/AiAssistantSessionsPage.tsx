@@ -2,17 +2,15 @@
 
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { useModuleResolution } from "@/hooks/useModuleResolution";
 import { Card, CardContent } from "@/components/ui/card";
 import type { AiAssistantConfigDTO } from "@/types/ai-assistant";
 import { getAiAssistantConfigById } from "@/lib/ai-assistant";
-import { AiAssistantViewNav } from "@/components/ai-assistant/AiAssistantViewNav";
 import { AiChatSessionsPanel } from "@/components/ai-assistant/AiChatSessionsPanel";
 
 const AiAssistantSessionsPage: React.FC = () => {
   const { t } = useTranslation(["ai-assistant", "common"]);
-  const { id } = useParams<{ id: string }>();
-  const configId = id ? Number.parseInt(id) : null;
+  const { resourceId: configId } = useModuleResolution();
 
   const { data: config, isLoading } = useQuery<AiAssistantConfigDTO, Error>({
     queryKey: ["ai-assistant", configId],
@@ -33,7 +31,6 @@ const AiAssistantSessionsPage: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <AiAssistantViewNav configId={config.id} />
       <Card>
         <CardContent className="pt-6">
           <AiChatSessionsPanel configId={config.id} />

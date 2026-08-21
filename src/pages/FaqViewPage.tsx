@@ -30,6 +30,7 @@ import { getFaqItemById, deleteFaqItem } from "@/lib/faq";
 import { FaqItemDTO } from "@/types/faq";
 import FaqPublishButton from "@/components/faq/FaqPublishButton";
 import { showError, showSuccess } from "@/utils/toast";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 
 const statusBadgeVariant = (status: FaqItemDTO["status"]) => {
   switch (status) {
@@ -50,7 +51,6 @@ const FaqViewPage: React.FC = () => {
   const itemId = id && /^\d+$/.test(id) ? Number(id) : NaN;
 
   const [deleteOpen, setDeleteOpen] = React.useState(false);
-  const isPortal = typeof window !== "undefined" && window.location.pathname.startsWith("/portal");
 
   const { data: item, isLoading } = useQuery({
     queryKey: ["faq", "detail", itemId],
@@ -60,11 +60,14 @@ const FaqViewPage: React.FC = () => {
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteFaqItem(itemId),
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ["faq"] });
       showSuccess(t("faq:deleted_toast", { title: item?.questionHu ?? "" }));
       setDeleteOpen(false);
-      navigate(isPortal ? "/portal/faq" : "/faq");
+      if (item?.projectId) {
+        const path = await resolveModulePath(item.projectId, "faq");
+        if (path) navigate(path);
+      }
     },
     onError: (err: Error) => {
       showError(err.message || t("faq:delete_failed_toast"));
@@ -112,14 +115,24 @@ const FaqViewPage: React.FC = () => {
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             <Button
               variant="outline"
-              onClick={() => navigate(isPortal ? "/portal/faq" : "/faq")}
+              onClick={async () => {
+                if (item?.projectId) {
+                  const path = await resolveModulePath(item.projectId, "faq");
+                  if (path) navigate(path);
+                }
+              }}
               className="w-full sm:w-auto"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               {t("common:back")}
             </Button>
             <Button
-              onClick={() => navigate(isPortal ? `/portal/faq/edit/${item.id}` : `/faq/edit/${item.id}`)}
+              onClick={async () => {
+                if (item?.projectId) {
+                  const path = await resolveModulePath(item.projectId, "faq", "edit");
+                  if (path) navigate(path);
+                }
+              }}
               className="w-full sm:w-auto"
             >
               <Pencil className="mr-2 h-4 w-4" />

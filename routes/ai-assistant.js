@@ -707,9 +707,28 @@ router.get("/by-project/:projectId", async (req, res) => {
     }
     const projectName = projectCheck.rows[0].name;
     const secretToken = generateSecretToken();
+    // Create or reuse the project_module registry row for ai-assistant.
+    const { rows: pmRows } = await pool.query(
+      `INSERT INTO project_modules (project_id, module_type)
+       VALUES ($1, 'ai-assistant')
+       ON CONFLICT (project_id, module_type) DO NOTHING
+       RETURNING id`,
+      [projectId],
+    );
+    let moduleId;
+    if (pmRows.length > 0) {
+      moduleId = pmRows[0].id;
+    } else {
+      const { rows: existing } = await pool.query(
+        `SELECT id FROM project_modules WHERE project_id = $1 AND module_type = 'ai-assistant'`,
+        [projectId],
+      );
+      moduleId = existing[0].id;
+    }
+
     const insertResult = await pool.query(
-      `INSERT INTO ai_assistant_configs (project_id, name, secret_token)
-       VALUES ($1, $2, $3)
+      `INSERT INTO ai_assistant_configs (project_id, module_id, name, secret_token)
+       VALUES ($1, $2, $3, $4)
        ON CONFLICT (project_id) DO NOTHING
        RETURNING id, project_id, name, secret_token, status,
                  ai_config_id, model, base_url, base_prompt,
@@ -719,7 +738,7 @@ router.get("/by-project/:projectId", async (req, res) => {
                  allowed_origins, rate_limit_burst,
                  rate_limit_sustained, max_upload_size_mb,
                  created_at, updated_at`,
-      [projectId, projectName, secretToken],
+      [projectId, moduleId, projectName, secretToken],
     );
     let row;
     if (insertResult.rowCount > 0) {

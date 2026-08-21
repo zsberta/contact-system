@@ -106,14 +106,6 @@ export function AiChatPreview({ config }: AiChatPreviewProps) {
               <Send className="h-3.5 w-3.5" />
             </button>
           </div>
-
-          {/* Copyright */}
-          <div className="border-t px-2 py-1 text-center text-[10px]" style={{ color: "#adb5bd", borderColor: "#f1f3f5" }}>
-            Powered by{" "}
-            <a href="https://zsoltberta.hu" target="_blank" rel="noopener noreferrer" style={{ color: primaryColor }}>
-              Zsolt Berta
-            </a>
-          </div>
         </div>
       )}
     </div>

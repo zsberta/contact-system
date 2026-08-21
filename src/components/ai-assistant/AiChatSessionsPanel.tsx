@@ -307,7 +307,7 @@ function ChatMessage({ message }: { message: AiChatMessageDTO }) {
                   : t("ai-assistant:message_role_system", "System")}
             </span>
             <span>·</span>
-            <span>{new Date(message.createdAt).toLocaleTimeString(i18n.language)}</span>
+            <span>{new Date(message.createdAt).toLocaleTimeString(i18n.language, { hour: "2-digit", minute: "2-digit", hour12: false })}</span>
             {message.tokensUsed > 0 && (
               <>
                 <span>·</span>

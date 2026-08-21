@@ -45,6 +45,7 @@ import { getBlogPostById, deleteBlogPost } from "@/lib/blog";
 import { BlogPostDTO } from "@/types/blog";
 import BlogPublishButton from "@/components/blog/BlogPublishButton";
 import { showError, showSuccess } from "@/utils/toast";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 
 const statusBadgeVariant = (status: BlogPostDTO["status"]) => {
   switch (status) {
@@ -67,7 +68,6 @@ const BlogViewPage: React.FC = () => {
   const postId = id && /^\d+$/.test(id) ? Number(id) : NaN;
 
   const [deleteOpen, setDeleteOpen] = React.useState(false);
-  const isPortal = typeof window !== "undefined" && window.location.pathname.startsWith("/portal");
 
   const { data: post, isLoading } = useQuery({
     queryKey: ["blog", "detail", postId],
@@ -77,11 +77,14 @@ const BlogViewPage: React.FC = () => {
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteBlogPost(postId),
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ["blog"] });
       showSuccess(t("blog:deleted_toast", { title: post?.title ?? "" }));
       setDeleteOpen(false);
-      navigate(isPortal ? "/portal/blog" : "/blog");
+      if (post?.projectId) {
+        const path = await resolveModulePath(post.projectId, "blog");
+        if (path) navigate(path);
+      }
     },
     onError: (err: Error) => {
       showError(err.message || t("blog:delete_failed_toast"));
@@ -150,14 +153,24 @@ const BlogViewPage: React.FC = () => {
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             <Button
               variant="outline"
-              onClick={() => navigate(isPortal ? "/portal/blog" : "/blog")}
+              onClick={async () => {
+                if (post?.projectId) {
+                  const path = await resolveModulePath(post.projectId, "blog");
+                  if (path) navigate(path);
+                }
+              }}
               className="w-full sm:w-auto"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               {t("common:back", "Back")}
             </Button>
             <Button
-              onClick={() => navigate(isPortal ? `/portal/blog/edit/${post.id}` : `/blog/edit/${post.id}`)}
+              onClick={async () => {
+                if (post?.projectId) {
+                  const path = await resolveModulePath(post.projectId, "blog", "edit");
+                  if (path) navigate(path);
+                }
+              }}
               className="w-full sm:w-auto"
             >
               <Pencil className="mr-2 h-4 w-4" />

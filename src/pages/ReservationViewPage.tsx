@@ -1,12 +1,13 @@
 // ----------------------------------------------------------------------------
 // ReservationViewPage — read-only detail card + snippet panel.
-// Tab navigation is URL-based (NavLink) so each tab is a deep-linkable page.
+// Sub-navigation uses inline pill links (no top-level tabs).
 // ----------------------------------------------------------------------------
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { NavLink, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
+import { useModuleResolution } from "@/hooks/useModuleResolution";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -29,12 +30,6 @@ import {
   PowerOff,
   Copy,
   Lock,
-  CalendarDays,
-  List,
-  FileText,
-  FileUp,
-  Ban,
-  Clock,
 } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
 import type { ReservationDTO } from "@/types/reservation";
@@ -45,21 +40,18 @@ import {
   updateReservation,
 } from "@/lib/reservations";
 import { ReservationSnippetPanel } from "@/components/reservations/ReservationSnippetPanel";
-import { cn } from "@/lib/utils";
-
-const TAB_LINK_CLASS =
-  "inline-flex items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground";
-const TAB_LINK_ACTIVE =
-  "bg-primary text-primary-foreground shadow hover:bg-primary/90 hover:text-primary-foreground";
+import { buildWorkspaceModulePath } from "@/lib/workspace-navigation";
 
 const ReservationViewPage: React.FC = () => {
   const { t } = useTranslation(["reservations", "common"]);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { id } = useParams<{ id: string }>();
-  const reservationId = id ? Number.parseInt(id) : null;
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const { resourceId: reservationId } = useModuleResolution();
+  const { projectId: projectIdParam, moduleId: moduleIdParam } = useParams<{
+    projectId: string;
+    moduleId: string;
+  }>();
+
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false);
@@ -77,7 +69,9 @@ const ReservationViewPage: React.FC = () => {
         t("common:delete_success", { item: t("reservations:reservation") }),
       );
       queryClient.invalidateQueries({ queryKey: ["reservations"] });
-      navigate("/reservations");
+      if (projectIdParam) {
+        navigate(`/workspace/projects/${projectIdParam}`);
+      }
     },
     onError: (err: Error) => {
       showError(t("common:operation_failed", { error: err.message }));
@@ -155,47 +149,11 @@ const ReservationViewPage: React.FC = () => {
       value: reservation.projectName || `(#${reservation.projectId})`,
     },
     {
-      label: t("reservations:slug"),
-      value: <span className="font-mono text-xs">{reservation.slug}</span>,
-    },
-    {
       label: t("common:status"),
       value: (
         <Badge variant={statusVariant}>
           {t(`reservations:status_${reservation.status}`)}
         </Badge>
-      ),
-    },
-    {
-      label: t("reservations:granularity"),
-      value: (
-        <Badge variant="secondary" className="font-mono text-xs">
-          {t(`reservations:granularity_${reservation.granularity}`)}
-        </Badge>
-      ),
-    },
-    {
-      label: t("reservations:slot_duration_minutes"),
-      value:
-        reservation.slotDurationMinutes === null ||
-        reservation.slotDurationMinutes === undefined
-          ? "—"
-          : (
-            <span className="font-mono text-xs">
-              {reservation.slotDurationMinutes}
-            </span>
-          ),
-    },
-    {
-      label: t("reservations:lead_time_minutes"),
-      value: (
-        <span className="font-mono text-xs">{reservation.leadTimeMinutes}</span>
-      ),
-    },
-    {
-      label: t("reservations:max_advance_days"),
-      value: (
-        <span className="font-mono text-xs">{reservation.maxAdvanceDays}</span>
       ),
     },
     {
@@ -254,66 +212,6 @@ const ReservationViewPage: React.FC = () => {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 w-full">
-      {/* Tab navigation */}
-      <nav className="flex gap-1 border-b pb-px">
-        <NavLink
-          to={`/reservations/view/${reservationId}`}
-          end
-          className={({ isActive: active }) =>
-            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
-          }
-        >
-          <FileText className="h-4 w-4" />
-          {t("reservations:details_tab")}
-        </NavLink>
-        <NavLink
-          to={`/reservations/view/${reservationId}/bookings`}
-          end
-          className={({ isActive: active }) =>
-            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
-          }
-        >
-          <List className="h-4 w-4" />
-          {t("reservations:bookings_tab")}
-        </NavLink>
-        <NavLink
-          to={`/reservations/view/${reservationId}/bookings/import`}
-          className={({ isActive: active }) =>
-            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
-          }
-        >
-          <FileUp className="h-4 w-4" />
-          {t("reservations:import_tab")}
-        </NavLink>
-        <NavLink
-          to={`/reservations/view/${reservationId}/calendar`}
-          className={({ isActive: active }) =>
-            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
-          }
-        >
-          <CalendarDays className="h-4 w-4" />
-          {t("reservations:calendar_tab")}
-        </NavLink>
-        <NavLink
-          to={`/reservations/view/${reservationId}/schedules`}
-          className={({ isActive: active }) =>
-            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
-          }
-        >
-          <Clock className="h-4 w-4" />
-          {t("reservations:schedules_tab")}
-        </NavLink>
-        <NavLink
-          to={`/reservations/view/${reservationId}/blocked`}
-          className={({ isActive: active }) =>
-            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
-          }
-        >
-          <Ban className="h-4 w-4" />
-          {t("reservations:blocked_tab")}
-        </NavLink>
-      </nav>
-
       {/* Details content */}
       <Card>
         <CardHeader className="flex flex-col space-y-4 pb-2">
@@ -323,50 +221,54 @@ const ReservationViewPage: React.FC = () => {
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             <Button
               variant="outline"
-              onClick={() => navigate("/reservations")}
+              onClick={() => {
+                if (projectIdParam) {
+                  navigate(`/workspace/projects/${projectIdParam}`);
+                }
+              }}
               className="w-full sm:w-auto"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               {t("reservations:back_to_reservations")}
             </Button>
-            {isAdmin && (
-              <>
-                <Button
-                  onClick={() => navigate(`/reservations/edit/${reservation.id}`)}
-                  className="w-full sm:w-auto"
-                >
-                  <Pencil className="mr-2 h-4 w-4" />
-                  {t("common:edit")}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => setIsStatusDialogOpen(true)}
-                  disabled={statusMutation.isPending}
-                  className="w-full sm:w-auto"
-                >
-                  {isActive ? (
-                    <>
-                      <PowerOff className="mr-2 h-4 w-4" />
-                      {t("reservations:action_disable")}
-                    </>
-                  ) : (
-                    <>
-                      <Power className="mr-2 h-4 w-4" />
-                      {t("reservations:action_enable")}
-                    </>
-                  )}
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => setIsDeleteDialogOpen(true)}
-                  disabled={deleteMutation.isPending}
-                  className="w-full sm:w-auto"
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  {t("common:delete")}
-                </Button>
-              </>
-            )}
+            <Button
+              onClick={() => {
+                if (projectIdParam && moduleIdParam) {
+                  navigate(buildWorkspaceModulePath(Number(projectIdParam), "reservation", Number(moduleIdParam), "edit"));
+                }
+              }}
+              className="w-full sm:w-auto"
+            >
+              <Pencil className="mr-2 h-4 w-4" />
+              {t("common:edit")}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setIsStatusDialogOpen(true)}
+              disabled={statusMutation.isPending}
+              className="w-full sm:w-auto"
+            >
+              {isActive ? (
+                <>
+                  <PowerOff className="mr-2 h-4 w-4" />
+                  {t("reservations:action_disable")}
+                </>
+              ) : (
+                <>
+                  <Power className="mr-2 h-4 w-4" />
+                  {t("reservations:action_enable")}
+                </>
+              )}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => setIsDeleteDialogOpen(true)}
+              disabled={deleteMutation.isPending}
+              className="w-full sm:w-auto"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              {t("common:delete")}
+            </Button>
           </div>
         </CardHeader>
         <Separator />

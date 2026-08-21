@@ -37,9 +37,18 @@
 
 import express from "express";
 import rateLimit from "express-rate-limit";
+import path from "node:path";
+import fs from "node:fs";
 import { pool } from "../db/pool.js";
-import { notifyProjectOwner, notifySubmitter } from "../lib/email.js";
-import { checkSlotAvailability } from "../lib/reservation-availability.js";
+import { notifySubmitter } from "../lib/email.js";
+import { checkSlotAvailability, getServiceAvailability } from "../lib/reservation-availability.js";
+import { createReservationBooking, upsertReservationCustomer, rowToReservationBookingDTO } from "../lib/reservation-booking.js";
+import { validateReservationContact, validateReservationServiceFields } from "../lib/booking-validation.js";
+import {
+  isValidReservationCustomerProfileToken,
+  resolveReservationCustomerProfiles,
+  upsertReservationCustomerProfile,
+} from "../lib/reservation-customer-profiles.js";
 
 export const router = express.Router();
 
@@ -150,9 +159,11 @@ function normaliseAllowedOrigins(raw) {
 
 async function loadReservationByToken(secretToken) {
   const { rows } = await pool.query(
-    `SELECT id, status, allowed_origins, granularity, slot_duration_minutes,
-            lead_time_minutes, max_advance_days, extra_fields_enabled,
-            disable_hungarian_holidays
+    `SELECT id, project_id, name, status, allowed_origins, granularity,
+            slot_duration_minutes, lead_time_minutes, max_advance_days,
+            extra_fields_enabled, disable_hungarian_holidays,
+            embed_title, brand_color, iframe_width, iframe_height,
+            default_locale, timezone
      FROM reservations
      WHERE trim(secret_token) = $1`,
     [secretToken],
@@ -318,6 +329,57 @@ router.get(
   },
 );
 
+// ===========================================================================
+// POST /api/public/reservations/:secret_token/customer-profiles/resolve
+// Resolve opaque browser tokens to current customer data.
+// ===========================================================================
+router.post(
+  "/:secret_token/customer-profiles/resolve",
+  reservationAvailabilityBurst,
+  reservationSustainedLimiter,
+  async (req, res) => {
+    const { secret_token: secretToken } = req.params;
+    if (typeof secretToken !== "string" || secretToken.length !== 22) {
+      return res.status(400).json({ errorMessage: "Invalid secret token" });
+    }
+
+    const body = req.body ?? {};
+    if (!Array.isArray(body.profileTokens)) {
+      return res.status(400).json({ errorMessage: "profileTokens must be an array" });
+    }
+
+    try {
+      const reservation = await loadReservationByToken(secretToken);
+      if (!reservation) {
+        return res.status(404).json({ errorMessage: "Reservation not found" });
+      }
+
+      // Origin allowlist enforcement.
+      const allowedOrigins = normaliseAllowedOrigins(reservation.allowed_origins);
+      if (allowedOrigins.length > 0) {
+        const requestOrigin = req.headers.origin;
+        if (
+          typeof requestOrigin !== "string" ||
+          requestOrigin.length === 0 ||
+          !isOriginAllowed(requestOrigin, allowedOrigins)
+        ) {
+          return res.status(404).json({ errorMessage: "Reservation not found" });
+        }
+      }
+
+      const profiles = await resolveReservationCustomerProfiles({
+        reservationId: Number(reservation.id),
+        profileTokens: body.profileTokens,
+      });
+
+      return res.json({ profiles });
+    } catch (err) {
+      console.error("[reservations/public/profiles]", err.code, err.message);
+      return res.status(500).json({ errorMessage: "Internal server error" });
+    }
+  },
+);
+
 // ---------------------------------------------------------------------------
 // POST /api/public/reservations/:secret_token/bookings
 // ---------------------------------------------------------------------------
@@ -378,36 +440,66 @@ router.post(
         }
       }
 
-      // Window enforcement: lead time + max advance.
+      // Resolve service: explicit serviceId or default service
+      let serviceId = parseInt(body.serviceId, 10);
+      let serviceRow;
+      if (serviceId && Number.isFinite(serviceId)) {
+        const svcResult = await pool.query(
+          `SELECT rs.id, rs.duration_minutes, rs.price_amount, rs.currency, rs.capacity, rs.worker_user_id, rs.status,
+                  rs.granularity, rs.slot_duration_minutes, rs.lead_time_minutes, rs.max_advance_days,
+                  rst.name
+           FROM reservation_services rs
+           LEFT JOIN reservation_service_translations rst ON rst.service_id = rs.id AND rst.locale = (SELECT default_locale FROM reservations WHERE id = rs.reservation_id)
+           WHERE rs.id = $1 AND rs.reservation_id = $2`,
+          [serviceId, reservationId],
+        );
+        if (svcResult.rowCount === 0 || svcResult.rows[0].status !== "active") {
+          return res.status(400).json({ errorMessage: "Invalid or inactive service" });
+        }
+        serviceRow = svcResult.rows[0];
+      } else {
+        const defaultSvc = await pool.query(
+          `SELECT rs.id, rs.duration_minutes, rs.price_amount, rs.currency, rs.capacity, rs.worker_user_id, rs.status,
+                  rs.granularity, rs.slot_duration_minutes, rs.lead_time_minutes, rs.max_advance_days,
+                  rst.name
+           FROM reservation_services rs
+           LEFT JOIN reservation_service_translations rst ON rst.service_id = rs.id AND rst.locale = (SELECT default_locale FROM reservations WHERE id = rs.reservation_id)
+           WHERE rs.reservation_id = $1 AND rs.status = 'active' ORDER BY rs.sort_order, rs.id LIMIT 1`,
+          [reservationId],
+        );
+        if (defaultSvc.rowCount === 0) {
+          return res.status(400).json({ errorMessage: "No active service found" });
+        }
+        serviceRow = defaultSvc.rows[0];
+        serviceId = serviceRow.id;
+      }
+
+      // Window enforcement: lead time + max advance (per-service config).
       const nowMs = Date.now();
       const startsMs = new Date(startsAtIso).getTime();
-      const leadMs = reservation.lead_time_minutes * 60 * 1000;
+      const leadMs = (serviceRow.lead_time_minutes || 0) * 60 * 1000;
       if (startsMs - nowMs < leadMs) {
         return res.status(400).json({
-          errorMessage: `Booking must start at least ${reservation.lead_time_minutes} minute(s) from now`,
+          errorMessage: `Booking must start at least ${serviceRow.lead_time_minutes || 0} minute(s) from now`,
         });
       }
-      const maxAdvanceMs = reservation.max_advance_days * 24 * 60 * 60 * 1000;
+      const maxAdvanceMs = (serviceRow.max_advance_days || 90) * 24 * 60 * 60 * 1000;
       if (startsMs - nowMs > maxAdvanceMs) {
         return res.status(400).json({
-          errorMessage: `Booking cannot start more than ${reservation.max_advance_days} day(s) from now`,
+          errorMessage: `Booking cannot start more than ${serviceRow.max_advance_days || 90} day(s) from now`,
         });
       }
 
       // Granularity alignment: when slot_duration_minutes is configured
       // AND granularity is hour / minute, requires startsAt (and endsAt)
       // to fall exactly on a slot boundary relative to a sensible anchor.
-      // We use "00:00 of startsAt's UTC calendar day" as the anchor; any
-      // other anchor would require the operator to declare one, which is
-      // a future feature.
       if (
-        reservation.slot_duration_minutes !== null &&
-        reservation.slot_duration_minutes !== undefined &&
-        reservation.granularity !== "day"
+        serviceRow.slot_duration_minutes !== null &&
+        serviceRow.slot_duration_minutes !== undefined &&
+        serviceRow.granularity !== "day"
       ) {
-        const slot = reservation.slot_duration_minutes;
+        const slot = serviceRow.slot_duration_minutes;
         if (slot > SLOT_GRID_MAX_MINUTES) {
-          // Defensive — admin route already caps this.
           return res.status(500).json({ errorMessage: "Server misconfiguration" });
         }
         const startDate = new Date(startsAtIso);
@@ -423,7 +515,6 @@ router.post(
             errorMessage: `startsAt must align to ${slot}-minute slot boundary`,
           });
         }
-        // Also check endsAt alignment.
         const endDate = new Date(endsAtIso);
         const endOffsetMin = Math.round((endDate.getTime() - startDayAnchor) / 60000);
         if (endOffsetMin <= 0 || (endOffsetMin % slot) !== 0) {
@@ -436,8 +527,10 @@ router.post(
       // Server-side availability check: disabled ranges + schedules.
       // This closes the race window where CRM data changes between the
       // customer loading the form and submitting.
+      // Legacy endpoint: serviceId is null (resolved from default service if available).
       const avail = await checkSlotAvailability(
         reservationId,
+        null,
         startsAtIso,
         endsAtIso,
         reservation.disable_hungarian_holidays,
@@ -482,83 +575,122 @@ router.post(
         }
       }
 
-      // Capture metadata. Clamp user-agent / referer to safe upper bounds.
-      const ipAddress = req.ip || req.socket?.remoteAddress || null;
-      const userAgent = typeof req.headers["user-agent"] === "string"
-        ? req.headers["user-agent"].slice(0, 500)
-        : null;
-      const referer = typeof req.headers.referer === "string"
-        ? req.headers.referer.slice(0, 2000)
-        : null;
+      // Validate contact fields
+      const contactResult = validateReservationContact(body);
+      if (!contactResult.ok) {
+        return res.status(400).json({ errorMessage: contactResult.error });
+      }
 
-      // Atomicity: EXCLUDE constraint on (reservation_id, tstzrange). Two
-      // concurrent POSTs at the same slot — one wins, one fails with 23P01.
-      const insertResult = await pool.query(
-        `INSERT INTO reservation_bookings
-          (reservation_id, starts_at, ends_at, ip_address, user_agent, referer, locale, data)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
-         RETURNING id, starts_at, ends_at, booked_at`,
-        [
-          reservationId,
-          startsAtIso,
-          endsAtIso,
-          ipAddress,
-          userAgent,
-          referer,
-          locale,
-          dataJson,
-        ],
-      );
+      // Validate custom fields if provided
+      if (body.fields) {
+        const fieldDefs = await pool.query(
+          `SELECT field_key, field_type, required FROM reservation_service_fields WHERE service_id = $1`,
+          [serviceId],
+        );
+        const fieldsResult = validateReservationServiceFields(fieldDefs.rows, body.fields);
+        if (!fieldsResult.ok) {
+          return res.status(400).json({ errorMessage: fieldsResult.error });
+        }
+      }
 
-      const row = insertResult.rows[0];
-      const startsAt = row.starts_at instanceof Date
-        ? row.starts_at.toISOString()
-        : row.starts_at;
-      const endsAt = row.ends_at instanceof Date
-        ? row.ends_at.toISOString()
-        : row.ends_at;
-      const bookedAt = row.booked_at instanceof Date
-        ? row.booked_at.toISOString()
-        : row.booked_at;
-      const bookingId = Number(row.id);
+      // Create booking via transaction with capacity enforcement
+      const result = await createReservationBooking({
+        reservation,
+        service: serviceRow,
+        startsAtIso,
+        endsAtIso,
+        contact: contactResult.value,
+        customerId: null,
+        customData: body.fields || dataJson ? JSON.parse(dataJson || "{}") : null,
+        locale: locale || reservation.default_locale || "hu",
+        createdByUserId: null,
+        source: "public",
+        workerUserId: null,
+      });
 
-      // Fire-and-forget emails. Same best-effort contract as the
-      // form-submission path: the booking is already persisted; an email
-      // failure MUST NOT fail the 201. Two parallel sends — operator
-      // notification + submitter auto-reply.
-      pool
-        .query(`SELECT project_id, name FROM reservations WHERE id = $1`, [reservationId])
-        .then((cfg) => {
-          if (cfg.rowCount === 0) return;
-          const projectId = Number(cfg.rows[0].project_id);
-          const reservationName = cfg.rows[0].name;
-          let parsedData = null;
-          if (dataJson) {
-            try { parsedData = JSON.parse(dataJson); } catch { /* keep null */ }
+      if (result.error) {
+        return res.status(result.code === "SLOT_FULL" ? 409 : 400).json({ errorMessage: result.error });
+      }
+
+      const booking = result.booking;
+      const bookingId = Number(booking.id);
+      const startsAt = booking.starts_at instanceof Date ? booking.starts_at.toISOString() : booking.starts_at;
+      const endsAt = booking.ends_at instanceof Date ? booking.ends_at.toISOString() : booking.ends_at;
+      const bookedAt = booking.booked_at instanceof Date ? booking.booked_at.toISOString() : booking.booked_at;
+
+      // Fire-and-forget emails
+      const customerName = `${contactResult.value.lastName} ${contactResult.value.firstName}`;
+
+      // Resolve worker info if the service has an assigned worker
+      let workerEmail = null;
+      let workerName = null;
+      if (serviceRow.worker_user_id) {
+        try {
+          const workerResult = await pool.query(
+            `SELECT first_name, last_name, email FROM users WHERE id = $1 AND role = 'enduser' AND enabled = true`,
+            [serviceRow.worker_user_id],
+          );
+          if (workerResult.rowCount > 0) {
+            const w = workerResult.rows[0];
+            if (w.email) workerEmail = w.email.trim();
+            const parts = [w.last_name, w.first_name].filter(Boolean);
+            if (parts.length > 0) workerName = parts.join(" ");
           }
-          const notifyArgs = {
-            kind: "reservation",
-            projectId,
-            formName: reservationName,
-            data: parsedData,
-            locale,
-            startsAt,
-            endsAt,
-          };
-          Promise.all([
-            notifyProjectOwner(notifyArgs),
-            notifySubmitter(notifyArgs),
-          ]);
-        })
-        .catch((err) => {
-          console.error("[reservations/public/notify]", err.code || "", err.message);
-        });
+        } catch { /* ignore */ }
+      }
+
+      // Customer confirmation — project-branded booking email
+      // Footer "write to" = worker email, sign-off = worker name
+      notifySubmitter({
+        kind: "reservation", projectId: reservation.project_id,
+        formName: serviceRow.name || reservation.name, data: null,
+        locale: locale || "hu", startsAt, endsAt,
+        bookingId, serviceName: serviceRow.name,
+        email: contactResult.value.email,
+        replyTo: workerEmail || undefined,
+        signerName: workerName || undefined,
+      }).catch(() => {});
+
+      // Worker notification — Nexus branding, customer details, no reply hint, no sign-off
+      if (workerEmail) {
+        notifySubmitter({
+          kind: "reservation", projectId: reservation.project_id,
+          formName: serviceRow.name || reservation.name, data: null,
+          locale: locale || "hu", startsAt, endsAt,
+          bookingId, serviceName: serviceRow.name,
+          to: workerEmail,
+          useBrandDefaults: true,
+          customerName,
+          customerEmail: contactResult.value.email,
+          customerPhone: contactResult.value.phone,
+          comment: contactResult.value.comment || null,
+        }).catch(() => {});
+      }
+
+      // Optional profile association — "remember me" feature.
+      // Only runs when the visitor opted in with a valid token.
+      // Best-effort: association failure must not break the booking.
+      let customerProfile = null;
+      if (
+        body.rememberCustomer === true &&
+        result.customer &&
+        isValidReservationCustomerProfileToken(body.customerProfileToken)
+      ) {
+        try {
+          customerProfile = await upsertReservationCustomerProfile({
+            reservationId,
+            customerId: result.customer.id,
+            profileToken: body.customerProfileToken,
+          });
+        } catch { /* best-effort: log and continue */ }
+      }
 
       return res.status(201).json({
         id: bookingId,
         startsAt,
         endsAt,
         bookedAt,
+        ...(customerProfile ? { customerProfile } : {}),
       });
     } catch (err) {
       // 23P01 = exclusion_violation — the EXCLUDE constraint fired.
@@ -576,3 +708,235 @@ router.post(
     }
   },
 );
+
+// ===========================================================================
+// GET /api/public/reservations/:secret_token/catalog
+// Public service catalog — returns active services with localized content.
+// ===========================================================================
+router.get(
+  "/:secret_token/catalog",
+  reservationAvailabilityBurst,
+  reservationSustainedLimiter,
+  async (req, res) => {
+    try {
+      const { secret_token } = req.params;
+      const reservation = await loadReservationByToken(secret_token);
+      if (!reservation) {
+        return res.status(404).json({ errorMessage: "Not found" });
+      }
+      // Origin check
+      const requestOrigin = req.headers["x-reservation-parent-origin"] || req.headers.origin || "";
+      if (requestOrigin && reservation.allowed_origins && reservation.allowed_origins.length > 0) {
+        if (!isOriginAllowed(requestOrigin, normaliseAllowedOrigins(reservation.allowed_origins))) {
+          return res.status(404).json({ errorMessage: "Not found" });
+        }
+      }
+
+      const locale = typeof req.query.locale === "string" ? req.query.locale.trim() : reservation.default_locale || "hu";
+
+      // Load active services with translations, image, worker
+      const servicesResult = await pool.query(
+        `SELECT rs.*,
+                rst_default.name AS default_name, rst_default.description AS default_description,
+                rst_requested.name AS requested_name, rst_requested.description AS requested_description,
+                u.first_name AS worker_first_name, u.last_name AS worker_last_name,
+                rsa.stored_filename AS image_stored_filename
+         FROM reservation_services rs
+         LEFT JOIN reservation_service_translations rst_default
+           ON rst_default.service_id = rs.id AND rst_default.locale = $2
+         LEFT JOIN reservation_service_translations rst_requested
+           ON rst_requested.service_id = rs.id AND rst_requested.locale = $3
+         LEFT JOIN users u ON u.id = rs.worker_user_id
+         LEFT JOIN reservation_service_attachments rsa ON rsa.service_id = rs.id AND rsa.purpose = 'cover'
+         WHERE rs.reservation_id = $1 AND rs.status = 'active'
+         ORDER BY rs.sort_order, rs.id`,
+        [reservation.id, reservation.default_locale || "hu", locale],
+      );
+
+      // Load public field definitions for each service
+      const serviceIds = servicesResult.rows.map((r) => r.id);
+      let fieldsMap = {};
+      if (serviceIds.length > 0) {
+        const fieldsResult = await pool.query(
+          `SELECT rsf.id, rsf.service_id, rsf.field_key, rsf.field_type, rsf.required, rsf.sort_order, rsf.options,
+                  rfft.label, rfft.placeholder
+           FROM reservation_service_fields rsf
+           LEFT JOIN reservation_service_field_translations rfft ON rfft.field_id = rsf.id AND rfft.locale = $2
+           WHERE rsf.service_id = ANY($1::bigint[])`,
+          [serviceIds, locale],
+        );
+        for (const f of fieldsResult.rows) {
+          if (!fieldsMap[f.service_id]) fieldsMap[f.service_id] = [];
+          fieldsMap[f.service_id].push({
+            fieldKey: f.field_key, fieldType: f.field_type,
+            required: f.required, sortOrder: f.sort_order,
+            options: f.options, label: f.label || f.field_key,
+            placeholder: f.placeholder || null,
+          });
+        }
+      }
+
+      const services = servicesResult.rows.map((s) => ({
+        id: s.id,
+        name: s.requested_name || s.default_name || "",
+        description: s.requested_description || s.default_description || null,
+        durationMinutes: s.duration_minutes,
+        priceAmount: Number(s.price_amount),
+        currency: s.currency,
+        capacity: s.capacity,
+        workerName: (s.worker_first_name || s.worker_last_name)
+          ? (locale === "hu"
+              ? `${s.worker_last_name || ""} ${s.worker_first_name || ""}`.trim()
+              : `${s.worker_first_name || ""} ${s.worker_last_name || ""}`.trim())
+          : null,
+        imageUrl: s.image_stored_filename
+          ? `/api/public/reservations/assets/${s.image_stored_filename}`
+          : null,
+        fields: fieldsMap[s.id] || [],
+      }));
+
+      return res.json({
+        reservation: {
+          id: reservation.id,
+          title: reservation.name,
+          embedTitle: reservation.embed_title || "Időpont foglalás",
+          brandColor: reservation.brand_color || "#0A2540",
+          iframeWidth: reservation.iframe_width || "100%",
+          iframeHeight: reservation.iframe_height || "760px",
+          defaultLocale: reservation.default_locale || "hu",
+          timezone: reservation.timezone || "UTC",
+        },
+        services,
+      });
+    } catch (err) {
+      console.error("[reservations/public/catalog]", err.code, err.message);
+      return res.status(500).json({ errorMessage: "Internal server error" });
+    }
+  },
+);
+
+// ===========================================================================
+// GET /api/public/reservations/:secret_token/services/:serviceId/availability
+// Service-specific availability — returns slots with remaining seats.
+// ===========================================================================
+router.get(
+  "/:secret_token/services/:serviceId/availability",
+  reservationAvailabilityBurst,
+  reservationSustainedLimiter,
+  async (req, res) => {
+    try {
+      const { secret_token, serviceId } = req.params;
+      const reservation = await loadReservationByToken(secret_token);
+      if (!reservation) {
+        return res.status(404).json({ errorMessage: "Not found" });
+      }
+      // Origin check
+      const requestOrigin = req.headers["x-reservation-parent-origin"] || req.headers.origin || "";
+      if (requestOrigin && reservation.allowed_origins && reservation.allowed_origins.length > 0) {
+        if (!isOriginAllowed(requestOrigin, normaliseAllowedOrigins(reservation.allowed_origins))) {
+          return res.status(404).json({ errorMessage: "Not found" });
+        }
+      }
+
+      const svcId = parseInt(serviceId, 10);
+      if (!Number.isFinite(svcId) || svcId <= 0) {
+        return res.status(400).json({ errorMessage: "Invalid service id" });
+      }
+
+      // Validate date range
+      const from = typeof req.query.from === "string" ? req.query.from.trim() : null;
+      const to = typeof req.query.to === "string" ? req.query.to.trim() : null;
+      if (!from || !to) {
+        return res.status(400).json({ errorMessage: "from and to query params are required (YYYY-MM-DD)" });
+      }
+
+      const availability = await getServiceAvailability({
+        reservationId: reservation.id,
+        serviceId: svcId,
+        fromDate: from,
+        toDate: to,
+      });
+
+      if (!availability) {
+        return res.status(404).json({ errorMessage: "Service not found or invalid date range" });
+      }
+
+      return res.json(availability);
+    } catch (err) {
+      console.error("[reservations/public/service-availability]", err.code, err.message);
+      return res.status(500).json({ errorMessage: "Internal server error" });
+    }
+  },
+);
+
+// ===========================================================================
+// GET /api/public/reservations/assets/:filename
+// Public asset serving for service images — mirrors blog-public.js pattern.
+// ===========================================================================
+const UPLOAD_ROOT_PUBLIC = process.env.UPLOADS_DIR || "/app/uploads";
+const FILENAME_RE = /^[a-f0-9-]{36}\.(webp|png|jpg|jpeg|avif)$/i;
+
+router.get("/assets/:filename", async (req, res) => {
+  try {
+    const { filename } = req.params;
+    if (!FILENAME_RE.test(filename)) {
+      return res.status(404).json({ errorMessage: "Not found" });
+    }
+
+    // DB lookup to verify the asset exists and is a reservation service attachment
+    const result = await pool.query(
+      `SELECT rsa.id FROM reservation_service_attachments rsa WHERE rsa.stored_filename = $1`,
+      [filename],
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "Not found" });
+    }
+
+    // Safe path construction — filename is UUID-validated, no traversal possible
+    const filePath = path.join(UPLOAD_ROOT_PUBLIC, "reservation-services", filename);
+
+    // Try to find the file in service-specific subdirectories
+    let resolvedPath = filePath;
+    if (!fs.existsSync(resolvedPath)) {
+      // Search in service subdirectories
+      const servicesDir = path.join(UPLOAD_ROOT_PUBLIC, "reservation-services");
+      if (fs.existsSync(servicesDir)) {
+        const entries = fs.readdirSync(servicesDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            const candidate = path.join(servicesDir, entry.name, filename);
+            if (fs.existsSync(candidate)) {
+              resolvedPath = candidate;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (!fs.existsSync(resolvedPath)) {
+      return res.status(404).json({ errorMessage: "File not found" });
+    }
+
+    // Determine content type from extension
+    const ext = path.extname(filename).toLowerCase();
+    const contentTypes = {
+      ".webp": "image/webp",
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".avif": "image/avif",
+    };
+    const contentType = contentTypes[ext] || "application/octet-stream";
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+
+    const stream = fs.createReadStream(resolvedPath);
+    stream.pipe(res);
+  } catch (err) {
+    console.error("[reservations/public/asset]", err.code, err.message);
+    return res.status(500).json({ errorMessage: "Internal server error" });
+  }
+});

@@ -160,7 +160,7 @@ const UserForm = ({
             <CardDescription>
               {mode === "create"
                 ? t("users:create_user_description")
-                : `${initialData?.firstName} ${initialData?.lastName} (${initialData?.email})`}
+                : `${initialData?.lastName} ${initialData?.firstName} (${initialData?.email})`}
             </CardDescription>
           </CardHeader>
           <Separator />

@@ -125,27 +125,8 @@
 
   // --- Built-in UI translations (widget chrome, not assistant content) ---
   var BUILTIN_TRANSLATIONS = {
-    en: { online: "Online", placeholder: "Type a message...", poweredBy: "Powered by", send: "Send", error: "Sorry, something went wrong. Please try again." },
-    hu: { online: "Azonnal elérhető", placeholder: "Írj üzenetet...", poweredBy: "Üzemelteti", send: "Küldés", error: "Elnézést, valami hiba történt. Kérlek, próbáld újra." },
-    de: { online: "Online", placeholder: "Nachricht eingeben...", poweredBy: "Bereitgestellt von", send: "Senden" },
-    fr: { online: "En ligne", placeholder: "Écrivez un message...", poweredBy: "Propulsé par", send: "Envoyer" },
-    es: { online: "En línea", placeholder: "Escribe un mensaje...", poweredBy: "Desarrollado por", send: "Enviar" },
-    it: { online: "Online", placeholder: "Scrivi un messaggio...", poweredBy: "Offerto da", send: "Invia" },
-    pt: { online: "Online", placeholder: "Digite uma mensagem...", poweredBy: "Desenvolvido por", send: "Enviar" },
-    nl: { online: "Online", placeholder: "Typ een bericht...", poweredBy: "Mogelijk gemaakt door", send: "Verzenden" },
-    pl: { online: "Online", placeholder: "Napisz wiadomość...", poweredBy: "Na podstawie", send: "Wyślij" },
-    cs: { online: "Online", placeholder: "Napište zprávu...", poweredBy: "Vytvořil", send: "Odeslat" },
-    ro: { online: "Online", placeholder: "Scrie un mesaj...", poweredBy: "Oferit de", send: "Trimite" },
-    sk: { online: "Online", placeholder: "Napíšte správu...", poweredBy: "Vytvoril", send: "Odoslať" },
-    hr: { online: "Online", placeholder: "Napišite poruku...", poweredBy: "Omogućio", send: "Pošalji" },
-    sl: { online: "Online", placeholder: "Napišite sporočilo...", poweredBy: "Omogoča", send: "Pošlji" },
-    sr: { online: "У мрежи", placeholder: "Напишите поруку...", poweredBy: "Омогућио", send: "Пошаљи" },
-    uk: { online: "Онлайн", placeholder: "Напишіть повідомлення...", poweredBy: "Створено", send: "Надіслати" },
-    ru: { online: "Онлайн", placeholder: "Введите сообщение...", poweredBy: "При поддержке", send: "Отправить" },
-    tr: { online: "Çevrimiçi", placeholder: "Bir mesaj yazın...", poweredBy: "Sunan", send: "Gönder" },
-    zh: { online: "在线", placeholder: "输入消息...", poweredBy: "由", send: "发送" },
-    ja: { online: "オンライン", placeholder: "メッセージを入力...", poweredBy: "提供", send: "送信" },
-    ko: { online: "온라인", placeholder: "메시지를 입력하세요...", poweredBy: "제공", send: "보내기" },
+    en: { online: "Online", placeholder: "Type a message...", send: "Send", error: "Sorry, something went wrong. Please try again." },
+    hu: { online: "Azonnal elérhető", placeholder: "Írj üzenetet...", send: "Küldés", error: "Elnézést, valami hiba történt. Kérlek, próbáld újra." },
   };
 
   // --- Translation helpers ---

@@ -83,7 +83,7 @@ services:
       # to build absolute URLs for newly uploaded images, and by
       # lib/email.js for password-reset links. Strip the trailing
       # slash if you set it; the code handles both forms.
-      APP_PUBLIC_URL: ${APP_PUBLIC_URL:?set APP_PUBLIC_URL in .env (e.g. https://crm.zsoltberta.hu)}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:?set APP_PUBLIC_URL in .env (e.g. https://nexus.zsoltberta.hu)}
       # Where blog cover / inline images live on disk inside the
       # container. The path is bind-mounted from the named `uploads`
       # volume below, so the directory persists across image

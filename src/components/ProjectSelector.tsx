@@ -49,7 +49,7 @@ export function ProjectSelector({
       value={selectedId ? String(selectedId) : undefined}
       onValueChange={(v) => onSelect(Number(v))}
     >
-      <SelectTrigger className="w-[260px]">
+      <SelectTrigger className="w-full">
         <div className="flex items-center gap-2">
           <FolderOpen className="h-4 w-4 text-muted-foreground" />
           <SelectValue placeholder={t("enduser:select_project")} />

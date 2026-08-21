@@ -1,27 +1,50 @@
-// ProjectContext — shared state for the enduser's selected project.
-// Used by the Layout header (project selector) and portal pages (projectId).
-// Only rendered for endusers; admins don't need it.
+// ProjectContext — shared state for the workspace's selected project and module.
+// Used by the Sidebar (project/module selectors) and module pages (moduleId).
+// Both admin and enduser roles use this context; assignment filtering happens
+// server-side via getScopedProjectIds.
 
-import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import React, { createContext, useContext, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useParams, useNavigate } from "react-router-dom";
 import { getAllProjectsPaged } from "@/lib/api";
+import { getProjectModules } from "@/lib/project-modules";
+import {
+  buildWorkspaceProjectPath,
+  buildWorkspaceModulePath,
+  getDefaultPage,
+} from "@/lib/workspace-navigation";
+import { useAuth } from "@/context/AuthContext";
 import type { ProjectDTO } from "@/types/project";
-
-const STORAGE_KEY = "enduser_selected_project_id";
+import type { ProjectModuleDTO } from "@/types/project-module";
 
 interface ProjectContextValue {
   projects: ProjectDTO[];
-  selectedId: number | undefined;
   selectedProject: ProjectDTO | null;
+  modules: ProjectModuleDTO[];
+  selectedModule: ProjectModuleDTO | null;
+  isProjectsLoading: boolean;
+  isModulesLoading: boolean;
+  /** Navigate to a project's default landing. */
   setSelectedId: (id: number) => void;
-  isLoading: boolean;
+  /** Navigate to a module's details page. */
+  setSelectedModule: (moduleId: number) => void;
 }
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
 
 export function ProjectProvider({ children }: { children: React.ReactNode }) {
-  const { data, isLoading } = useQuery({
-    queryKey: ["portal", "projects", "selector"],
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { projectId, moduleId } = useParams<{
+    projectId: string;
+    moduleId: string;
+  }>();
+
+  const parsedProjectId = projectId ? Number(projectId) : undefined;
+  const parsedModuleId = moduleId ? Number(moduleId) : undefined;
+
+  const { data: projectsData, isLoading: isProjectsLoading } = useQuery({
+    queryKey: ["workspace", "projects"],
     queryFn: () =>
       getAllProjectsPaged({
         page: 0,
@@ -31,35 +54,52 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       }),
   });
 
-  const projects = data?.content ?? [];
+  const projects = projectsData?.content ?? [];
 
-  const [selectedId, setSelectedIdState] = useState<number | undefined>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const n = Number(stored);
-      if (Number.isFinite(n) && n > 0) return n;
-    }
-    return undefined;
+  const selectedProject =
+    projects.find((p) => p.id === parsedProjectId) ?? null;
+
+  const { data: modules = [], isLoading: isModulesLoading } = useQuery({
+    queryKey: ["workspace", "modules", selectedProject?.id],
+    queryFn: () => getProjectModules(selectedProject!.id),
+    enabled: !!selectedProject?.id,
   });
 
-  // Once projects load, validate the selection or default to first.
-  useEffect(() => {
-    if (projects.length === 0) return;
-    if (selectedId && projects.some((p) => p.id === selectedId)) return;
-    setSelectedIdState(projects[0].id);
-    localStorage.setItem(STORAGE_KEY, String(projects[0].id));
-  }, [projects, selectedId]);
+  const selectedModule =
+    modules.find((m) => Number(m.id) === parsedModuleId) ?? null;
 
-  const setSelectedId = useCallback((id: number) => {
-    setSelectedIdState(id);
-    localStorage.setItem(STORAGE_KEY, String(id));
-  }, []);
+  const setSelectedId = useCallback(
+    (id: number) => {
+      navigate(buildWorkspaceProjectPath(id));
+    },
+    [navigate],
+  );
 
-  const selectedProject = projects.find((p) => p.id === selectedId) ?? null;
+  const setSelectedModule = useCallback(
+    (id: number) => {
+      if (!selectedProject) return;
+      const mod = modules.find((m) => Number(m.id) === id);
+      if (mod) {
+        navigate(
+          buildWorkspaceModulePath(selectedProject.id, mod.kind, Number(mod.id), getDefaultPage(mod.kind, user?.role as "admin" | "enduser" ?? "admin")),
+        );
+      }
+    },
+    [navigate, selectedProject, modules],
+  );
 
   return (
     <ProjectContext.Provider
-      value={{ projects, selectedId, selectedProject, setSelectedId, isLoading }}
+      value={{
+        projects,
+        selectedProject,
+        modules,
+        selectedModule,
+        isProjectsLoading,
+        isModulesLoading,
+        setSelectedId,
+        setSelectedModule,
+      }}
     >
       {children}
     </ProjectContext.Provider>

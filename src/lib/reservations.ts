@@ -4,15 +4,33 @@ import type {
   AvailabilityScheduleCreateDTO,
   AvailabilityScheduleDTO,
   AvailabilityWindowDTO,
+  CalendarDayDetailsResponse,
+  CalendarMonthResponse,
+  EnrichedReservationBookingDTO,
   ReservationBookingAck,
+  ReservationBookingCreateRequest,
   ReservationBookingDTO,
   ReservationBookingRequest,
+  ReservationBookingUpdateRequest,
+  ReservationCatalogDTO,
   ReservationCreateDTO,
+  ReservationCustomerCreateDTO,
+  ReservationCustomerDTO,
+  ReservationCustomerProfileDTO,
+  ReservationCustomerProfilesResponse,
+  ReservationCustomerUpdateDTO,
   ReservationDisabledRangeCreateDTO,
   ReservationDisabledRangeDTO,
   ReservationDTO,
+  ReservationPublicBookingRequest,
+  ReservationServiceAvailabilityDTO,
+  ReservationServiceCreateDTO,
+  ReservationServiceDTO,
+  ReservationServiceScheduleDTO,
+  ReservationServiceUpdateDTO,
   ReservationSnippetResponse,
   ReservationUpdateDTO,
+  ReservationWorkerDTO,
 } from "@/types/reservation";
 
 export type PageReservationDTO = Page<ReservationDTO>;
@@ -82,10 +100,13 @@ export interface BookingsQueryParams {
     | "startsAt"
     | "endsAt"
     | "bookedAt"
-    | "ipAddress"
-    | "locale";
+    | "serviceName"
+    | "customerName"
+    | "workerFirstName"
+    | "status";
   sortOrder?: "asc" | "desc";
   queries?: string[];
+  searchText?: string;
   filterType?: "any" | "all";
   signal?: AbortSignal;
 }
@@ -121,6 +142,7 @@ export async function getReservationBookings(
   if (params.sortField) q.set("sortField", params.sortField);
   if (params.sortOrder) q.set("sortOrder", params.sortOrder);
   (params.queries ?? []).forEach((qq) => q.append("queries", qq));
+  if (params.searchText) q.set("searchText", params.searchText);
   if (params.filterType) q.set("filterType", params.filterType);
   const qs = q.toString();
   return apiFetch<ReservationBookingPage>(
@@ -385,4 +407,308 @@ export async function updateAvailabilitySchedule(
       body: JSON.stringify(data),
     },
   );
+}
+
+// ===========================================================================
+// Service CRUD
+// ===========================================================================
+
+export async function getReservationServices(
+  reservationId: number,
+): Promise<ReservationServiceDTO[]> {
+  return apiFetch<ReservationServiceDTO[]>(
+    `/reservations/${reservationId}/services`,
+  );
+}
+
+export async function getReservationServiceById(
+  reservationId: number,
+  serviceId: number,
+): Promise<ReservationServiceDTO> {
+  return apiFetch<ReservationServiceDTO>(
+    `/reservations/${reservationId}/services/${serviceId}`,
+  );
+}
+
+export async function createReservationService(
+  reservationId: number,
+  data: ReservationServiceCreateDTO,
+): Promise<ReservationServiceDTO> {
+  return apiFetch<ReservationServiceDTO>(
+    `/reservations/${reservationId}/services`,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function updateReservationService(
+  reservationId: number,
+  serviceId: number,
+  data: ReservationServiceUpdateDTO,
+): Promise<ReservationServiceDTO> {
+  return apiFetch<ReservationServiceDTO>(
+    `/reservations/${reservationId}/services/${serviceId}`,
+    { method: "PUT", body: JSON.stringify(data) },
+  );
+}
+
+export async function deleteReservationService(
+  reservationId: number,
+  serviceId: number,
+): Promise<void> {
+  return apiFetch<void>(
+    `/reservations/${reservationId}/services/${serviceId}`,
+    { method: "DELETE" },
+  );
+}
+
+// ===========================================================================
+// Workers
+// ===========================================================================
+
+export async function getReservationWorkers(
+  reservationId: number,
+): Promise<ReservationWorkerDTO[]> {
+  return apiFetch<ReservationWorkerDTO[]>(
+    `/reservations/${reservationId}/workers`,
+  );
+}
+
+// ===========================================================================
+// Service image upload/delete
+// ===========================================================================
+
+export async function uploadServiceImage(
+  serviceId: number,
+  file: File,
+): Promise<{ imageUrl: string; id: number; storedFilename: string; mimeType: string; sizeBytes: number }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch(`/reservations/services/${serviceId}/image`, {
+    method: "POST",
+    body: formData,
+    headers: {}, // Let browser set Content-Type for multipart
+  });
+}
+
+export async function deleteServiceImage(serviceId: number): Promise<void> {
+  return apiFetch<void>(
+    `/reservations/services/${serviceId}/image`,
+    { method: "DELETE" },
+  );
+}
+
+// ===========================================================================
+// Service availability schedules
+// ===========================================================================
+
+export async function getServiceAvailabilitySchedules(
+  reservationId: number,
+  serviceId: number,
+): Promise<ReservationServiceScheduleDTO[]> {
+  return apiFetch<ReservationServiceScheduleDTO[]>(
+    `/reservations/${reservationId}/services/${serviceId}/availability-schedules`,
+  );
+}
+
+export async function createServiceAvailabilitySchedule(
+  reservationId: number,
+  serviceId: number,
+  data: AvailabilityScheduleCreateDTO,
+): Promise<ReservationServiceScheduleDTO> {
+  return apiFetch<ReservationServiceScheduleDTO>(
+    `/reservations/${reservationId}/services/${serviceId}/availability-schedules`,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function deleteServiceAvailabilitySchedule(
+  reservationId: number,
+  serviceId: number,
+  scheduleId: number,
+): Promise<void> {
+  return apiFetch<void>(
+    `/reservations/${reservationId}/services/${serviceId}/availability-schedules/${scheduleId}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function updateServiceAvailabilitySchedule(
+  reservationId: number,
+  serviceId: number,
+  scheduleId: number,
+  data: AvailabilityScheduleCreateDTO,
+): Promise<ReservationServiceScheduleDTO> {
+  return apiFetch<ReservationServiceScheduleDTO>(
+    `/reservations/${reservationId}/services/${serviceId}/availability-schedules/${scheduleId}`,
+    { method: "PUT", body: JSON.stringify(data) },
+  );
+}
+
+// ===========================================================================
+// Calendar (admin month summary + lazy day details)
+// ===========================================================================
+
+export async function getReservationCalendarMonth(
+  reservationId: number,
+  month: string,
+  params?: { hideEmpty?: boolean; workerId?: number | null },
+): Promise<CalendarMonthResponse> {
+  const q = new URLSearchParams({ month });
+  if (params?.hideEmpty) q.set("hideEmpty", "true");
+  if (params?.workerId) q.set("workerId", String(params.workerId));
+  return apiFetch<CalendarMonthResponse>(
+    `/reservations/${reservationId}/calendar?${q.toString()}`,
+  );
+}
+
+export async function getReservationCalendarDay(
+  reservationId: number,
+  date: string,
+): Promise<CalendarDayDetailsResponse> {
+  return apiFetch<CalendarDayDetailsResponse>(
+    `/reservations/${reservationId}/calendar/${encodeURIComponent(date)}`,
+  );
+}
+
+// ===========================================================================
+// Customers
+// ===========================================================================
+
+export interface CustomersQueryParams extends QueryParams {
+  projectId?: number;
+  search?: string;
+}
+
+export async function getReservationCustomers(
+  params: CustomersQueryParams = {},
+): Promise<Page<ReservationCustomerDTO>> {
+  return apiFetch<Page<ReservationCustomerDTO>>(
+    `/reservations/customers?${buildQueryString(params)}`,
+  );
+}
+
+export async function getReservationCustomerById(
+  customerId: number,
+): Promise<ReservationCustomerDTO> {
+  return apiFetch<ReservationCustomerDTO>(
+    `/reservations/customers/${customerId}`,
+  );
+}
+
+export async function createReservationCustomer(
+  data: ReservationCustomerCreateDTO,
+): Promise<ReservationCustomerDTO> {
+  return apiFetch<ReservationCustomerDTO>(
+    "/reservations/customers",
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function updateReservationCustomer(
+  customerId: number,
+  data: ReservationCustomerUpdateDTO,
+): Promise<ReservationCustomerDTO> {
+  return apiFetch<ReservationCustomerDTO>(
+    `/reservations/customers/${customerId}`,
+    { method: "PUT", body: JSON.stringify(data) },
+  );
+}
+
+export async function deleteReservationCustomer(
+  customerId: number,
+): Promise<void> {
+  return apiFetch<void>(
+    `/reservations/customers/${customerId}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function getReservationCustomerBookings(
+  customerId: number,
+): Promise<EnrichedReservationBookingDTO[]> {
+  return apiFetch<EnrichedReservationBookingDTO[]>(
+    `/reservations/customers/${customerId}/bookings`,
+  );
+}
+
+// ===========================================================================
+// Enriched booking create/update (admin)
+// ===========================================================================
+
+export async function createEnrichedReservationBooking(
+  reservationId: number,
+  data: ReservationBookingCreateRequest,
+): Promise<EnrichedReservationBookingDTO> {
+  return apiFetch<EnrichedReservationBookingDTO>(
+    `/reservations/${reservationId}/bookings`,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function updateReservationBookingStatus(
+  reservationId: number,
+  bookingId: number,
+  data: ReservationBookingUpdateRequest,
+): Promise<EnrichedReservationBookingDTO> {
+  return apiFetch<EnrichedReservationBookingDTO>(
+    `/reservations/${reservationId}/bookings/${bookingId}`,
+    { method: "PATCH", body: JSON.stringify(data) },
+  );
+}
+
+// ===========================================================================
+// Public catalog and availability (no auth, no CSRF)
+// ===========================================================================
+
+export async function publicGetCatalog(
+  secretToken: string,
+  locale?: string,
+): Promise<ReservationCatalogDTO> {
+  const params = locale ? `?locale=${encodeURIComponent(locale)}` : "";
+  return fetch(`/api/public/reservations/${secretToken}/catalog${params}`).then(
+    (r) => r.json(),
+  );
+}
+
+export async function publicGetServiceAvailability(
+  secretToken: string,
+  serviceId: number,
+  from: string,
+  to: string,
+): Promise<ReservationServiceAvailabilityDTO> {
+  return fetch(
+    `/api/public/reservations/${secretToken}/services/${serviceId}/availability?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+  ).then((r) => r.json());
+}
+
+export async function publicSubmitServiceBooking(
+  secretToken: string,
+  body: ReservationPublicBookingRequest,
+): Promise<ReservationBookingAck> {
+  return fetch(`/api/public/reservations/${secretToken}/bookings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "omit",
+    body: JSON.stringify(body),
+  }).then((r) => r.json());
+}
+
+// ---------------------------------------------------------------------------
+// Public profile resolution — resolve opaque browser tokens to customer data.
+// POST /api/public/reservations/:secret_token/customer-profiles/resolve
+// ---------------------------------------------------------------------------
+
+export async function publicResolveReservationCustomerProfiles(
+  secretToken: string,
+  profileTokens: string[],
+): Promise<ReservationCustomerProfilesResponse> {
+  return fetch(
+    `/api/public/reservations/${encodeURIComponent(secretToken)}/customer-profiles/resolve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "omit",
+      body: JSON.stringify({ profileTokens }),
+    },
+  ).then((r) => r.json());
 }

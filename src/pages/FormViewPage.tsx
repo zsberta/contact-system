@@ -1,12 +1,11 @@
 // ----------------------------------------------------------------------------
 // FormViewPage — read-only detail card + snippet panel.
-// Tab navigation is URL-based (NavLink) so each tab is a deep-linkable page.
 // ----------------------------------------------------------------------------
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { NavLink, useNavigate, useParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -29,26 +28,19 @@ import {
   PowerOff,
   Copy,
   Lock,
-  FileText,
-  List,
 } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
 import type { FormDTO } from "@/types/form";
 import { deleteForm, getFormById, updateForm } from "@/lib/forms";
 import { FormSnippetPanel } from "@/components/forms/FormSnippetPanel";
-import { cn } from "@/lib/utils";
-
-const TAB_LINK_CLASS =
-  "inline-flex items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground";
-const TAB_LINK_ACTIVE =
-  "bg-primary text-primary-foreground shadow hover:bg-primary/90 hover:text-primary-foreground";
+import { useModuleResolution } from "@/hooks/useModuleResolution";
+import { buildWorkspaceModulePath } from "@/lib/workspace-navigation";
 
 const FormViewPage: React.FC = () => {
   const { t } = useTranslation(["forms", "common"]);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { id } = useParams<{ id: string }>();
-  const formId = id ? Number.parseInt(id) : null;
+  const { resourceId: formId, moduleId } = useModuleResolution();
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false);
@@ -66,7 +58,9 @@ const FormViewPage: React.FC = () => {
         t("common:delete_success", { item: t("forms:form") }),
       );
       queryClient.invalidateQueries({ queryKey: ["forms"] });
-      navigate("/forms");
+      if (form?.projectId && moduleId) {
+        navigate(buildWorkspaceModulePath(form.projectId, "form", moduleId));
+      }
     },
     onError: (err: Error) => {
       showError(t("common:operation_failed", { error: err.message }));
@@ -198,29 +192,6 @@ const FormViewPage: React.FC = () => {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 w-full">
-      {/* Tab navigation */}
-      <nav className="flex gap-1 border-b pb-px">
-        <NavLink
-          to={`/forms/view/${formId}`}
-          end
-          className={({ isActive: active }) =>
-            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
-          }
-        >
-          <FileText className="h-4 w-4" />
-          {t("forms:details_tab")}
-        </NavLink>
-        <NavLink
-          to={`/forms/view/${formId}/submissions`}
-          className={({ isActive: active }) =>
-            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
-          }
-        >
-          <List className="h-4 w-4" />
-          {t("forms:submissions_tab")}
-        </NavLink>
-      </nav>
-
       {/* Details content */}
       <Card>
         <CardHeader className="flex flex-col space-y-4 pb-2">
@@ -230,14 +201,22 @@ const FormViewPage: React.FC = () => {
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             <Button
               variant="outline"
-              onClick={() => navigate("/forms")}
+              onClick={() => {
+                if (form?.projectId && moduleId) {
+                  navigate(buildWorkspaceModulePath(form.projectId, "form", moduleId));
+                }
+              }}
               className="w-full sm:w-auto"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               {t("forms:back_to_forms")}
             </Button>
             <Button
-              onClick={() => navigate(`/forms/edit/${form.id}`)}
+              onClick={() => {
+                if (form?.projectId && moduleId) {
+                  navigate(buildWorkspaceModulePath(form.projectId, "form", moduleId, "edit"));
+                }
+              }}
               className="w-full sm:w-auto"
             >
               <Pencil className="mr-2 h-4 w-4" />

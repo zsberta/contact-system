@@ -33,6 +33,7 @@ import { router as aiAssistantRouter } from "./routes/ai-assistant.js";
 import { router as aiAssistantEmbedRouter } from "./routes/ai-assistant-embed.js";
 import { router as aiConfigPresetsRouter } from "./routes/ai-config-presets.js";
 import { router as internalRouter } from "./routes/internal.js";
+import { router as projectModulesRouter } from "./routes/project-modules.js";
 import { pool } from "./db/pool.js";
 import { assertSafeStartup } from "./lib/startup-guard.js";
 import { stop as stopEmailQueue } from "./lib/email-queue.js";
@@ -66,6 +67,23 @@ app.use(
     crossOriginEmbedderPolicy: false,
   }),
 );
+
+// Embed route CSP override — allow framing for /embed/reservations/* documents.
+// The authenticated/admin pages stay at frameAncestors: 'none'; only the public
+// reservation embed is frameable.
+app.use("/embed/reservations", (req, res, next) => {
+  // Remove X-Frame-Options that Helmet sets
+  res.removeHeader("X-Frame-Options");
+  // Override CSP frame-ancestors to allow any origin
+  const cspHeader = res.getHeader("Content-Security-Policy");
+  if (typeof cspHeader === "string") {
+    res.setHeader(
+      "Content-Security-Policy",
+      cspHeader.replace(/frame-ancestors[^;]*/, "frame-ancestors *"),
+    );
+  }
+  next();
+});
 
 app.use(express.json({ limit: "100kb" }));
 // Trust X-Forwarded-* headers from a single upstream proxy (Caddy/nginx).
@@ -160,6 +178,10 @@ app.use("/api/analytics", analyticsRouter);
 // Submissions page (form submissions + reservation bookings + calendar).
 app.use("/api/submissions", submissionsRouter);
 
+// Project-Module registry — canonical module list/detail resolver.
+// Mounted after auth/CSRF middleware. See routes/project-modules.js.
+app.use("/api/project-modules", projectModulesRouter);
+
 // Blog admin CRUD — same auth/RBAC/scope contract as /api/forms. Mutating
 // routes (POST/PUT/DELETE + publish/unpublish) are gated by requireAuth
 // inside the router; endusers have read-only access scoped to their
@@ -229,7 +251,7 @@ function applyPublicCors(req, res) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     // Required when the browser sends credentials (cookies) with the
     // request — e.g. sendBeacon or fetch from a page that shares the
-    // backend's domain (zsoltberta.hu → crm.zsoltberta.hu with cookies).
+    // backend's domain (zsoltberta.hu → nexus.zsoltberta.hu with cookies).
     // Safe to always include: the origin is reflected (not *), so only
     // the specific requesting origin is granted credentialed access.
     res.setHeader("Access-Control-Allow-Credentials", "true");
@@ -249,6 +271,11 @@ app.use("/api/public/forms", (req, res, next) => {
 });
 app.use("/api/public/reservations", (req, res, next) => {
   applyPublicCors(req, res);
+  // Reservation public endpoints support GET (catalog, availability, assets)
+  // and POST (bookings). The iframe parent-origin header is used for the
+  // origin allowlist check when the embed is loaded cross-origin.
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Accept, X-Reservation-Parent-Origin");
   if (req.method === "OPTIONS") return res.status(204).end();
   next();
 });

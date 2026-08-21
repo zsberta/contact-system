@@ -420,12 +420,31 @@ router.get("/by-project/:projectId", async (req, res) => {
     // row. The `RETURNING` branch is the happy path; the empty-rows branch
     // is the "someone else just created it" path.
     const secretToken = generateSecretToken();
+    // Create or reuse the project_module registry row for analytics.
+    const { rows: pmRows } = await pool.query(
+      `INSERT INTO project_modules (project_id, module_type)
+       VALUES ($1, 'analytics')
+       ON CONFLICT (project_id, module_type) DO NOTHING
+       RETURNING id`,
+      [projectId],
+    );
+    let moduleId;
+    if (pmRows.length > 0) {
+      moduleId = pmRows[0].id;
+    } else {
+      const { rows: existing } = await pool.query(
+        `SELECT id FROM project_modules WHERE project_id = $1 AND module_type = 'analytics'`,
+        [projectId],
+      );
+      moduleId = existing[0].id;
+    }
+
     const insertResult = await pool.query(
-      `INSERT INTO analytics_configs (project_id, name, secret_token, allowed_origins, status)
-       VALUES ($1, $2, $3, '{}', 'active')
+      `INSERT INTO analytics_configs (project_id, module_id, name, secret_token, allowed_origins, status)
+       VALUES ($1, $2, $3, $4, '{}', 'active')
        ON CONFLICT (project_id) DO NOTHING
        RETURNING id, project_id, name, secret_token, allowed_origins, status, created_at, updated_at`,
-      [projectId, projectName, secretToken],
+      [projectId, moduleId, projectName, secretToken],
     );
     let row;
     if (insertResult.rowCount > 0) {

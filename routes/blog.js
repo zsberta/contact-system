@@ -657,15 +657,34 @@ router.post("/", async (req, res) => {
   const publishedAt = v.status === "published" ? new Date() : null;
 
   try {
+    // Create or reuse the project_module registry row for blog.
+    const { rows: pmRows } = await pool.query(
+      `INSERT INTO project_modules (project_id, module_type)
+       VALUES ($1, 'blog')
+       ON CONFLICT (project_id, module_type) DO NOTHING
+       RETURNING id`,
+      [v.project_id],
+    );
+    let moduleId;
+    if (pmRows.length > 0) {
+      moduleId = pmRows[0].id;
+    } else {
+      const { rows: existing } = await pool.query(
+        `SELECT id FROM project_modules WHERE project_id = $1 AND module_type = 'blog'`,
+        [v.project_id],
+      );
+      moduleId = existing[0].id;
+    }
+
     const { rows } = await pool.query(
       `INSERT INTO blog_posts
-        (project_id, slug, locale, title, excerpt, cover_image_url,
+        (project_id, module_id, slug, locale, title, excerpt, cover_image_url,
          body_html, body_json, status, seo_title, seo_description,
          seo_keywords, og_image_url, canonical_url, published_at,
          created_by, translation_group_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-               $11, $12, $13, $14, $15, $16,
-               COALESCE($17, gen_random_uuid()))
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+               $12, $13, $14, $15, $16, $17,
+               COALESCE($18, gen_random_uuid()))
        RETURNING id, project_id, slug, locale, title, excerpt,
                  cover_image_url, body_html, body_json, status,
                  seo_title, seo_description, seo_keywords,
@@ -674,6 +693,7 @@ router.post("/", async (req, res) => {
                  translation_group_id`,
       [
         v.project_id,
+        moduleId,
         v.slug,
         v.locale,
         v.title,
@@ -1063,11 +1083,22 @@ router.delete("/:id", async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `DELETE FROM blog_posts WHERE id = $1 RETURNING id`,
+      `DELETE FROM blog_posts WHERE id = $1 RETURNING id, module_id`,
       [postId],
     );
     if (rows.length === 0) {
       return res.status(404).json({ errorMessage: "Blog post not found" });
+    }
+    // If this was the last blog post, remove the empty registry row.
+    const deletedModuleId = rows[0].module_id;
+    if (deletedModuleId) {
+      const { rowCount } = await pool.query(
+        `SELECT 1 FROM blog_posts WHERE module_id = $1 LIMIT 1`,
+        [deletedModuleId],
+      );
+      if (rowCount === 0) {
+        await pool.query(`DELETE FROM project_modules WHERE id = $1`, [deletedModuleId]);
+      }
     }
   } catch (err) {
     console.error("[blog/delete]", err.code, err.message);

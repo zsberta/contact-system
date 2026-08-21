@@ -9,6 +9,7 @@ import React, { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/DataTable";
 import { Badge } from "@/components/ui/badge";
@@ -80,7 +81,10 @@ const AnalyticsPage: React.FC = () => {
     [],
   );
   const handleRowDoubleClick = useCallback(
-    (row: AnalyticsConfigDTO) => navigate(`/analytics/view/${row.id}`),
+    async (row: AnalyticsConfigDTO) => {
+      const path = await resolveModulePath(row.projectId, "analytics");
+      if (path) navigate(path);
+    },
     [navigate],
   );
 

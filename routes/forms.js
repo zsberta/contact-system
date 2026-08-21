@@ -474,15 +474,36 @@ router.post("/", async (req, res) => {
   const secretToken = crypto.randomBytes(16).toString("base64url");
 
   try {
+    // Create or reuse the project_module registry row for this project's form.
+    const { rows: pmRows } = await pool.query(
+      `INSERT INTO project_modules (project_id, module_type)
+       VALUES ($1, 'form')
+       ON CONFLICT (project_id, module_type) DO NOTHING
+       RETURNING id`,
+      [v.project_id],
+    );
+    let moduleId;
+    if (pmRows.length > 0) {
+      moduleId = pmRows[0].id;
+    } else {
+      // Registry row already exists — fetch it.
+      const { rows: existing } = await pool.query(
+        `SELECT id FROM project_modules WHERE project_id = $1 AND module_type = 'form'`,
+        [v.project_id],
+      );
+      moduleId = existing[0].id;
+    }
+
     const { rows } = await pool.query(
       `INSERT INTO forms
-        (project_id, name, slug, secret_token, allowed_origins, status)
-       VALUES ($1, $2, $3, $4, $5, $6)
+        (project_id, module_id, name, slug, secret_token, allowed_origins, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, project_id, name, slug, secret_token,
                  allowed_origins, status,
                  created_at, updated_at`,
       [
         v.project_id,
+        moduleId,
         v.name,
         v.slug,
         secretToken,
@@ -504,12 +525,17 @@ router.post("/", async (req, res) => {
     return res.status(201).json(rowToFormDTO(joined[0]));
   } catch (err) {
     // 23505 = unique_violation. For slug, return 409 with the user-facing
-    // message; for secret_token (astronomically rare) we fall through to
-    // the 409 generic message.
+    // message; for module_id (one form per project), return PROJECT_MODULE_EXISTS.
     if (err.code === "23505") {
       const constraint = err.constraint || "";
       if (constraint.includes("slug")) {
         return res.status(409).json({ errorMessage: "Slug already in use" });
+      }
+      if (constraint.includes("module_id")) {
+        return res.status(409).json({
+          errorMessage: "A module of this type already exists for this project",
+          errorCode: "PROJECT_MODULE_EXISTS",
+        });
       }
       return res
         .status(409)
@@ -605,12 +631,17 @@ router.delete("/:id", async (req, res) => {
     return res.status(400).json({ errorMessage: "Invalid id" });
   }
   try {
-    const { rowCount } = await pool.query(
-      `DELETE FROM forms WHERE id = $1`,
+    const { rows } = await pool.query(
+      `DELETE FROM forms WHERE id = $1 RETURNING module_id`,
       [formId],
     );
-    if (rowCount === 0) {
+    if (rows.length === 0) {
       return res.status(404).json({ errorMessage: "Form not found" });
+    }
+    // Clean up the registry row (one-per-project, so always safe to remove).
+    const moduleId = rows[0].module_id;
+    if (moduleId) {
+      await pool.query(`DELETE FROM project_modules WHERE id = $1`, [moduleId]);
     }
     return res.status(204).send();
   } catch (err) {

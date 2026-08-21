@@ -98,7 +98,7 @@ const UserActions = ({ user }: UserActionsProps) => {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {t("users:confirm_delete_description", {
-                name: `${user.firstName} ${user.lastName}`,
+                name: `${user.lastName} ${user.firstName}`,
                 email: user.email,
               })}
             </AlertDialogDescription>

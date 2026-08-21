@@ -7,6 +7,7 @@
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 import {
   Card,
   CardContent,
@@ -39,11 +40,11 @@ export function ProjectAnalytics({ projectId }: ProjectAnalyticsProps) {
 
   // useMutation for the lazy-create so we can show a clear "Enabling…"
   // state and a success toast. The query below reuses the cached result
-  // from the mutation onSuccess, so navigating to /analytics/view/:id
-  // works without a second round-trip.
+  // from the mutation onSuccess, so navigating to the workspace analytics
+  // page works without a second round-trip.
   const enableMutation = useMutation({
     mutationFn: () => getOrCreateAnalyticsConfigByProject(projectId),
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       showSuccess(
         t("common:create_success", {
           item: t("analytics:analytics_config"),
@@ -51,7 +52,8 @@ export function ProjectAnalytics({ projectId }: ProjectAnalyticsProps) {
       );
       queryClient.setQueryData(["analytics", data.id], data);
       queryClient.invalidateQueries({ queryKey: ["analytics", "project", projectId] });
-      navigate(`/analytics/view/${data.id}`);
+      const path = await resolveModulePath(projectId, "analytics");
+      if (path) navigate(path);
     },
     onError: (err: Error) => {
       showError(t("common:operation_failed", { error: err.message }));
@@ -95,6 +97,11 @@ export function ProjectAnalytics({ projectId }: ProjectAnalyticsProps) {
     enabled: !!data,
   });
 
+  const handleConfigClick = async () => {
+    const path = await resolveModulePath(projectId, "analytics");
+    if (path) navigate(path);
+  };
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
@@ -134,7 +141,7 @@ export function ProjectAnalytics({ projectId }: ProjectAnalyticsProps) {
           <ul className="space-y-2">
             <li
               className="flex items-center justify-between p-3 border rounded-md cursor-pointer hover:bg-muted/50"
-              onClick={() => navigate(`/analytics/view/${data!.id}`)}
+              onClick={handleConfigClick}
             >
               <div className="flex items-center gap-3 min-w-0 flex-1">
                 <BarChart3 className="h-4 w-4 text-muted-foreground flex-shrink-0" />

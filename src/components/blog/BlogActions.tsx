@@ -38,10 +38,9 @@ import { BlogPostDTO } from "@/types/blog";
 
 interface BlogActionsProps {
   post: BlogPostDTO;
-  basePath?: string;
 }
 
-const BlogActions: React.FC<BlogActionsProps> = ({ post, basePath = "/blog" }) => {
+const BlogActions: React.FC<BlogActionsProps> = ({ post }) => {
   const { t } = useTranslation(["blog", "common"]);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -70,7 +69,7 @@ const BlogActions: React.FC<BlogActionsProps> = ({ post, basePath = "/blog" }) =
         <DropdownMenuContent align="end">
           <DropdownMenuLabel>{t("blog:post_actions")}</DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => navigate(`${basePath}/edit/${post.id}`)}>
+          <DropdownMenuItem onSelect={() => navigate(`/blog/edit/${post.id}`)}>
             <Pencil className="mr-2 h-4 w-4" />
             {t("common:edit")}
           </DropdownMenuItem>

@@ -169,7 +169,7 @@ const UserViewPage: React.FC = () => {
       <Card>
         <CardHeader className="flex flex-col space-y-4 pb-2">
           <CardTitle className="text-2xl font-bold break-words">
-            {t("users:user_details")}: {initialData.firstName} {initialData.lastName}
+            {t("users:user_details")}: {initialData.lastName} {initialData.firstName}
           </CardTitle>
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto sm:flex-wrap">
             <Button
@@ -263,7 +263,7 @@ const UserViewPage: React.FC = () => {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {t("users:confirm_delete_description", {
-                name: `${initialData.firstName} ${initialData.lastName}`,
+                name: `${initialData.lastName} ${initialData.firstName}`,
                 email: initialData.email,
               })}
             </AlertDialogDescription>

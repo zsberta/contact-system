@@ -13,7 +13,7 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
 
-    /* Primary: Brand indigo (Zsolt's CRM — matches zsoltberta.hu #0A2540) */
+    /* Primary: Brand indigo (Nexus — matches zsoltberta.hu #0A2540) */
     --primary: 212 73% 18%;
     --primary-foreground: 210 40% 98%; /* White/Off-white */
 
@@ -62,7 +62,7 @@
     --popover: 222.2 84% 4.9%;
     --popover-foreground: 210 40% 98%;
 
-    /* Primary: Brand indigo — Dark Theme (Zsolt's CRM, matches zsoltberta.hu) */
+    /* Primary: Brand indigo — Dark Theme (Nexus, matches zsoltberta.hu) */
     --primary: 212 73% 38%;
     --primary-foreground: 222.2 47.4% 11.2%; /* Dark text */
 

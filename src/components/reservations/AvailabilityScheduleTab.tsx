@@ -50,6 +50,10 @@ import {
   createAvailabilitySchedule,
   updateAvailabilitySchedule,
   deleteAvailabilitySchedule,
+  getServiceAvailabilitySchedules,
+  createServiceAvailabilitySchedule,
+  updateServiceAvailabilitySchedule,
+  deleteServiceAvailabilitySchedule,
 } from "@/lib/reservations";
 import type {
   AvailabilityScheduleDTO,
@@ -58,6 +62,7 @@ import type {
 
 interface Props {
   reservationId: number;
+  serviceId?: number;
 }
 
 const FREQUENCY_OPTIONS: AvailabilityScheduleFrequency[] = [
@@ -90,7 +95,7 @@ const DAY_OF_WEEK_LABELS_EN: Record<number, string> = {
 // Display order: Monday first, Sunday last (Hungarian convention).
 const WEEKDAY_DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
-export function AvailabilityScheduleTab({ reservationId }: Props) {
+export function AvailabilityScheduleTab({ reservationId, serviceId }: Props) {
   const { t, i18n } = useTranslation(["reservations", "common"]);
   const queryClient = useQueryClient();
   const isHu = i18n.language?.startsWith("hu");
@@ -109,8 +114,13 @@ export function AvailabilityScheduleTab({ reservationId }: Props) {
   const [deleteTarget, setDeleteTarget] = useState<AvailabilityScheduleDTO | null>(null);
 
   const { data: schedules, isLoading } = useQuery({
-    queryKey: ["reservation-availability-schedules", reservationId],
-    queryFn: () => getAvailabilitySchedules(reservationId),
+    queryKey: serviceId
+      ? ["reservation-service-schedules", reservationId, serviceId]
+      : ["reservation-availability-schedules", reservationId],
+    queryFn: () =>
+      serviceId
+        ? getServiceAvailabilitySchedules(reservationId, serviceId) as Promise<unknown> as Promise<AvailabilityScheduleDTO[]>
+        : getAvailabilitySchedules(reservationId),
     enabled: !!reservationId,
   });
 
@@ -155,12 +165,16 @@ export function AvailabilityScheduleTab({ reservationId }: Props) {
       } else if (frequency === "monthly") {
         payload.dayOfMonth = parseInt(dayOfMonth, 10);
       }
-      return createAvailabilitySchedule(reservationId, payload);
+      return serviceId
+        ? createServiceAvailabilitySchedule(reservationId, serviceId, payload)
+        : createAvailabilitySchedule(reservationId, payload);
     },
     onSuccess: () => {
       showSuccess(t("reservations:schedule_created"));
       queryClient.invalidateQueries({
-        queryKey: ["reservation-availability-schedules", reservationId],
+        queryKey: serviceId
+          ? ["reservation-service-schedules", reservationId, serviceId]
+          : ["reservation-availability-schedules", reservationId],
       });
       resetForm();
     },
@@ -191,12 +205,16 @@ export function AvailabilityScheduleTab({ reservationId }: Props) {
       } else if (frequency === "monthly") {
         payload.dayOfMonth = parseInt(dayOfMonth, 10);
       }
-      return updateAvailabilitySchedule(reservationId, editingSchedule.id, payload);
+      return serviceId
+        ? updateServiceAvailabilitySchedule(reservationId, serviceId, editingSchedule.id, payload)
+        : updateAvailabilitySchedule(reservationId, editingSchedule.id, payload);
     },
     onSuccess: () => {
       showSuccess(t("reservations:schedule_updated"));
       queryClient.invalidateQueries({
-        queryKey: ["reservation-availability-schedules", reservationId],
+        queryKey: serviceId
+          ? ["reservation-service-schedules", reservationId, serviceId]
+          : ["reservation-availability-schedules", reservationId],
       });
       resetForm();
     },
@@ -206,11 +224,16 @@ export function AvailabilityScheduleTab({ reservationId }: Props) {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => deleteAvailabilitySchedule(reservationId, deleteTarget!.id),
+    mutationFn: () =>
+      serviceId
+        ? deleteServiceAvailabilitySchedule(reservationId, serviceId, deleteTarget!.id)
+        : deleteAvailabilitySchedule(reservationId, deleteTarget!.id),
     onSuccess: () => {
       showSuccess(t("reservations:schedule_deleted"));
       queryClient.invalidateQueries({
-        queryKey: ["reservation-availability-schedules", reservationId],
+        queryKey: serviceId
+          ? ["reservation-service-schedules", reservationId, serviceId]
+          : ["reservation-availability-schedules", reservationId],
       });
       setDeleteTarget(null);
     },
@@ -374,17 +397,31 @@ export function AvailabilityScheduleTab({ reservationId }: Props) {
               <div className="space-y-1">
                 <Label>{t("reservations:schedule_start_time")}</Label>
                 <Input
-                  type="time"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]{2}:[0-9]{2}"
+                  placeholder="HH:MM"
+                  maxLength={5}
                   value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^0-9]/g, "").slice(0, 4);
+                    setStartTime(raw.length > 2 ? `${raw.slice(0, 2)}:${raw.slice(2)}` : raw);
+                  }}
                 />
               </div>
               <div className="space-y-1">
                 <Label>{t("reservations:schedule_end_time")}</Label>
                 <Input
-                  type="time"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]{2}:[0-9]{2}"
+                  placeholder="HH:MM"
+                  maxLength={5}
                   value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^0-9]/g, "").slice(0, 4);
+                    setEndTime(raw.length > 2 ? `${raw.slice(0, 2)}:${raw.slice(2)}` : raw);
+                  }}
                 />
               </div>
             </div>

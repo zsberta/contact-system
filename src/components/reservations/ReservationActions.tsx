@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MoreVertical, Eye, Edit, Trash2, Power, PowerOff } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   DropdownMenu,
@@ -29,6 +29,7 @@ import {
 import type { ReservationDTO } from "@/types/reservation";
 import { deleteReservation, updateReservation } from "@/lib/reservations";
 import { showError, showSuccess } from "@/utils/toast";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 
 interface ReservationActionsProps {
   reservation: ReservationDTO;
@@ -37,8 +38,14 @@ interface ReservationActionsProps {
 const ReservationActions = ({ reservation }: ReservationActionsProps) => {
   const { t } = useTranslation(["reservations", "common"]);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false);
+
+  const handleView = async () => {
+    const path = await resolveModulePath(reservation.projectId, "reservation");
+    if (path) navigate(path);
+  };
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteReservation(reservation.id),
@@ -98,11 +105,9 @@ const ReservationActions = ({ reservation }: ReservationActionsProps) => {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuLabel>{t("common:actions")}</DropdownMenuLabel>
-          <DropdownMenuItem asChild>
-            <Link to={`/reservations/view/${reservation.id}`}>
-              <Eye className="mr-2 h-4 w-4" />
-              {t("common:view")}
-            </Link>
+          <DropdownMenuItem onClick={handleView}>
+            <Eye className="mr-2 h-4 w-4" />
+            {t("common:view")}
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
             <Link to={`/reservations/edit/${reservation.id}`}>

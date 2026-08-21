@@ -24,19 +24,19 @@ export interface ReservationDTO {
   id: number;
   // Operator config (mirrors Form fields)
   name: string;
-  slug: string;
   secretToken: string;
   projectId: number;
   projectName: string;
   allowedOrigins: string[];
   status: ReservationStatus;
-  // Reservation-specific config
-  granularity: ReservationGranularity;
-  slotDurationMinutes: number | null;
-  leadTimeMinutes: number;
-  maxAdvanceDays: number;
   extraFieldsEnabled: boolean;
   disableHungarianHolidays: boolean;
+  brandColor: string;
+  iframeWidth: string;
+  iframeHeight: string;
+  // Booking catalog config
+  defaultLocale: string;
+  timezone: string;
   // Audit
   createdAt: string;
   updatedAt: string;
@@ -46,16 +46,16 @@ export interface ReservationDTO {
 // accepted here. `slug` must be unique across all reservations.
 export interface ReservationCreateDTO {
   name: string;
-  slug: string;
   projectId: number;
   allowedOrigins: string[];
   status?: ReservationStatus;
-  granularity: ReservationGranularity;
-  slotDurationMinutes?: number | null;
-  leadTimeMinutes?: number;
-  maxAdvanceDays?: number;
   extraFieldsEnabled?: boolean;
   disableHungarianHolidays?: boolean;
+  brandColor?: string;
+  iframeWidth?: string;
+  iframeHeight?: string;
+  defaultLocale?: string;
+  timezone?: string;
 }
 
 // PUT /api/reservations/:id body. `projectId` and `secretToken` are
@@ -63,22 +63,22 @@ export interface ReservationCreateDTO {
 // routes/reservations.js). `slug` is editable — collision → 409.
 export interface ReservationUpdateDTO {
   name?: string;
-  slug?: string;
   allowedOrigins?: string[];
   status?: ReservationStatus;
-  granularity?: ReservationGranularity;
-  slotDurationMinutes?: number | null;
-  leadTimeMinutes?: number;
-  maxAdvanceDays?: number;
   extraFieldsEnabled?: boolean;
   disableHungarianHolidays?: boolean;
+  brandColor?: string;
+  iframeWidth?: string;
+  iframeHeight?: string;
+  defaultLocale?: string;
+  timezone?: string;
 }
 
 // Snippet response from GET /api/reservations/:id/snippet.
 export interface ReservationSnippetResponse {
   html: string;
+  embedUrl: string;
   secretToken: string;
-  slug: string;
   origin: string;
   granularity: ReservationGranularity;
   slotDurationMinutes: number | null;
@@ -92,19 +92,54 @@ export interface ReservationSnippetResponse {
 
 // Single booking, returned by GET /api/reservations/:id/bookings and
 // GET /api/reservations/:id/bookings/:bookingId.
+// Enriched with service, customer, worker, and status fields from JOINs.
 export interface ReservationBookingDTO {
   id: number;
   reservationId: number;
+  serviceId: number | null;
   startsAt: string;
   endsAt: string;
   bookedAt: string;
+  // Contact
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+  comment: string | null;
+  // References
+  customerId: number | null;
+  createdByUserId: number | null;
+  workerUserId: number | null;
+  // Snapshots
+  serviceNameSnapshot: string | null;
+  durationMinutesSnapshot: number | null;
+  priceAmountSnapshot: number | null;
+  currencySnapshot: string | null;
+  timezone: string | null;
+  // Lifecycle
+  status: ReservationBookingStatus;
+  source: ReservationBookingSource;
+  cancelledAt: string | null;
+  cancelledByUserId: number | null;
+  cancellationReason: string | null;
+  // Audit
+  locale: string | null;
   ipAddress: string | null;
   userAgent: string | null;
   referer: string | null;
-  locale: string | null;
-  // Validated bag — plain JSONB. Only populated when the reservation has
-  // `extraFieldsEnabled` true AND the visitor supplied it.
   data: Record<string, unknown> | null;
+  createdAt: string;
+  // Joined fields
+  serviceName: string | null;
+  customerName: string | null;
+  customerEmail: string | null;
+  customerPhone: string | null;
+  workerFirstName: string | null;
+  workerLastName: string | null;
+  createdByFirstName: string | null;
+  createdByLastName: string | null;
+  reservationName: string | null;
+  projectName: string | null;
 }
 
 // Public availability response — the headline endpoint the landing page
@@ -143,6 +178,8 @@ export interface ReservationBookingAck {
   startsAt: string;
   endsAt: string;
   bookedAt: string;
+  /** Present when the visitor opted in with "remember me" and the association succeeded. */
+  customerProfile?: ReservationCustomerProfileDTO;
 }
 
 // Public submission request body — used by the landing page widget.
@@ -151,6 +188,24 @@ export interface ReservationBookingRequest {
   endsAt: string;
   locale?: string;
   data?: Record<string, unknown> | null;
+}
+
+// ---------------------------------------------------------------------------
+// Customer profiles — opaque browser-saved tokens for "remember me".
+// ---------------------------------------------------------------------------
+
+/** A resolved customer profile — raw token paired with current backend data. */
+export interface ReservationCustomerProfileDTO {
+  profileToken: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+}
+
+/** Response from POST /customer-profiles/resolve. */
+export interface ReservationCustomerProfilesResponse {
+  profiles: ReservationCustomerProfileDTO[];
 }
 
 // ---------------------------------------------------------------------------
@@ -203,4 +258,364 @@ export interface AvailabilityScheduleCreateDTO {
   dayOfMonth?: number | null;
   startTime: string;
   endTime: string;
+}
+
+// ===========================================================================
+// Service catalog types — reservation-owned bookable services
+// ===========================================================================
+
+export type ReservationServiceStatus = "active" | "disabled";
+
+export interface ReservationServiceTranslationDTO {
+  locale: string;
+  name: string | null;
+  description: string | null;
+}
+
+export interface ReservationServiceFieldDTO {
+  id: number;
+  fieldKey: string;
+  fieldType: "text" | "textarea" | "select" | "checkbox";
+  required: boolean;
+  sortOrder: number;
+  options: string[] | null;
+  translations: Array<{
+    locale: string;
+    label: string;
+    placeholder: string | null;
+  }>;
+}
+
+export interface ReservationServiceDTO {
+  id: number;
+  reservationId: number;
+  status: ReservationServiceStatus;
+  sortOrder: number;
+  durationMinutes: number;
+  priceAmount: number;
+  currency: string;
+  capacity: number;
+  granularity: ReservationGranularity;
+  slotDurationMinutes: number | null;
+  leadTimeMinutes: number;
+  maxAdvanceDays: number;
+  workerUserId: number | null;
+  workerFirstName: string | null;
+  workerLastName: string | null;
+  name: string | null;
+  description: string | null;
+  imageUrl: string | null;
+  translations?: ReservationServiceTranslationDTO[];
+  fields?: ReservationServiceFieldDTO[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReservationServiceCreateDTO {
+  status?: ReservationServiceStatus;
+  sortOrder?: number;
+  durationMinutes: number;
+  priceAmount?: number;
+  currency?: string;
+  capacity?: number;
+  granularity?: ReservationGranularity;
+  slotDurationMinutes?: number | null;
+  leadTimeMinutes?: number;
+  maxAdvanceDays?: number;
+  workerUserId?: number | null;
+  translations: Record<string, { name: string; description?: string | null }>;
+  fields?: Array<{
+    fieldKey: string;
+    fieldType?: "text" | "textarea" | "select" | "checkbox";
+    required?: boolean;
+    sortOrder?: number;
+    options?: string[];
+    translations?: Record<string, { label: string; placeholder?: string }>;
+  }>;
+}
+
+export interface ReservationServiceUpdateDTO {
+  status?: ReservationServiceStatus;
+  sortOrder?: number;
+  durationMinutes?: number;
+  priceAmount?: number;
+  currency?: string;
+  capacity?: number;
+  granularity?: ReservationGranularity;
+  slotDurationMinutes?: number | null;
+  leadTimeMinutes?: number;
+  maxAdvanceDays?: number;
+  workerUserId?: number | null;
+  translations?: Record<string, { name?: string; description?: string | null }>;
+  fields?: Array<{
+    fieldKey: string;
+    fieldType?: "text" | "textarea" | "select" | "checkbox";
+    required?: boolean;
+    sortOrder?: number;
+    options?: string[];
+    translations?: Record<string, { label: string; placeholder?: string }>;
+  }>;
+}
+
+// ===========================================================================
+// Worker types
+// ===========================================================================
+
+export interface ReservationWorkerDTO {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+}
+
+// ===========================================================================
+// Customer types — reusable project-scoped contacts
+// ===========================================================================
+
+export type ReservationCustomerStatus = "active" | "archived";
+
+export interface ReservationCustomerDTO {
+  id: number;
+  projectId: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  status: ReservationCustomerStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReservationCustomerCreateDTO {
+  projectId: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+}
+
+export interface ReservationCustomerUpdateDTO {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  status?: ReservationCustomerStatus;
+}
+
+// ===========================================================================
+// Booking lifecycle types
+// ===========================================================================
+
+export type ReservationBookingStatus = "confirmed" | "cancelled" | "completed" | "no_show";
+export type ReservationBookingSource = "public" | "admin" | "portal" | "import";
+
+// Enriched booking DTO — extends the base with service, customer, status
+export interface EnrichedReservationBookingDTO {
+  id: number;
+  reservationId: number;
+  serviceId: number;
+  startsAt: string;
+  endsAt: string;
+  bookedAt: string;
+  // Contact
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+  comment: string | null;
+  // References
+  customerId: number | null;
+  createdByUserId: number | null;
+  workerUserId: number | null;
+  // Snapshots
+  serviceNameSnapshot: string | null;
+  durationMinutesSnapshot: number | null;
+  priceAmountSnapshot: number | null;
+  currencySnapshot: string | null;
+  timezone: string | null;
+  // Lifecycle
+  status: ReservationBookingStatus;
+  source: ReservationBookingSource;
+  cancelledAt: string | null;
+  cancelledByUserId: number | null;
+  cancellationReason: string | null;
+  // Audit
+  locale: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  referer: string | null;
+  data: Record<string, unknown> | null;
+  createdAt: string;
+  // Joined fields
+  serviceName: string | null;
+  customerName: string | null;
+  customerEmail: string | null;
+  customerPhone: string | null;
+  workerFirstName: string | null;
+  workerLastName: string | null;
+  createdByFirstName: string | null;
+  createdByLastName: string | null;
+  reservationName: string | null;
+  projectName: string | null;
+}
+
+export interface ReservationBookingCreateRequest {
+  serviceId: number;
+  startsAt: string;
+  endsAt: string;
+  customerId?: number;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  comment?: string;
+  locale?: string;
+  fields?: Record<string, unknown>;
+  data?: Record<string, unknown>;
+}
+
+export interface ReservationBookingUpdateRequest {
+  status: ReservationBookingStatus;
+  cancellationReason?: string;
+}
+
+// ===========================================================================
+// Service schedule DTOs
+// ===========================================================================
+
+export interface ReservationServiceScheduleDTO {
+  id: number;
+  serviceId: number;
+  frequency: AvailabilityScheduleFrequency;
+  dayOfWeek: number | null;
+  dayOfMonth: number | null;
+  startTime: string;
+  endTime: string;
+  createdAt: string;
+}
+
+// ===========================================================================
+// Public catalog and availability
+// ===========================================================================
+
+export interface ReservationCatalogDTO {
+  reservation: {
+    id: number;
+    title: string;
+    defaultLocale: string;
+    timezone: string;
+  };
+  services: Array<{
+    id: number;
+    name: string;
+    description: string | null;
+    durationMinutes: number;
+    priceAmount: number;
+    currency: string;
+    capacity: number;
+    workerName: string | null;
+    imageUrl: string | null;
+    fields: Array<{
+      fieldKey: string;
+      fieldType: string;
+      required: boolean;
+      sortOrder: number;
+      options: string[] | null;
+      label: string;
+      placeholder: string | null;
+    }>;
+  }>;
+}
+
+export interface ReservationServiceAvailabilityDTO {
+  timezone: string;
+  days: Array<{
+    date: string;
+    available: boolean;
+  }>;
+  slots: Array<{
+    startsAt: string;
+    endsAt: string;
+    date: string;
+    startTime: string;
+    endTime: string;
+    capacity: number;
+    remainingSeats: number;
+  }>;
+}
+
+// ===========================================================================
+// Reservation calendar types — admin calendar summary + day details
+// ===========================================================================
+
+export interface CalendarSlotSummary {
+  date: string;
+  serviceId: number;
+  serviceName: string;
+  workerUserId: number | null;
+  workerInitial: string | null;
+  startTime: string;
+  endTime: string;
+  seatsTaken: number;
+  capacity: number;
+}
+
+export interface CalendarMonthResponse {
+  month: string;
+  slots: CalendarSlotSummary[];
+}
+
+export interface CalendarBookingCustomer {
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
+export interface CalendarBookingSummary {
+  id: number;
+  customer: CalendarBookingCustomer;
+  status: ReservationBookingStatus;
+}
+
+export interface CalendarSessionSummary {
+  workerFirstName: string | null;
+  workerLastName: string | null;
+  startTime: string;
+  endTime: string;
+  startsAt: string;
+  endsAt: string;
+  seatsTaken: number;
+  capacity: number;
+  bookings: CalendarBookingSummary[];
+}
+
+export interface CalendarServiceDetails {
+  serviceId: number;
+  serviceName: string;
+  price: number;
+  sessions: CalendarSessionSummary[];
+}
+
+export interface CalendarDayDetailsResponse {
+  date: string;
+  services: CalendarServiceDetails[];
+}
+
+// Public booking request (new, service-aware)
+export interface ReservationPublicBookingRequest {
+  serviceId: number;
+  startsAt: string;
+  endsAt: string;
+  locale: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  comment?: string;
+  fields?: Record<string, unknown>;
+  /** When true, the server associates the profileToken with the customer. */
+  rememberCustomer?: boolean;
+  /** Opaque UUID token generated client-side for the "remember me" feature. */
+  customerProfileToken?: string;
 }

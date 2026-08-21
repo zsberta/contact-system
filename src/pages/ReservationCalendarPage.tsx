@@ -1,22 +1,37 @@
 // ----------------------------------------------------------------------------
-// ReservationCalendarPage — monthly calendar view showing all bookings for a
-// reservation, with manual booking creation by clicking on a day cell.
-//
-// Day modal: shows all bookings for the clicked day as expandable rows with
-// full audit details. A "Create booking" button at the top-right opens an
-// inline form for manual booking creation.
+// ReservationCalendarPage — monthly calendar showing every bookable service
+// session for the reservation, with lazy day-detail modal and manual booking
+// creation surfaced from the selected service session.
 // ----------------------------------------------------------------------------
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { NavLink, useNavigate, useParams } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useParams } from "react-router-dom";
+import { useModuleResolution } from "@/hooks/useModuleResolution";
+import { ReservationCustomerPicker } from "@/components/reservations/ReservationCustomerPicker";
+import {
+  createReservationCustomer,
+  getReservationById,
+  getReservationCalendarDay,
+  getReservationCalendarMonth,
+  getReservationServices,
+  getReservationWorkers,
+} from "@/lib/reservations";
+import type {
+  CalendarDayDetailsResponse,
+  CalendarSessionSummary,
+  CalendarServiceDetails,
+  CalendarSlotSummary,
+  ReservationCustomerDTO,
+  ReservationCustomerCreateDTO,
+  ReservationServiceDTO,
+} from "@/types/reservation";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
   DialogContent,
@@ -32,38 +47,18 @@ import {
   Clock,
   Loader2,
   Plus,
-  Globe,
-  Monitor,
-  User,
-  FileText,
-  FileUp,
-  List,
-  Ban,
 } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
-import {
-  getReservationById,
-  getReservationBookings,
-  createReservationBooking,
-} from "@/lib/reservations";
-import type { ReservationBookingDTO } from "@/types/reservation";
-import { useAuth } from "@/context/AuthContext";
-import { cn } from "@/lib/utils";
-
-const TAB_LINK_CLASS =
-  "inline-flex items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground";
-const TAB_LINK_ACTIVE =
-  "bg-primary text-primary-foreground shadow hover:bg-primary/90 hover:text-accent-foreground";
+import { createEnrichedReservationBooking } from "@/lib/reservations";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 const DAYS_IN_WEEK = 7;
 const CELL_H = "min-h-[100px] md:min-h-[120px]";
 
-/** Build a grid of Date objects for the month view (6 rows × 7 cols). */
 function buildMonthGrid(year: number, month: number): Date[][] {
   const firstOfMonth = new Date(Date.UTC(year, month, 1));
-  const startDow = firstOfMonth.getUTCDay(); // 0=Sun
+  const startDow = firstOfMonth.getUTCDay();
   const gridStart = new Date(firstOfMonth);
   gridStart.setUTCDate(gridStart.getUTCDate() - startDow);
 
@@ -84,103 +79,197 @@ function ymd(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-function formatMonth(year: number, month: number, locale: string): string {
-  return new Date(Date.UTC(year, month, 1)).toLocaleDateString(locale, {
-    year: "numeric",
-    month: "long",
+function slotKey(slot: CalendarSlotSummary) {
+  return `${slot.date}:${slot.serviceId}:${slot.startTime}`;
+}
+
+function fmtTime(locale: string, iso: string) {
+  return new Date(iso).toLocaleTimeString(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
   });
 }
 
-function maskIpv4(ip: string | null): string {
-  if (!ip) return "—";
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
-    const parts = ip.split(".");
-    return `${parts[0]}.${parts[1]}.${parts[2]}.xxx`;
+function fmtPrice(price: number, currency: string | null | undefined, locale: string) {
+  try {
+    return new Intl.NumberFormat(locale === "hu" ? "hu-HU" : "en-GB", {
+      style: "currency",
+      currency: currency || "HUF",
+      maximumFractionDigits: 0,
+    }).format(price);
+  } catch {
+    return `${price} ${currency || "HUF"}`;
   }
-  return ip;
 }
 
-// ── sub-component: single booking row in the day modal ──────────────────────
+// ── calendar slot chip ───────────────────────────────────────────────────────
 
-function BookingRow({
-  booking,
+function CalendarSlotChip({
+  slot,
+  locale,
+}: {
+  slot: CalendarSlotSummary;
+  locale: string;
+}) {
+  const title = `${slot.serviceName}\n${slot.workerInitial ? `${slot.workerInitial} · ` : ""}${slot.seatsTaken}/${slot.capacity}\n${slot.startTime} – ${slot.endTime}`;
+
+  return (
+    <div
+      className="text-[10px] leading-tight bg-primary/15 text-primary rounded px-1 py-0.5 truncate"
+      title={title}
+    >
+      {slot.workerInitial ? (
+        <span className="font-semibold">{slot.workerInitial}</span>
+      ) : null}{" "}
+      {slot.seatsTaken}/{slot.capacity}{" "}
+      {slot.startTime}–{slot.endTime}
+    </div>
+  );
+}
+
+// ── day detail components ────────────────────────────────────────────────────
+
+function DaySession({
+  session,
   locale,
   t,
 }: {
-  booking: ReservationBookingDTO;
+  session: CalendarSessionSummary;
   locale: string;
   t: (key: string) => string;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const start = new Date(booking.startsAt);
-  const end = new Date(booking.endsAt);
-
-  const timeRange = `${start.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })} – ${end.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}`;
+  const workerName = [session.workerFirstName, session.workerLastName]
+    .filter(Boolean)
+    .join(" ");
 
   return (
-    <div className="border rounded-md overflow-hidden">
+    <div className="rounded-md border bg-muted/20 p-3 space-y-2">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium leading-tight">
+            {fmtTime(locale, session.startsAt)} – {fmtTime(locale, session.endsAt)}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {session.seatsTaken}/{session.capacity} {t("reservations:capacity").toLowerCase()}
+            {workerName ? ` · ${workerName}` : ""}
+          </p>
+        </div>
+      </div>
+
+      {session.bookings.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {t("reservations:calendar_no_bookings_this_month")}
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {session.bookings.map((booking) => {
+            const name = [booking.customer.lastName, booking.customer.firstName]
+              .filter(Boolean)
+              .join(" ");
+            return (
+              <div
+                key={booking.id}
+                className="flex items-start justify-between gap-3 text-sm"
+              >
+                <div className="min-w-0">
+                  <p className="font-medium truncate">{name || "—"}</p>
+                  {(booking.customer.email || booking.customer.phone) && (
+                    <p className="text-xs text-muted-foreground truncate">
+                      {[booking.customer.email, booking.customer.phone]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  )}
+                </div>
+                <Badge
+                  variant={
+                    booking.status === "confirmed"
+                      ? "default"
+                      : booking.status === "cancelled"
+                        ? "destructive"
+                        : booking.status === "no_show"
+                          ? "outline"
+                          : "secondary"
+                  }
+                  className="mt-0.5 shrink-0 text-[10px]"
+                >
+                  {t(`reservations:booking_status_${booking.status}`)}
+                </Badge>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DayServiceAccordion({
+  service,
+  locale,
+  expanded,
+  onToggle,
+  t,
+}: {
+  service: CalendarServiceDetails;
+  locale: string;
+  expanded: boolean;
+  onToggle: () => void;
+  t: (key: string) => string;
+}) {
+  const totalBookings = service.sessions.reduce(
+    (sum, session) => sum + session.bookings.length,
+    0,
+  );
+  const seatsTaken = service.sessions.reduce(
+    (sum, session) => sum + session.seatsTaken,
+    0,
+  );
+  const capacity = service.sessions.reduce(
+    (sum, session) => sum + session.capacity,
+    0,
+  );
+
+  return (
+    <div className="rounded-md border overflow-hidden">
       <button
         type="button"
-        onClick={() => setExpanded(!expanded)}
+        onClick={onToggle}
         className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-accent/50 transition-colors"
       >
-        <div className="flex items-center gap-3 min-w-0">
-          <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
-          <span className="text-sm font-medium truncate">{timeRange}</span>
-          {booking.userAgent === "admin-panel" && (
-            <Badge variant="secondary" className="text-[10px] shrink-0">
-              Admin
-            </Badge>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold truncate">{service.serviceName}</p>
+          <p className="text-xs text-muted-foreground">
+            {fmtPrice(service.price, null, locale)} · {totalBookings}{" "}
+            {t("reservations:customer").toLowerCase()} · {seatsTaken}/{capacity}{" "}
+            {t("reservations:capacity").toLowerCase()}
+          </p>
+        </div>
+        <div className="shrink-0 ml-3 text-muted-foreground">
+          {expanded ? (
+            <ChevronUp className="h-4 w-4" />
+          ) : (
+            <ChevronDown className="h-4 w-4" />
           )}
         </div>
-        {expanded ? (
-          <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
-        ) : (
-          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
-        )}
       </button>
+
       {expanded && (
-        <div className="px-3 pb-3 pt-1 space-y-2 border-t bg-muted/20">
-          <DetailRow
-            label={t("reservations:booking_starts_at")}
-            value={start.toLocaleString()}
-          />
-          <DetailRow
-            label={t("reservations:booking_ends_at")}
-            value={end.toLocaleString()}
-          />
-          <DetailRow
-            label={t("reservations:booking_booked_at")}
-            value={new Date(booking.bookedAt).toLocaleString()}
-          />
-          <DetailRow
-            label={t("reservations:submission_ip")}
-            value={maskIpv4(booking.ipAddress)}
-          />
-          <DetailRow
-            label={t("reservations:submission_user_agent")}
-            value={booking.userAgent ?? "—"}
-          />
-          <DetailRow
-            label={t("reservations:submission_referer")}
-            value={booking.referer ?? "—"}
-          />
-          <DetailRow
-            label={t("reservations:submission_locale")}
-            value={booking.locale ?? "—"}
-          />
-          {booking.data && Object.keys(booking.data).length > 0 && (
-            <>
-              <Separator className="my-1" />
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {t("reservations:booking_data")}
-                </p>
-                <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs font-mono">
-                  <code>{JSON.stringify(booking.data, null, 2)}</code>
-                </pre>
-              </div>
-            </>
+        <div className="border-t bg-muted/20 p-3 space-y-3">
+          {service.sessions.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {t("reservations:calendar_no_bookings_this_month")}
+            </p>
+          ) : (
+            service.sessions.map((session, index) => (
+              <DaySession
+                key={`${session.startsAt}-${index}`}
+                session={session}
+                locale={locale}
+                t={t}
+              />
+            ))
           )}
         </div>
       )}
@@ -188,102 +277,86 @@ function BookingRow({
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-start gap-2 text-sm">
-      <span className="text-muted-foreground shrink-0 min-w-[120px]">
-        {label}
-      </span>
-      <span className="font-medium break-words">{value}</span>
-    </div>
-  );
-}
-
 // ── main component ──────────────────────────────────────────────────────────
 
 export default function ReservationCalendarPage() {
-  const { t } = useTranslation(["reservations", "common"]);
-  const navigate = useNavigate();
+  const { t, i18n } = useTranslation(["reservations", "common"]);
   const queryClient = useQueryClient();
-  const { id } = useParams<{ id: string }>();
-  const reservationId = id ? Number.parseInt(id) : null;
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const { resourceId: reservationId } = useModuleResolution();
+  const { projectId: projectIdParam, moduleId: moduleIdParam } = useParams<{
+    projectId: string;
+    moduleId: string;
+  }>();
 
   const today = new Date();
   const [year, setYear] = useState(today.getUTCFullYear());
   const [month, setMonth] = useState(today.getUTCMonth());
 
-  // Day modal state
   const [dayModalOpen, setDayModalOpen] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [selectedDateStr, setSelectedDateStr] = useState<string | null>(null);
+  const [expandedServiceId, setExpandedServiceId] = useState<number | null>(null);
 
-  // Create booking form state (shown inside day modal)
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [createServiceId, setCreateServiceId] = useState<number | null>(null);
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("10:00");
+  const [selectedCustomer, setSelectedCustomer] = useState<ReservationCustomerDTO | null>(null);
 
-  // Fetch reservation metadata.
+  // Calendar filters
+  const [hideEmpty, setHideEmpty] = useState(false);
+  const [workerFilterId, setWorkerFilterId] = useState<number | null>(null);
+
+  const monthQueryKey = `${String(year).padStart(4, "0")}-${String(month + 1).padStart(2, "0")}`;
+  const monthQuery = useQuery({
+    queryKey: ["reservation-calendar-month", reservationId, monthQueryKey, hideEmpty, workerFilterId],
+    queryFn: () => getReservationCalendarMonth(reservationId!, monthQueryKey, { hideEmpty, workerId: workerFilterId }),
+    enabled: !!reservationId,
+  });
+
   const { data: reservation } = useQuery({
     queryKey: ["reservations", reservationId],
     queryFn: () => getReservationById(reservationId!),
     enabled: !!reservationId,
   });
 
-  // Fetch all bookings for the visible window.
-  const windowStart = useMemo(() => {
-    const d = new Date(Date.UTC(year, month, 1));
-    d.setUTCDate(d.getUTCDate() - 7);
-    return d.toISOString();
-  }, [year, month]);
-
-  const windowEnd = useMemo(() => {
-    const d = new Date(Date.UTC(year, month + 1, 0));
-    d.setUTCDate(d.getUTCDate() + 14);
-    return d.toISOString();
-  }, [year, month]);
-
-  const { data: bookingsPage, isLoading: bookingsLoading } = useQuery({
-    queryKey: ["reservation-bookings-calendar", reservationId, year, month],
-    queryFn: () =>
-      getReservationBookings(reservationId!, {
-        size: 1000,
-        sortField: "startsAt",
-        sortOrder: "asc",
-      }),
+  const servicesQuery = useQuery({
+    queryKey: ["reservation-services", reservationId],
+    queryFn: () => getReservationServices(reservationId!),
     enabled: !!reservationId,
   });
 
-  const visibleBookings = useMemo(() => {
-    const all = bookingsPage?.content ?? [];
-    const startMs = new Date(windowStart).getTime();
-    const endMs = new Date(windowEnd).getTime();
-    return all.filter((b) => {
-      const s = new Date(b.startsAt).getTime();
-      return s >= startMs && s < endMs;
-    });
-  }, [bookingsPage, windowStart, windowEnd]);
+  const { data: workers } = useQuery({
+    queryKey: ["reservation-workers", reservationId],
+    queryFn: () => getReservationWorkers(reservationId!),
+    enabled: !!reservationId,
+  });
 
-  const bookingsByDay = useMemo(() => {
-    const map: Record<string, ReservationBookingDTO[]> = {};
-    for (const b of visibleBookings) {
-      const day = ymd(new Date(b.startsAt));
-      if (!map[day]) map[day] = [];
-      map[day].push(b);
+  const dayQuery = useQuery({
+    queryKey: ["reservation-calendar-day", reservationId, selectedDateStr],
+    queryFn: () => getReservationCalendarDay(reservationId!, selectedDateStr!),
+    enabled: !!reservationId && dayModalOpen && !!selectedDateStr,
+  });
+
+  useEffect(() => {
+    setSelectedDateStr(null);
+    setExpandedServiceId(null);
+    setShowCreateForm(false);
+    setCreateServiceId(null);
+    setStartTime("09:00");
+    setEndTime("10:00");
+    setSelectedCustomer(null);
+  }, [monthQueryKey]);
+
+  const slotsByDay = useMemo(() => {
+    const map: Record<string, CalendarSlotSummary[]> = {};
+    for (const slot of monthQuery.data?.slots ?? []) {
+      if (!map[slot.date]) map[slot.date] = [];
+      map[slot.date].push(slot);
     }
     return map;
-  }, [visibleBookings]);
-
-  // Bookings for the currently selected day in the modal.
-  const selectedDayBookings = useMemo(() => {
-    if (!selectedDate) return [];
-    const dayStr = ymd(selectedDate);
-    return bookingsByDay[dayStr] ?? [];
-  }, [selectedDate, bookingsByDay]);
+  }, [monthQuery.data]);
 
   const grid = useMemo(() => buildMonthGrid(year, month), [year, month]);
-
-  // ── navigation ───────────────────────────────────────────────────────────
 
   const prevMonth = useCallback(() => {
     setMonth((m) => {
@@ -305,215 +378,198 @@ export default function ReservationCalendarPage() {
     });
   }, []);
 
+  const prevYear = useCallback(() => setYear((y) => y - 1), []);
+  const nextYear = useCallback(() => setYear((y) => y + 1), []);
+
   const goToToday = useCallback(() => {
     const now = new Date();
     setYear(now.getUTCFullYear());
     setMonth(now.getUTCMonth());
   }, []);
 
-  // ── day click → open modal ───────────────────────────────────────────────
+  const openDay = useCallback(
+    (date: Date) => {
+      const isoDate = ymd(date);
+      setSelectedDateStr(isoDate);
+      setExpandedServiceId(null);
+      setShowCreateForm(false);
+      setCreateServiceId(null);
+      setSelectedCustomer(null);
+      setStartTime("09:00");
+      setEndTime("10:00");
+      setDayModalOpen(true);
+    },
+    [],
+  );
 
-  const handleDayClick = (date: Date) => {
-    setSelectedDate(date);
-    setShowCreateForm(false);
-    setStartTime("09:00");
-    setEndTime("10:00");
-    setDayModalOpen(true);
-  };
+  const handleServiceToggle = useCallback((serviceId: number) => {
+    setExpandedServiceId((current) => (current === serviceId ? null : serviceId));
+  }, []);
 
-  // ── create booking ───────────────────────────────────────────────────────
+  const handleStartCreate = useCallback(
+    (prefillServiceId?: number | null) => {
+      if (prefillServiceId != null) {
+        setCreateServiceId(prefillServiceId);
+        const service = servicesQuery.data?.find((s) => s.id === prefillServiceId);
+        if (service) {
+          const session = dayQuery.data?.services
+            .find((s) => s.serviceId === prefillServiceId)
+            ?.sessions.find((s) => s.seatsTaken < s.capacity);
+          setStartTime(session?.startTime || "09:00");
+          setEndTime(session?.endTime || "10:00");
+        }
+      }
+      setShowCreateForm(true);
+    },
+    [dayQuery.data, servicesQuery.data],
+  );
+
+  const createCustomerMutation = useMutation({
+    mutationFn: (data: ReservationCustomerCreateDTO) =>
+      createReservationCustomer(data),
+    onSuccess: (newCustomer: ReservationCustomerDTO) => {
+      setSelectedCustomer(newCustomer);
+      queryClient.invalidateQueries({ queryKey: ["reservation-customers"] });
+    },
+    onError: (err: Error) => showError(err.message),
+  });
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedDate || !reservationId) return;
-      // Build Date objects in LOCAL time so toISOString() converts to UTC correctly.
+      if (!selectedDateStr || !reservationId || !selectedCustomer || !createServiceId) return;
+      const service = servicesQuery.data?.find((s) => s.id === createServiceId);
+      if (!service) return;
+
       const [sh, sm] = startTime.split(":").map(Number);
       const [eh, em] = endTime.split(":").map(Number);
-      const startDate = new Date(
-        selectedDate.getFullYear(),
-        selectedDate.getMonth(),
-        selectedDate.getDate(),
-        sh,
-        sm,
-      );
-      const endDate = new Date(
-        selectedDate.getFullYear(),
-        selectedDate.getMonth(),
-        selectedDate.getDate(),
-        eh,
-        em,
-      );
-      return createReservationBooking(
-        reservationId,
-        startDate.toISOString(),
-        endDate.toISOString(),
-      );
+      const [yearRaw, monthRaw, dayRaw] = selectedDateStr.split("-").map(Number);
+      const startDate = new Date(yearRaw, monthRaw - 1, dayRaw, sh || 0, sm || 0);
+      const endDate = new Date(yearRaw, monthRaw - 1, dayRaw, eh || 0, em || 0);
+
+      return createEnrichedReservationBooking(reservationId, {
+        serviceId: service.id,
+        startsAt: startDate.toISOString(),
+        endsAt: endDate.toISOString(),
+        customerId: selectedCustomer.id,
+        firstName: selectedCustomer.firstName,
+        lastName: selectedCustomer.lastName,
+        email: selectedCustomer.email,
+        phone: selectedCustomer.phone,
+      });
     },
     onSuccess: () => {
       showSuccess(t("reservations:calendar_booking_created"));
       queryClient.invalidateQueries({
-        queryKey: ["reservation-bookings-calendar", reservationId],
+        queryKey: ["reservation-calendar-month", reservationId, monthQueryKey],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["reservation-calendar-day", reservationId, selectedDateStr],
       });
       queryClient.invalidateQueries({
         queryKey: ["reservation-bookings", reservationId],
       });
       setShowCreateForm(false);
+      setCreateServiceId(null);
+      setSelectedCustomer(null);
       setStartTime("09:00");
       setEndTime("10:00");
     },
     onError: (err: Error) => {
-      showError(
-        t("reservations:calendar_booking_failed", { error: err.message }),
-      );
+      showError(t("reservations:calendar_booking_failed", { error: err.message }));
     },
   });
-
-  // ── render ────────────────────────────────────────────────────────────────
 
   if (!reservationId) {
     return <div className="text-center p-8">{t("common:invalid_id")}</div>;
   }
 
-  const locale = navigator.language || "en";
-  const monthLabel = formatMonth(year, month, locale);
+  const locale = i18n.language?.startsWith("hu") ? "hu" : "en";
   const todayStr = ymd(new Date());
-  const dayNames = Array.from({ length: 7 }, (_, i) =>
-    new Date(Date.UTC(2024, 0, i + 1)).toLocaleDateString(locale, {
-      weekday: "short",
-    }),
+  const dayNames = Array.from({ length: DAYS_IN_WEEK }, (_, i) =>
+    new Date(Date.UTC(2024, 0, i + 1)).toLocaleDateString(locale, { weekday: "short" }),
+  );
+  const monthNames =
+    locale === "hu"
+      ? ["Január", "Február", "Március", "Április", "Május", "Június", "Július", "Augusztus", "Szeptember", "Október", "November", "December"]
+      : ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+  const selectedDayDate = selectedDateStr ? new Date(`${selectedDateStr}T12:00:00Z`) : null;
+  const dayServices = dayQuery.data?.services ?? [];
+  const selectedServiceOptions = (servicesQuery.data ?? []).filter(
+    (service) => service.status === "active",
+  );
+  const selectedCreateService = selectedServiceOptions.find(
+    (service) => service.id === createServiceId,
   );
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 w-full">
-      {/* Tab navigation */}
-      <nav className="flex gap-1 border-b pb-px overflow-x-auto">
-        <NavLink
-          to={`/reservations/view/${reservationId}`}
-          end
-          className={({ isActive: active }) =>
-            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
-          }
-        >
-          <FileText className="h-4 w-4" />
-          {t("reservations:details_tab")}
-        </NavLink>
-        <NavLink
-          to={`/reservations/view/${reservationId}/bookings`}
-          end
-          className={({ isActive: active }) =>
-            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
-          }
-        >
-          <List className="h-4 w-4" />
-          {t("reservations:bookings_tab")}
-        </NavLink>
-        <NavLink
-          to={`/reservations/view/${reservationId}/bookings/import`}
-          className={({ isActive: active }) =>
-            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
-          }
-        >
-          <FileUp className="h-4 w-4" />
-          {t("reservations:import_tab")}
-        </NavLink>
-        <NavLink
-          to={`/reservations/view/${reservationId}/calendar`}
-          className={({ isActive: active }) =>
-            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
-          }
-        >
-          <CalendarDays className="h-4 w-4" />
-          {t("reservations:calendar_tab")}
-        </NavLink>
-        <NavLink
-          to={`/reservations/view/${reservationId}/schedules`}
-          className={({ isActive: active }) =>
-            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
-          }
-        >
-          <Clock className="h-4 w-4" />
-          {t("reservations:schedules_tab")}
-        </NavLink>
-        <NavLink
-          to={`/reservations/view/${reservationId}/blocked`}
-          className={({ isActive: active }) =>
-            cn(TAB_LINK_CLASS, active && TAB_LINK_ACTIVE)
-          }
-        >
-          <Ban className="h-4 w-4" />
-          {t("reservations:blocked_tab")}
-        </NavLink>
-      </nav>
-
-      {/* Header card */}
-      <Card>
-        <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2">
-          <div className="flex items-center gap-2">
-            <CalendarDays className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-2xl font-bold">
-              {t("reservations:calendar_title")}
-              {reservation && (
-                <span className="text-base font-normal text-muted-foreground ml-2">
-                  — {reservation.name}
-                </span>
-              )}
-            </CardTitle>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate(`/reservations/view/${reservationId}`)}
-          >
-            {t("reservations:back_to_reservations")}
-          </Button>
-        </CardHeader>
-      </Card>
-
-      {/* Calendar card */}
       <Card>
         <CardContent className="pt-6">
-          {/* Month navigation */}
           <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <CalendarDays className="h-5 w-5 text-muted-foreground" />
+              <h2 className="text-lg font-bold">{t("reservations:calendar_title")}</h2>
+            </div>
+
             <div className="flex items-center gap-1">
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={prevMonth}
-                aria-label={t("reservations:calendar_month_prev")}
-              >
+              <Button variant="outline" size="icon" className="h-8 w-8" onClick={prevMonth}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <h2 className="text-lg font-semibold min-w-[180px] text-center">
-                {monthLabel}
-              </h2>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={nextMonth}
-                aria-label={t("reservations:calendar_month_next")}
-              >
+              <Button variant="outline" size="sm" className="h-8 px-3 font-semibold" onClick={prevYear}>
+                {year - 1}
+              </Button>
+              <span className="text-sm font-semibold px-2">
+                {year}. {monthNames[month]}
+              </span>
+              <Button variant="outline" size="sm" className="h-8 px-3 font-semibold" onClick={nextYear}>
+                {year + 1}
+              </Button>
+              <Button variant="outline" size="icon" className="h-8 w-8" onClick={nextMonth}>
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
+
             <Button variant="ghost" size="sm" onClick={goToToday}>
               {t("reservations:calendar_today")}
             </Button>
           </div>
 
-          {/* Day-of-week headers */}
+          {/* Filters */}
+          <div className="flex items-center gap-4 mb-4 text-sm">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={hideEmpty}
+                onChange={(e) => setHideEmpty(e.target.checked)}
+                className="rounded border-input"
+              />
+              {t("reservations:calendar_hide_empty", "Üres időpontok elrejtése")}
+            </label>
+
+            <select
+              value={workerFilterId ?? ""}
+              onChange={(e) => setWorkerFilterId(e.target.value ? Number(e.target.value) : null)}
+              className="rounded-md border bg-background px-2 py-1 text-sm"
+            >
+              <option value="">{t("reservations:calendar_all_workers", "Minden felelős")}</option>
+              {workers?.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.lastName} {w.firstName}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="grid grid-cols-7 border-b">
             {dayNames.map((name) => (
-              <div
-                key={name}
-                className="text-center text-xs font-medium text-muted-foreground py-2"
-              >
+              <div key={name} className="text-center text-xs font-medium text-muted-foreground py-2">
                 {name}
               </div>
             ))}
           </div>
 
-          {/* Calendar grid */}
-          {bookingsLoading ? (
+          {monthQuery.isLoading ? (
             <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
               <Loader2 className="h-5 w-5 animate-spin" />
               {t("common:loading")}
@@ -525,13 +581,13 @@ export default function ReservationCalendarPage() {
                   const dayStr = ymd(date);
                   const isCurrentMonth = date.getUTCMonth() === month;
                   const isToday = dayStr === todayStr;
-                  const dayBookings = bookingsByDay[dayStr] ?? [];
+                  const daySlots = slotsByDay[dayStr] ?? [];
 
                   return (
                     <button
                       key={`${ri}-${ci}`}
                       type="button"
-                      onClick={() => handleDayClick(date)}
+                      onClick={() => openDay(date)}
                       className={`
                         border-b border-r p-1.5 text-left align-top transition-colors
                         hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
@@ -548,31 +604,14 @@ export default function ReservationCalendarPage() {
                       >
                         {date.getUTCDate()}
                       </span>
+
                       <div className="mt-0.5 space-y-0.5">
-                        {dayBookings.slice(0, 3).map((b) => {
-                          const start = new Date(b.startsAt);
-                          const end = new Date(b.endsAt);
-                          return (
-                            <div
-                              key={b.id}
-                              className="text-[10px] leading-tight bg-primary/15 text-primary rounded px-1 py-0.5 truncate"
-                              title={`${start.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })} – ${end.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}`}
-                            >
-                              {start.toLocaleTimeString(locale, {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}{" "}
-                              –{" "}
-                              {end.toLocaleTimeString(locale, {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </div>
-                          );
-                        })}
-                        {dayBookings.length > 3 && (
+                        {daySlots.slice(0, 3).map((slot) => (
+                          <CalendarSlotChip key={slotKey(slot)} slot={slot} locale={locale} />
+                        ))}
+                        {daySlots.length > 3 && (
                           <div className="text-[10px] text-muted-foreground">
-                            +{dayBookings.length - 3}
+                            +{daySlots.length - 3}
                           </div>
                         )}
                       </div>
@@ -585,52 +624,96 @@ export default function ReservationCalendarPage() {
         </CardContent>
       </Card>
 
-      {/* ── Day detail modal ────────────────────────────────────────────── */}
       <Dialog
         open={dayModalOpen}
         onOpenChange={(open) => {
           if (!open) {
             setDayModalOpen(false);
-            setSelectedDate(null);
+            setSelectedDateStr(null);
             setShowCreateForm(false);
+            setCreateServiceId(null);
+            setSelectedCustomer(null);
           }
         }}
       >
-        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogContent className="sm:max-w-xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader className="flex flex-row items-center justify-between space-y-0 pr-6">
             <DialogTitle className="flex items-center gap-2">
               <CalendarDays className="h-5 w-5" />
-              {selectedDate &&
-                selectedDate.toLocaleDateString(locale, {
-                  weekday: "long",
-                  month: "long",
-                  day: "numeric",
-                  year: "numeric",
-                })}
+              {selectedDayDate
+                ? selectedDayDate.toLocaleDateString(locale, {
+                    weekday: "long",
+                    month: "long",
+                    day: "numeric",
+                    year: "numeric",
+                  })
+                : null}
             </DialogTitle>
-            {isAdmin && (
-              <Button
-                size="sm"
-                onClick={() => {
-                  setShowCreateForm(true);
-                  setStartTime("09:00");
-                  setEndTime("10:00");
-                }}
-                disabled={showCreateForm}
-              >
-                <Plus className="h-4 w-4 mr-1" />
-                {t("reservations:calendar_add_booking")}
-              </Button>
-            )}
+            <Button
+              size="sm"
+              onClick={() => handleStartCreate(expandedServiceId ?? dayServices[0]?.serviceId ?? null)}
+              disabled={showCreateForm}
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              {t("reservations:calendar_add_booking")}
+            </Button>
           </DialogHeader>
 
           <div className="overflow-y-auto flex-1 -mx-6 px-6 space-y-3">
-            {/* Inline create form */}
             {showCreateForm && (
               <div className="border rounded-md bg-muted/30 p-4 space-y-3">
                 <p className="text-sm font-medium">
                   {t("reservations:calendar_create_booking_title")}
                 </p>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs">{t("reservations:service")}</Label>
+                  <select
+                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    value={createServiceId ? String(createServiceId) : ""}
+                    onChange={(event) => {
+                      const value = event.target.value ? Number(event.target.value) : null;
+                      setCreateServiceId(value);
+                      const service = servicesQuery.data?.find((s) => s.id === value);
+                      if (service) {
+                        const session = dayQuery.data?.services
+                          .find((s) => s.serviceId === value)
+                          ?.sessions.find((s) => s.seatsTaken < s.capacity);
+                        setStartTime(session?.startTime || "09:00");
+                        setEndTime(session?.endTime || "10:00");
+                      }
+                    }}
+                  >
+                    <option value="">{t("reservations:select_service")}</option>
+                    {selectedServiceOptions.map((service) => (
+                      <option key={service.id} value={service.id}>
+                        {service.name || t("reservations:untitled_service")}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedCreateService && (
+                  <p className="text-xs text-muted-foreground">
+                    {fmtPrice(selectedCreateService.priceAmount, selectedCreateService.currency, locale)} · {selectedCreateService.durationMinutes} min · {selectedCreateService.capacity} {t("reservations:capacity").toLowerCase()}
+                  </p>
+                )}
+
+                {reservation && (
+                  <ReservationCustomerPicker
+                    projectId={reservation.projectId}
+                    value={selectedCustomer}
+                    onChange={setSelectedCustomer}
+                    onCreateNew={(data) =>
+                      createCustomerMutation.mutate({
+                        ...data,
+                        projectId: reservation.projectId,
+                      })
+                    }
+                    disabled={createMutation.isPending}
+                  />
+                )}
+
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label htmlFor="cal-start" className="text-xs">
@@ -638,9 +721,17 @@ export default function ReservationCalendarPage() {
                     </Label>
                     <Input
                       id="cal-start"
-                      type="time"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]{2}:[0-9]{2}"
+                      placeholder="HH:MM"
+                      maxLength={5}
                       value={startTime}
-                      onChange={(e) => setStartTime(e.target.value)}
+                      onChange={(event) => {
+                        const raw = event.target.value.replace(/[^0-9]/g, "").slice(0, 4);
+                        const formatted = raw.length > 2 ? `${raw.slice(0, 2)}:${raw.slice(2)}` : raw;
+                        setStartTime(formatted);
+                      }}
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -649,17 +740,30 @@ export default function ReservationCalendarPage() {
                     </Label>
                     <Input
                       id="cal-end"
-                      type="time"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]{2}:[0-9]{2}"
+                      placeholder="HH:MM"
+                      maxLength={5}
                       value={endTime}
-                      onChange={(e) => setEndTime(e.target.value)}
+                      onChange={(event) => {
+                        const raw = event.target.value.replace(/[^0-9]/g, "").slice(0, 4);
+                        const formatted = raw.length > 2 ? `${raw.slice(0, 2)}:${raw.slice(2)}` : raw;
+                        setEndTime(formatted);
+                      }}
                     />
                   </div>
                 </div>
+
                 <div className="flex gap-2 justify-end">
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => setShowCreateForm(false)}
+                    onClick={() => {
+                      setShowCreateForm(false);
+                      setCreateServiceId(null);
+                      setSelectedCustomer(null);
+                    }}
                     disabled={createMutation.isPending}
                   >
                     {t("common:cancel")}
@@ -668,7 +772,11 @@ export default function ReservationCalendarPage() {
                     size="sm"
                     onClick={() => createMutation.mutate()}
                     disabled={
-                      createMutation.isPending || !startTime || !endTime
+                      createMutation.isPending ||
+                      !startTime ||
+                      !endTime ||
+                      !selectedCustomer ||
+                      !createServiceId
                     }
                   >
                     {createMutation.isPending ? (
@@ -684,20 +792,41 @@ export default function ReservationCalendarPage() {
               </div>
             )}
 
-            {/* Bookings list */}
-            {selectedDayBookings.length === 0 ? (
+            {dayQuery.isLoading && (
+              <div className="py-10 flex items-center justify-center text-muted-foreground gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {t("common:loading")}
+              </div>
+            )}
+
+            {dayQuery.isError && !dayQuery.isLoading && (
+              <div className="py-8 text-center text-sm text-destructive space-y-2">
+                <p>{(dayQuery.error as Error)?.message || t("common:error")}</p>
+                <Button variant="outline" size="sm" onClick={() => dayQuery.refetch()}>
+                  {t("common:retry")}
+                </Button>
+              </div>
+            )}
+
+            {!dayQuery.isLoading && !dayQuery.isError && dayServices.length === 0 && (
               <div className="py-8 text-center text-sm text-muted-foreground">
                 {t("reservations:calendar_no_bookings_this_month")}
               </div>
-            ) : (
-              selectedDayBookings.map((b) => (
-                <BookingRow
-                  key={b.id}
-                  booking={b}
-                  locale={locale}
-                  t={t}
-                />
-              ))
+            )}
+
+            {!dayQuery.isLoading && !dayQuery.isError && dayServices.length > 0 && (
+              <div className="space-y-2">
+                {dayServices.map((service) => (
+                  <DayServiceAccordion
+                    key={service.serviceId}
+                    service={service}
+                    locale={locale}
+                    expanded={expandedServiceId === service.serviceId}
+                    onToggle={() => handleServiceToggle(service.serviceId)}
+                    t={t}
+                  />
+                ))}
+              </div>
             )}
           </div>
         </DialogContent>

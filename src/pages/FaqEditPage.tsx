@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ArrowLeft, Loader2, Save } from "lucide-react";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 
 const FaqEditPage: React.FC = () => {
   const { t } = useTranslation(["faq", "common"]);
@@ -65,12 +66,14 @@ const FaqEditPage: React.FC = () => {
 
   const updateMutation = useMutation({
     mutationFn: (data: FaqItemUpdateDTO) => updateFaqItem(itemId, data),
-    onSuccess: (data: FaqItemDTO) => {
+    onSuccess: async (data: FaqItemDTO) => {
       showSuccess(t("faq:saved_toast", { title: data.questionHu }));
       queryClient.invalidateQueries({ queryKey: ["faq"] });
       queryClient.invalidateQueries({ queryKey: ["faq", "detail", itemId] });
-      const isPortal = window.location.pathname.startsWith("/portal");
-      navigate(isPortal ? `/portal/faq/view/${data.id}` : `/faq/view/${data.id}`);
+      if (item?.projectId) {
+        const path = await resolveModulePath(item.projectId, "faq");
+        if (path) navigate(path);
+      }
     },
     onError: (err: Error) => {
       showError(err.message || t("faq:save_failed_toast"));
@@ -120,9 +123,11 @@ const FaqEditPage: React.FC = () => {
   return (
     <div className="container mx-auto p-4 max-w-5xl space-y-6">
       <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" onClick={() => {
-          const isPortal = window.location.pathname.startsWith("/portal");
-          navigate(isPortal ? `/portal/faq/view/${itemId}` : `/faq/view/${itemId}`);
+        <Button variant="outline" size="sm" onClick={async () => {
+          if (item?.projectId) {
+            const path = await resolveModulePath(item.projectId, "faq");
+            if (path) navigate(path);
+          }
         }}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           {t("common:back")}
@@ -226,9 +231,11 @@ const FaqEditPage: React.FC = () => {
 
             {/* Submit */}
             <div className="flex justify-end gap-2 pt-4">
-              <Button type="button" variant="outline" onClick={() => {
-                const isPortal = window.location.pathname.startsWith("/portal");
-                navigate(isPortal ? `/portal/faq/view/${itemId}` : `/faq/view/${itemId}`);
+              <Button type="button" variant="outline" onClick={async () => {
+                if (item?.projectId) {
+                  const path = await resolveModulePath(item.projectId, "faq");
+                  if (path) navigate(path);
+                }
               }}>
                 {t("common:cancel")}
               </Button>

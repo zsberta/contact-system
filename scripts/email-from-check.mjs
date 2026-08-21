@@ -1,8 +1,8 @@
 // scripts/email-from-check.mjs — verify the From header is built
 // correctly for each path:
-//   - sendMail() with no fromName  → "Zsolt CRM rendszere" <envelope>
+//   - sendMail() with no fromName  → "Nexus" <envelope>
 //   - sendMail() with fromName     → "<fromName>" <envelope>
-//   - notifyProjectOwner           → forced to "Zsolt CRM rendszere"
+//   - notifyProjectOwner           → forced to "Nexus"
 //   - notifySubmitter              → <project name>
 // We can't easily test the latter two without a DB roundtrip, so we
 // focus on sendMail() directly — which is where the From string is
@@ -92,9 +92,9 @@ try {
   // build in sendMail is what Larksuite will see; the JSON shape is
   // what we can inspect here.
   const expect = [
-    { name: "Zsolt CRM rendszere", address: "info@zsoltberta.hu" },
+    { name: "Nexus", address: "info@zsoltberta.hu" },
     { name: "Kovács Virág", address: "info@zsoltberta.hu" },
-    { name: "Zsolt CRM rendszere", address: "info@zsoltberta.hu" },
+    { name: "Nexus", address: "info@zsoltberta.hu" },
   ];
   let ok = true;
   for (let i = 0; i < expect.length; i += 1) {

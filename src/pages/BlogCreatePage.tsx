@@ -13,6 +13,7 @@ import {
 } from "@/types/blog";
 import { createBlogPost } from "@/lib/blog";
 import BlogForm from "@/components/blog/BlogForm";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 
 const BlogCreatePage: React.FC = () => {
   const { t } = useTranslation(["blog", "common"]);
@@ -53,12 +54,14 @@ const BlogCreatePage: React.FC = () => {
 
   const createMutation = useMutation({
     mutationFn: (data: BlogPostCreateDTO) => createBlogPost(data),
-    onSuccess: (data: BlogPostDTO) => {
+    onSuccess: async (data: BlogPostDTO) => {
       showSuccess(t("blog:created_toast", { title: data.title }));
       queryClient.invalidateQueries({ queryKey: ["blog"] });
       // Navigate to portal view if we're in the portal, admin view otherwise
-      const isPortal = window.location.pathname.startsWith("/portal");
-      navigate(isPortal ? `/portal/blog/view/${data.id}` : `/blog/view/${data.id}`);
+      if (data.projectId) {
+        const path = await resolveModulePath(data.projectId, "blog");
+        if (path) navigate(path);
+      }
     },
     onError: (err: Error) => {
       showError(err.message || t("blog:create_failed_toast"));

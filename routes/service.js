@@ -351,11 +351,30 @@ router.post("/", async (req, res) => {
     const denied = await requireProjectAccess(req, res, out.project_id);
     if (denied) return denied;
 
+    // Create or reuse the project_module registry row for service.
+    const { rows: pmRows } = await pool.query(
+      `INSERT INTO project_modules (project_id, module_type)
+       VALUES ($1, 'service')
+       ON CONFLICT (project_id, module_type) DO NOTHING
+       RETURNING id`,
+      [out.project_id],
+    );
+    let moduleId;
+    if (pmRows.length > 0) {
+      moduleId = pmRows[0].id;
+    } else {
+      const { rows: existing } = await pool.query(
+        `SELECT id FROM project_modules WHERE project_id = $1 AND module_type = 'service'`,
+        [out.project_id],
+      );
+      moduleId = existing[0].id;
+    }
+
     const { rows } = await pool.query(
-      `INSERT INTO service_items (project_id, title_hu, title_en, description_hu, description_en, price_hu, price_en, sort_order, status, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO service_items (project_id, module_id, title_hu, title_en, description_hu, description_en, price_hu, price_en, sort_order, status, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
-      [out.project_id, out.title_hu, out.title_en, out.description_hu, out.description_en, out.price_hu, out.price_en, out.sort_order, out.status, req.user?.id || null],
+      [out.project_id, moduleId, out.title_hu, out.title_en, out.description_hu, out.description_en, out.price_hu, out.price_en, out.sort_order, out.status, req.user?.id || null],
     );
     invalidateServiceCache(out.project_id);
     return res.status(201).json(rowToServiceItemDTO(rows[0]));
@@ -420,7 +439,21 @@ router.delete("/:id", async (req, res) => {
     }
     const denied = await requireProjectAccess(req, res, existing.rows[0].project_id);
     if (denied) return denied;
-    await pool.query(`DELETE FROM service_items WHERE id = $1`, [id]);
+    const { rows: deletedRows } = await pool.query(
+      `DELETE FROM service_items WHERE id = $1 RETURNING module_id`,
+      [id],
+    );
+    // If this was the last service item, remove the empty registry row.
+    const deletedModuleId = deletedRows[0]?.module_id;
+    if (deletedModuleId) {
+      const { rowCount } = await pool.query(
+        `SELECT 1 FROM service_items WHERE module_id = $1 LIMIT 1`,
+        [deletedModuleId],
+      );
+      if (rowCount === 0) {
+        await pool.query(`DELETE FROM project_modules WHERE id = $1`, [deletedModuleId]);
+      }
+    }
     invalidateServiceCache(existing.rows[0].project_id);
     return res.status(204).end();
   } catch (err) {

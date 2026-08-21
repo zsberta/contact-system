@@ -19,7 +19,7 @@ interface ProtectedRouteProps {
   requiredAnyPermission?: boolean; // OR logic vs AND (default is AND)
 }
 
-const defaultLanding = (role) => (role === "enduser" ? "/portal" : "/dashboard");
+const defaultLanding = (role) => "/workspace";
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   children,

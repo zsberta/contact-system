@@ -10,6 +10,7 @@ import { showError, showSuccess } from "@/utils/toast";
 import type { FormDTO, FormUpdateDTO } from "@/types/form";
 import { getFormById, updateForm } from "@/lib/forms";
 import FormForm from "@/components/forms/FormForm";
+import { resolveModulePath } from "@/lib/workspace-navigation";
 
 const FormEditPage: React.FC = () => {
   const { t } = useTranslation(["forms", "common"]);
@@ -26,13 +27,16 @@ const FormEditPage: React.FC = () => {
 
   const updateMutation = useMutation({
     mutationFn: (data: FormUpdateDTO) => updateForm(formId!, data),
-    onSuccess: () => {
+    onSuccess: async () => {
       showSuccess(
         t("common:update_success", { item: t("forms:form") }),
       );
       queryClient.invalidateQueries({ queryKey: ["forms"] });
       queryClient.invalidateQueries({ queryKey: ["forms", formId] });
-      navigate(`/forms/view/${formId}`);
+      if (initialData?.projectId) {
+        const path = await resolveModulePath(initialData.projectId, "form");
+        if (path) navigate(path);
+      }
     },
     onError: (err: Error) => {
       showError(t("common:operation_failed", { error: err.message }));

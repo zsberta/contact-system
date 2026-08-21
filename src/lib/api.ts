@@ -56,8 +56,11 @@ export async function apiFetch<T>(
   // endpoint already starts with / (e.g., /auth/signin)
   const url = `${API_BASE_URL}${endpoint}`;
 
+  // Don't set Content-Type for FormData — the browser must set it
+  // with the correct multipart boundary.
+  const isFormData = options.body instanceof FormData;
   const headers = {
-    "Content-Type": "application/json",
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...options.headers,
   };
 

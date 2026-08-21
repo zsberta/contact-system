@@ -664,8 +664,10 @@ router.post("/bookings", async (req, res, next) => {
     }
 
     // Server-side availability check: disabled ranges + schedules.
+    // Legacy endpoint: serviceId is null (uses reservation-level schedules).
     const avail = await checkSlotAvailability(
       reservationId,
+      null,
       startsAtIso,
       endsAtIso,
       reservation.disable_hungarian_holidays,

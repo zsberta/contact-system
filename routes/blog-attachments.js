@@ -219,7 +219,7 @@ router.post(
     // works for the SPA itself but breaks image previews in
     // content-management contexts (e.g. email, social cards). In
     // production, APP_PUBLIC_URL is set to the canonical CRM origin
-    // (https://crm.zsoltberta.hu); in dev, we fall back to the
+    // (https://nexus.zsoltberta.hu); in dev, we fall back to the
     // request's own host so localhost / docker compose setups work.
     const publicBase = resolvePublicUrl(req).replace(/\/+$/, "");
     const url = `${publicBase}/api/public/blog/attachments/${stored}`;

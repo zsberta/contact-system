@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -21,7 +21,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ArrowLeft,
   Pencil,
@@ -38,15 +37,15 @@ import {
   getAnalyticsConfigById,
   updateAnalyticsConfig,
 } from "@/lib/analytics";
-import { AnalyticsSnippetPanel } from "@/components/analytics/AnalyticsSnippetPanel";
-import { AnalyticsViewShell } from "@/components/analytics/AnalyticsViewShell";
+
+import { useModuleResolution } from "@/hooks/useModuleResolution";
+import { buildWorkspaceModulePath } from "@/lib/workspace-navigation";
 
 const AnalyticsViewPage: React.FC = () => {
   const { t } = useTranslation(["analytics", "common"]);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { id } = useParams<{ id: string }>();
-  const configId = id ? Number.parseInt(id) : null;
+  const { resourceId: configId, moduleId } = useModuleResolution();
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false);
@@ -69,7 +68,9 @@ const AnalyticsViewPage: React.FC = () => {
         }),
       );
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
-      navigate("/analytics");
+      if (config?.projectId && moduleId) {
+        navigate(buildWorkspaceModulePath(config.projectId, "analytics", moduleId));
+      }
     },
     onError: (err: Error) => {
       showError(t("common:operation_failed", { error: err.message }));
@@ -200,99 +201,86 @@ const AnalyticsViewPage: React.FC = () => {
     },
   ];
 
+  const detailsContent = (
+    <Card>
+      <CardHeader className="flex flex-col space-y-4 pb-2">
+        <CardTitle className="text-2xl font-bold break-words">
+          {t("analytics:analytics_details")}: {config.name}
+        </CardTitle>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (config?.projectId && moduleId) {
+                navigate(buildWorkspaceModulePath(config.projectId, "analytics", moduleId));
+              }
+            }}
+            className="w-full sm:w-auto"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            {t("analytics:back_to_analytics")}
+          </Button>
+          <Button
+            onClick={() => {
+              if (config?.projectId && moduleId) {
+                navigate(buildWorkspaceModulePath(config.projectId, "analytics", moduleId, "edit"));
+              }
+            }}
+            className="w-full sm:w-auto"
+          >
+            <Pencil className="mr-2 h-4 w-4" />
+            {t("common:edit")}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setIsStatusDialogOpen(true)}
+            disabled={statusMutation.isPending}
+            className="w-full sm:w-auto"
+          >
+            {isActive ? (
+              <>
+                <PowerOff className="mr-2 h-4 w-4" />
+                {t("analytics:action_disable")}
+              </>
+            ) : (
+              <>
+                <Power className="mr-2 h-4 w-4" />
+                {t("analytics:action_enable")}
+              </>
+            )}
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => setIsDeleteDialogOpen(true)}
+            disabled={deleteMutation.isPending}
+            className="w-full sm:w-auto"
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            {t("common:delete")}
+          </Button>
+        </div>
+      </CardHeader>
+      <Separator />
+      <CardContent className="pt-6 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {details.map((item) => (
+            <div key={item.label} className="space-y-1">
+              <p className="text-sm font-medium text-muted-foreground">
+                {item.label}
+              </p>
+              <div className="text-base font-semibold break-words">
+                {item.value}
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+
   return (
     <div className="max-w-3xl mx-auto space-y-6 w-full">
-      <Tabs defaultValue="details">
-        <TabsList>
-          <TabsTrigger value="details">
-            {t("analytics:details_tab")}
-          </TabsTrigger>
-          <TabsTrigger value="stats">{t("analytics:stats_tab")}</TabsTrigger>
-          <TabsTrigger value="snippet">
-            {t("analytics:snippet_tab")}
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="details" className="space-y-6">
-          <Card>
-            <CardHeader className="flex flex-col space-y-4 pb-2">
-              <CardTitle className="text-2xl font-bold break-words">
-                {t("analytics:analytics_details")}: {config.name}
-              </CardTitle>
-              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                <Button
-                  variant="outline"
-                  onClick={() => navigate("/analytics")}
-                  className="w-full sm:w-auto"
-                >
-                  <ArrowLeft className="mr-2 h-4 w-4" />
-                  {t("analytics:back_to_analytics")}
-                </Button>
-                <Button
-                  onClick={() => navigate(`/analytics/edit/${config.id}`)}
-                  className="w-full sm:w-auto"
-                >
-                  <Pencil className="mr-2 h-4 w-4" />
-                  {t("common:edit")}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => setIsStatusDialogOpen(true)}
-                  disabled={statusMutation.isPending}
-                  className="w-full sm:w-auto"
-                >
-                  {isActive ? (
-                    <>
-                      <PowerOff className="mr-2 h-4 w-4" />
-                      {t("analytics:action_disable")}
-                    </>
-                  ) : (
-                    <>
-                      <Power className="mr-2 h-4 w-4" />
-                      {t("analytics:action_enable")}
-                    </>
-                  )}
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => setIsDeleteDialogOpen(true)}
-                  disabled={deleteMutation.isPending}
-                  className="w-full sm:w-auto"
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  {t("common:delete")}
-                </Button>
-              </div>
-            </CardHeader>
-            <Separator />
-            <CardContent className="pt-6 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {details.map((item) => (
-                  <div key={item.label} className="space-y-1">
-                    <p className="text-sm font-medium text-muted-foreground">
-                      {item.label}
-                    </p>
-                    <div className="text-base font-semibold break-words">
-                      {item.value}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="stats" className="space-y-6">
-          <AnalyticsViewShell config={config} />
-        </TabsContent>
-
-        <TabsContent value="snippet" className="space-y-6">
-          <AnalyticsSnippetPanel
-            configId={config.id}
-            allowedOrigins={config.allowedOrigins}
-          />
-        </TabsContent>
-      </Tabs>
+      {detailsContent}
 
       {/* Disable / Enable confirmation */}
       <AlertDialog

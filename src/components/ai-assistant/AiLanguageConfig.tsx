@@ -24,26 +24,6 @@ import type { AiAssistantTranslationDTO } from "@/types/ai-assistant";
 const COMMON_LANGUAGES = [
   { code: "en", label: "English" },
   { code: "hu", label: "Magyar" },
-  { code: "de", label: "Deutsch" },
-  { code: "fr", label: "Français" },
-  { code: "es", label: "Español" },
-  { code: "it", label: "Italiano" },
-  { code: "pt", label: "Português" },
-  { code: "nl", label: "Nederlands" },
-  { code: "pl", label: "Polski" },
-  { code: "cs", label: "Čeština" },
-  { code: "ro", label: "Română" },
-  { code: "sk", label: "Slovenčina" },
-  { code: "hr", label: "Hrvatski" },
-  { code: "sl", label: "Slovenščina" },
-  { code: "sr", label: "Српски" },
-  { code: "uk", label: "Українська" },
-  { code: "ru", label: "Русский" },
-  { code: "tr", label: "Türkçe" },
-  { code: "zh", label: "中文" },
-  { code: "ja", label: "日本語" },
-  { code: "ko", label: "한국어" },
-  { code: "ar", label: "العربية" },
 ];
 
 interface AiLanguageConfigProps {
