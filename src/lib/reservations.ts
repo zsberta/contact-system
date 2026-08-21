@@ -19,6 +19,7 @@ import type {
   ReservationCustomerProfileDTO,
   ReservationCustomerProfilesResponse,
   ReservationCustomerUpdateDTO,
+  ReservationDisableSettingsResponse,
   ReservationDisabledRangeCreateDTO,
   ReservationDisabledRangeDTO,
   ReservationDTO,
@@ -26,6 +27,7 @@ import type {
   ReservationServiceAvailabilityDTO,
   ReservationServiceCreateDTO,
   ReservationServiceDTO,
+  ReservationServiceHolidaysUpdateDTO,
   ReservationServiceScheduleDTO,
   ReservationServiceUpdateDTO,
   ReservationSnippetResponse,
@@ -339,16 +341,6 @@ export async function deleteDisabledRange(
   );
 }
 
-export async function toggleDisabledRange(
-  reservationId: number,
-  rangeId: number,
-): Promise<{ id: number; enabled: boolean }> {
-  return apiFetch<{ id: number; enabled: boolean }>(
-    `/reservations/${reservationId}/disabled-ranges/${rangeId}/toggle`,
-    { method: "PATCH" },
-  );
-}
-
 export async function updateDisabledRange(
   reservationId: number,
   rangeId: number,
@@ -356,6 +348,28 @@ export async function updateDisabledRange(
 ): Promise<ReservationDisabledRangeDTO> {
   return apiFetch<ReservationDisabledRangeDTO>(
     `/reservations/${reservationId}/disabled-ranges/${rangeId}`,
+    { method: "PUT", body: JSON.stringify(data) },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Disable settings — per-service holiday policies + range associations
+// ---------------------------------------------------------------------------
+
+export async function getDisableSettings(
+  reservationId: number,
+): Promise<ReservationDisableSettingsResponse> {
+  return apiFetch<ReservationDisableSettingsResponse>(
+    `/reservations/${reservationId}/disable-settings`,
+  );
+}
+
+export async function updateServiceHolidays(
+  reservationId: number,
+  data: ReservationServiceHolidaysUpdateDTO,
+): Promise<{ serviceId: number; rules: Array<{ key: string; enabled: boolean }> }> {
+  return apiFetch(
+    `/reservations/${reservationId}/disable-settings/holidays`,
     { method: "PUT", body: JSON.stringify(data) },
   );
 }
@@ -500,6 +514,17 @@ export async function deleteServiceImage(serviceId: number): Promise<void> {
 // ===========================================================================
 // Service availability schedules
 // ===========================================================================
+
+export async function getAdminServiceAvailability(
+  reservationId: number,
+  serviceId: number,
+  from: string,
+  to: string,
+): Promise<ReservationServiceAvailabilityDTO> {
+  return apiFetch<ReservationServiceAvailabilityDTO>(
+    `/reservations/${reservationId}/services/${serviceId}/availability?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+  );
+}
 
 export async function getServiceAvailabilitySchedules(
   reservationId: number,

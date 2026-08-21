@@ -524,16 +524,14 @@ router.post(
         }
       }
 
-      // Server-side availability check: disabled ranges + schedules.
+      // Server-side availability check: service-scoped disabled ranges + schedules.
       // This closes the race window where CRM data changes between the
       // customer loading the form and submitting.
-      // Legacy endpoint: serviceId is null (resolved from default service if available).
       const avail = await checkSlotAvailability(
         reservationId,
-        null,
+        serviceId,
         startsAtIso,
         endsAtIso,
-        reservation.disable_hungarian_holidays,
       );
       if (!avail.available) {
         return res.status(400).json({ errorMessage: avail.reason });

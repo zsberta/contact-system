@@ -12,6 +12,7 @@ import { useModuleResolution } from "@/hooks/useModuleResolution";
 import { ReservationCustomerPicker } from "@/components/reservations/ReservationCustomerPicker";
 import {
   createReservationCustomer,
+  getAdminServiceAvailability,
   getReservationById,
   getReservationCalendarDay,
   getReservationCalendarMonth,
@@ -298,8 +299,7 @@ export default function ReservationCalendarPage() {
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createServiceId, setCreateServiceId] = useState<number | null>(null);
-  const [startTime, setStartTime] = useState("09:00");
-  const [endTime, setEndTime] = useState("10:00");
+  const [selectedSlot, setSelectedSlot] = useState<{ startsAt: string; endsAt: string } | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<ReservationCustomerDTO | null>(null);
 
   // Calendar filters
@@ -337,13 +337,19 @@ export default function ReservationCalendarPage() {
     enabled: !!reservationId && dayModalOpen && !!selectedDateStr,
   });
 
+  // Available slots for the selected service and date
+  const slotsQuery = useQuery({
+    queryKey: ["reservation-service-slots", reservationId, createServiceId, selectedDateStr],
+    queryFn: () => getAdminServiceAvailability(reservationId!, createServiceId!, selectedDateStr!, selectedDateStr!),
+    enabled: !!reservationId && !!createServiceId && !!selectedDateStr && showCreateForm,
+  });
+
   useEffect(() => {
     setSelectedDateStr(null);
     setExpandedServiceId(null);
     setShowCreateForm(false);
     setCreateServiceId(null);
-    setStartTime("09:00");
-    setEndTime("10:00");
+    setSelectedSlot(null);
     setSelectedCustomer(null);
   }, [monthQueryKey]);
 
@@ -394,9 +400,8 @@ export default function ReservationCalendarPage() {
       setExpandedServiceId(null);
       setShowCreateForm(false);
       setCreateServiceId(null);
+      setSelectedSlot(null);
       setSelectedCustomer(null);
-      setStartTime("09:00");
-      setEndTime("10:00");
       setDayModalOpen(true);
     },
     [],
@@ -410,18 +415,11 @@ export default function ReservationCalendarPage() {
     (prefillServiceId?: number | null) => {
       if (prefillServiceId != null) {
         setCreateServiceId(prefillServiceId);
-        const service = servicesQuery.data?.find((s) => s.id === prefillServiceId);
-        if (service) {
-          const session = dayQuery.data?.services
-            .find((s) => s.serviceId === prefillServiceId)
-            ?.sessions.find((s) => s.seatsTaken < s.capacity);
-          setStartTime(session?.startTime || "09:00");
-          setEndTime(session?.endTime || "10:00");
-        }
+        setSelectedSlot(null);
       }
       setShowCreateForm(true);
     },
-    [dayQuery.data, servicesQuery.data],
+    [],
   );
 
   const createCustomerMutation = useMutation({
@@ -436,20 +434,14 @@ export default function ReservationCalendarPage() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedDateStr || !reservationId || !selectedCustomer || !createServiceId) return;
+      if (!selectedDateStr || !reservationId || !selectedCustomer || !createServiceId || !selectedSlot) return;
       const service = servicesQuery.data?.find((s) => s.id === createServiceId);
       if (!service) return;
 
-      const [sh, sm] = startTime.split(":").map(Number);
-      const [eh, em] = endTime.split(":").map(Number);
-      const [yearRaw, monthRaw, dayRaw] = selectedDateStr.split("-").map(Number);
-      const startDate = new Date(yearRaw, monthRaw - 1, dayRaw, sh || 0, sm || 0);
-      const endDate = new Date(yearRaw, monthRaw - 1, dayRaw, eh || 0, em || 0);
-
       return createEnrichedReservationBooking(reservationId, {
         serviceId: service.id,
-        startsAt: startDate.toISOString(),
-        endsAt: endDate.toISOString(),
+        startsAt: selectedSlot.startsAt,
+        endsAt: selectedSlot.endsAt,
         customerId: selectedCustomer.id,
         firstName: selectedCustomer.firstName,
         lastName: selectedCustomer.lastName,
@@ -470,9 +462,8 @@ export default function ReservationCalendarPage() {
       });
       setShowCreateForm(false);
       setCreateServiceId(null);
+      setSelectedSlot(null);
       setSelectedCustomer(null);
-      setStartTime("09:00");
-      setEndTime("10:00");
     },
     onError: (err: Error) => {
       showError(t("reservations:calendar_booking_failed", { error: err.message }));
@@ -674,14 +665,7 @@ export default function ReservationCalendarPage() {
                     onChange={(event) => {
                       const value = event.target.value ? Number(event.target.value) : null;
                       setCreateServiceId(value);
-                      const service = servicesQuery.data?.find((s) => s.id === value);
-                      if (service) {
-                        const session = dayQuery.data?.services
-                          .find((s) => s.serviceId === value)
-                          ?.sessions.find((s) => s.seatsTaken < s.capacity);
-                        setStartTime(session?.startTime || "09:00");
-                        setEndTime(session?.endTime || "10:00");
-                      }
+                      setSelectedSlot(null);
                     }}
                   >
                     <option value="">{t("reservations:select_service")}</option>
@@ -714,46 +698,50 @@ export default function ReservationCalendarPage() {
                   />
                 )}
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="cal-start" className="text-xs">
-                      {t("reservations:calendar_start_time")}
-                    </Label>
-                    <Input
-                      id="cal-start"
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]{2}:[0-9]{2}"
-                      placeholder="HH:MM"
-                      maxLength={5}
-                      value={startTime}
-                      onChange={(event) => {
-                        const raw = event.target.value.replace(/[^0-9]/g, "").slice(0, 4);
-                        const formatted = raw.length > 2 ? `${raw.slice(0, 2)}:${raw.slice(2)}` : raw;
-                        setStartTime(formatted);
-                      }}
-                    />
+                {/* Slot picker */}
+                {slotsQuery.isLoading && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    {t("common:loading")}
                   </div>
+                )}
+                {slotsQuery.data && (
                   <div className="space-y-1.5">
-                    <Label htmlFor="cal-end" className="text-xs">
-                      {t("reservations:calendar_end_time")}
-                    </Label>
-                    <Input
-                      id="cal-end"
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]{2}:[0-9]{2}"
-                      placeholder="HH:MM"
-                      maxLength={5}
-                      value={endTime}
-                      onChange={(event) => {
-                        const raw = event.target.value.replace(/[^0-9]/g, "").slice(0, 4);
-                        const formatted = raw.length > 2 ? `${raw.slice(0, 2)}:${raw.slice(2)}` : raw;
-                        setEndTime(formatted);
-                      }}
-                    />
+                    <Label className="text-xs">{t("reservations:calendar_select_slot", "Időpont kiválasztása")}</Label>
+                    {slotsQuery.data.slots.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        {t("reservations:calendar_no_slots", "Nincs elérhető időpont ezen a napon.")}
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-1.5 max-h-32 overflow-y-auto">
+                        {slotsQuery.data.slots.map((slot) => {
+                          const isSelected = selectedSlot?.startsAt === slot.startsAt;
+                          const isFull = slot.remainingSeats <= 0;
+                          return (
+                            <button
+                              key={slot.startsAt}
+                              type="button"
+                              disabled={isFull}
+                              className={`text-xs px-2 py-1.5 rounded border transition-colors text-center ${
+                                isSelected
+                                  ? "bg-primary text-primary-foreground border-primary"
+                                  : isFull
+                                    ? "bg-muted text-muted-foreground border-border opacity-50 cursor-not-allowed"
+                                    : "bg-background hover:bg-accent border-border"
+                              }`}
+                              onClick={() => setSelectedSlot({ startsAt: slot.startsAt, endsAt: slot.endsAt })}
+                            >
+                              {slot.startTime}–{slot.endTime}
+                              <p className={`text-xs mt-1 ${isSelected ? "text-white/80" : "text-muted-foreground"}`}>
+                                {slot.remainingSeats} {t("reservations:seats_remaining", "hely")}
+                              </p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                </div>
+                )}
 
                 <div className="flex gap-2 justify-end">
                   <Button
@@ -773,8 +761,7 @@ export default function ReservationCalendarPage() {
                     onClick={() => createMutation.mutate()}
                     disabled={
                       createMutation.isPending ||
-                      !startTime ||
-                      !endTime ||
+                      !selectedSlot ||
                       !selectedCustomer ||
                       !createServiceId
                     }

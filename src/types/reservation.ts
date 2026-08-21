@@ -210,6 +210,7 @@ export interface ReservationCustomerProfilesResponse {
 
 // ---------------------------------------------------------------------------
 // Disabled ranges — operator-declared blackouts where no bookings are allowed.
+// Service-scoped: each range targets specific services via the join table.
 // ---------------------------------------------------------------------------
 
 // Single disabled range, returned by GET /api/reservations/:id/disabled-ranges.
@@ -222,6 +223,7 @@ export interface ReservationDisabledRangeDTO {
   source: "manual" | "auto_holiday";
   enabled: boolean;
   createdAt: string;
+  serviceIds: number[];
 }
 
 // POST /api/reservations/:id/disabled-ranges body.
@@ -229,6 +231,35 @@ export interface ReservationDisabledRangeCreateDTO {
   startsAt: string;
   endsAt: string;
   reason?: string | null;
+  serviceIds?: number[];
+}
+
+// ---------------------------------------------------------------------------
+// Disable settings — per-service holiday policy + range associations.
+// ---------------------------------------------------------------------------
+
+export interface ReservationHolidayRuleDTO {
+  key: string;
+  enabled: boolean;
+}
+
+export interface ReservationServiceDisablePolicyDTO {
+  id: number;
+  name: string;
+  workerUserId: number | null;
+  workerFirstName: string | null;
+  workerLastName: string | null;
+  holidayRules: ReservationHolidayRuleDTO[];
+}
+
+export interface ReservationDisableSettingsResponse {
+  services: ReservationServiceDisablePolicyDTO[];
+  disabledRanges: ReservationDisabledRangeDTO[];
+}
+
+export interface ReservationServiceHolidaysUpdateDTO {
+  serviceId: number;
+  rules: Array<{ key: string; enabled: boolean }>;
 }
 
 // ---------------------------------------------------------------------------

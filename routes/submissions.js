@@ -670,7 +670,6 @@ router.post("/bookings", async (req, res, next) => {
       null,
       startsAtIso,
       endsAtIso,
-      reservation.disable_hungarian_holidays,
     );
     if (!avail.available) {
       return res.status(400).json({ errorMessage: avail.reason });
