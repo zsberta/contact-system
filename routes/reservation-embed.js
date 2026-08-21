@@ -609,7 +609,7 @@ router.post(
       });
 
       if (result.error) {
-        return res.status(result.code === "SLOT_FULL" ? 409 : 400).json({ errorMessage: result.error });
+        return res.status(result.code === "SLOT_FULL" || result.code === "DUPLICATE_BOOKING" ? 409 : 400).json({ errorMessage: result.error });
       }
 
       const booking = result.booking;

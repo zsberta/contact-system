@@ -685,12 +685,23 @@ export async function publicSubmitServiceBooking(
   secretToken: string,
   body: ReservationPublicBookingRequest,
 ): Promise<ReservationBookingAck> {
-  return fetch(`/api/public/reservations/${secretToken}/bookings`, {
+  const res = await fetch(`/api/public/reservations/${secretToken}/bookings`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "omit",
     body: JSON.stringify(body),
-  }).then((r) => r.json());
+  });
+  if (!res.ok) {
+    let msg = "Booking failed";
+    try {
+      const errBody = await res.json();
+      if (errBody && typeof errBody === "object" && errBody.errorMessage) {
+        msg = errBody.errorMessage;
+      }
+    } catch { /* ignore parse errors */ }
+    throw new Error(msg);
+  }
+  return res.json();
 }
 
 // ---------------------------------------------------------------------------

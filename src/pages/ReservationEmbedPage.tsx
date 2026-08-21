@@ -162,6 +162,7 @@ const ERROR_TRANSLATIONS: Record<string, Record<string, string>> = {
     "Invalid or inactive service": "Invalid or inactive service",
     "startsAt and endsAt must be ISO 8601 UTC": "Invalid time selection",
     "endsAt must be after startsAt": "End time must be after start time",
+    "Erre az időpontra már van foglalásod.": "You already have a booking for this time slot.",
   },
   hu: {
     "Network error": "Hálózati hiba",
@@ -177,6 +178,7 @@ const ERROR_TRANSLATIONS: Record<string, Record<string, string>> = {
     "Invalid or inactive service": "Érvénytelen vagy inaktív szolgáltatás",
     "startsAt and endsAt must be ISO 8601 UTC": "Érvénytelen időpont kiválasztás",
     "endsAt must be after startsAt": "A befejezési időnek a kezdési idő után kell lennie",
+    "Erre az időpontra már van foglalásod.": "Erre az időpontra már van foglalásod.",
   },
 };
 
