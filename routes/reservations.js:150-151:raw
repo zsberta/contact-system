@@ -1,0 +1,4 @@
+    iframeHeight: row.iframe_height ?? "760px",
+    privacyPolicyUrl: row.privacy_policy_url ?? null,
+    cookiePolicyUrl: row.cookie_policy_url ?? null,
+    createdAt: new Date(row.created_at).toISOString(),

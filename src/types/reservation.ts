@@ -34,6 +34,8 @@ export interface ReservationDTO {
   brandColor: string;
   iframeWidth: string;
   iframeHeight: string;
+  privacyPolicyUrl: string | null;
+  cookiePolicyUrl: string | null;
   // Booking catalog config
   defaultLocale: string;
   timezone: string;
@@ -54,6 +56,8 @@ export interface ReservationCreateDTO {
   brandColor?: string;
   iframeWidth?: string;
   iframeHeight?: string;
+  privacyPolicyUrl?: string | null;
+  cookiePolicyUrl?: string | null;
   defaultLocale?: string;
   timezone?: string;
 }
@@ -70,6 +74,8 @@ export interface ReservationUpdateDTO {
   brandColor?: string;
   iframeWidth?: string;
   iframeHeight?: string;
+  privacyPolicyUrl?: string | null;
+  cookiePolicyUrl?: string | null;
   defaultLocale?: string;
   timezone?: string;
 }

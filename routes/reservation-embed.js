@@ -163,6 +163,7 @@ async function loadReservationByToken(secretToken) {
             slot_duration_minutes, lead_time_minutes, max_advance_days,
             extra_fields_enabled, disable_hungarian_holidays,
             embed_title, brand_color, iframe_width, iframe_height,
+            privacy_policy_url, cookie_policy_url,
             default_locale, timezone
      FROM reservations
      WHERE trim(secret_token) = $1`,
@@ -801,6 +802,8 @@ router.get(
           brandColor: reservation.brand_color || "#0A2540",
           iframeWidth: reservation.iframe_width || "100%",
           iframeHeight: reservation.iframe_height || "760px",
+          privacyPolicyUrl: reservation.privacy_policy_url || null,
+          cookiePolicyUrl: reservation.cookie_policy_url || null,
           defaultLocale: reservation.default_locale || "hu",
           timezone: reservation.timezone || "UTC",
         },

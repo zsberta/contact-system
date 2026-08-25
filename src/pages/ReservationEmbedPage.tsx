@@ -48,7 +48,7 @@ interface CatalogService {
 }
 
 interface CatalogData {
-  reservation: { id: number; title: string; embedTitle?: string; brandColor?: string; iframeWidth?: string; iframeHeight?: string; defaultLocale: string; timezone: string };
+  reservation: { id: number; title: string; embedTitle?: string; brandColor?: string; iframeWidth?: string; iframeHeight?: string; privacyPolicyUrl?: string | null; cookiePolicyUrl?: string | null; defaultLocale: string; timezone: string };
   services: CatalogService[];
 }
 
@@ -144,6 +144,33 @@ const PROFILE_COPY: Record<string, Record<string, string>> = {
 function profileCopy(locale: string, key: string): string {
   const lang = locale?.startsWith("hu") ? "hu" : "en";
   return PROFILE_COPY[lang]?.[key] || PROFILE_COPY.en[key] || key;
+
+}
+// ── consent checkbox translations ─────────────────────────────────────────────
+const CONSENT_COPY: Record<string, Record<string, string>> = {
+  en: {
+    privacyOnly: "I accept the ",
+    cookieOnly: "I accept the ",
+    both: "I accept the ",
+    and: " and the ",
+    period: ".",
+    privacyLinkText: "Privacy Policy",
+    cookieLinkText: "Cookie Policy",
+  },
+  hu: {
+    privacyOnly: "Elfogadom az ",
+    cookieOnly: "Elfogadom a ",
+    both: "Elfogadom az ",
+    and: " és a ",
+    period: ".",
+    privacyLinkText: "Adatvédelmi tájékoztatót",
+    cookieLinkText: "Süti tájékoztatót",
+  },
+};
+
+function consentCopy(locale: string, key: string): string {
+  const lang = locale?.startsWith("hu") ? "hu" : "en";
+  return CONSENT_COPY[lang]?.[key] || CONSENT_COPY.en[key] || key;
 }
 
 // ── error message translations ────────────────────────────────────────────────
@@ -214,6 +241,7 @@ export default function ReservationEmbedPage() {
   const [rememberCustomer, setRememberCustomer] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ReservationCustomerProfileDTO | null>(null);
   const [storageAvailable, setStorageAvailable] = useState(true);
+  const [consentAccepted, setConsentAccepted] = useState(false);
 
   // Check localStorage availability once
   useEffect(() => {
@@ -274,6 +302,7 @@ export default function ReservationEmbedPage() {
   function handleManualEntry() {
     setSelectedProfileToken(null);
     setRememberCustomer(false);
+    setConsentAccepted(false);
     setContact({ firstName: "", lastName: "", email: "", phone: "", comment: "" });
   }
 
@@ -369,6 +398,38 @@ export default function ReservationEmbedPage() {
   });
 
   const locale = catalog?.reservation.defaultLocale || "hu";
+  const hasConsentLinks = !!(catalog?.reservation.privacyPolicyUrl || catalog?.reservation.cookiePolicyUrl);
+  const consentText = catalog ? (() => {
+    const hasPrivacy = !!catalog?.reservation.privacyPolicyUrl;
+    const hasCookie = !!catalog?.reservation.cookiePolicyUrl;
+    if (hasPrivacy && hasCookie) {
+      return (
+        <>
+          {consentCopy(locale, "both")}
+          <a href={catalog.reservation.privacyPolicyUrl!} target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">{consentCopy(locale, "privacyLinkText")}</a>
+          {consentCopy(locale, "and")}
+          <a href={catalog.reservation.cookiePolicyUrl!} target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">{consentCopy(locale, "cookieLinkText")}</a>
+          {consentCopy(locale, "period")}
+        </>
+      );
+    } else if (hasPrivacy) {
+      return (
+        <>
+          {consentCopy(locale, "privacyOnly")}
+          <a href={catalog.reservation.privacyPolicyUrl!} target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">{consentCopy(locale, "privacyLinkText")}</a>
+          {consentCopy(locale, "period")}
+        </>
+      );
+    } else {
+      return (
+        <>
+          {consentCopy(locale, "cookieOnly")}
+          <a href={catalog.reservation.cookiePolicyUrl!} target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">{consentCopy(locale, "cookieLinkText")}</a>
+          {consentCopy(locale, "period")}
+        </>
+      );
+    }
+  })() : null;
 
   return (
     <div className="min-h-screen p-4 md:p-6">
@@ -619,16 +680,16 @@ export default function ReservationEmbedPage() {
 
             {/* ── Contact fields ─────────────────────────────────────────── */}
             <div className="grid grid-cols-2 gap-3">
-              <div><Label>Vezetéknév *</Label><Input value={contact.lastName} onChange={(e) => setContact({ ...contact, lastName: e.target.value })} /></div>
-              <div><Label>Keresztnév *</Label><Input value={contact.firstName} onChange={(e) => setContact({ ...contact, firstName: e.target.value })} /></div>
+              <div><Label>Vezetéknév <span className="text-red-500">*</span></Label><Input value={contact.lastName} onChange={(e) => setContact({ ...contact, lastName: e.target.value })} /></div>
+              <div><Label>Keresztnév <span className="text-red-500">*</span></Label><Input value={contact.firstName} onChange={(e) => setContact({ ...contact, firstName: e.target.value })} /></div>
             </div>
-            <div><Label>E-mail *</Label><Input type="email" value={contact.email} onChange={(e) => setContact({ ...contact, email: e.target.value })} /></div>
-            <div><Label>Telefonszám *</Label><Input value={contact.phone} onChange={(e) => setContact({ ...contact, phone: e.target.value })} /></div>
+            <div><Label>E-mail <span className="text-red-500">*</span></Label><Input type="email" value={contact.email} onChange={(e) => setContact({ ...contact, email: e.target.value })} /></div>
+            <div><Label>Telefonszám <span className="text-red-500">*</span></Label><Input value={contact.phone} onChange={(e) => setContact({ ...contact, phone: e.target.value })} /></div>
             <div><Label>Megjegyzés</Label><Textarea value={contact.comment} onChange={(e) => setContact({ ...contact, comment: e.target.value })} rows={2} /></div>
 
             {selectedService.fields?.map((f) => (
               <div key={f.fieldKey}>
-                <Label>{f.label}{f.required ? " *" : ""}</Label>
+                <Label>{f.label}{f.required ? <span className="text-red-500"> *</span> : ""}</Label>
                 {f.fieldType === "textarea" ? (
                   <Textarea value={String(customFields[f.fieldKey] || "")} onChange={(e) => setCustomFields({ ...customFields, [f.fieldKey]: e.target.value })} />
                 ) : f.fieldType === "checkbox" ? (
@@ -658,6 +719,21 @@ export default function ReservationEmbedPage() {
               <p className="text-xs text-muted-foreground">{profileCopy(locale, "storageUnavailable")}</p>
             )}
 
+            {/* ── Consent checkbox (privacy/cookie policy) ─────────────────── */}
+            {hasConsentLinks && (
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="consent-accepted"
+                  checked={consentAccepted}
+                  onCheckedChange={(checked) => setConsentAccepted(checked === true)}
+                  className="mt-0.5"
+                />
+                <label htmlFor="consent-accepted" className="text-sm font-medium cursor-pointer leading-tight">
+                  {consentText} <span className="text-red-500">*</span>
+                </label>
+              </div>
+            )}
+
             {error && (
               <div className="flex items-center gap-2 text-sm text-destructive">
                 <AlertCircle className="h-4 w-4" />{error}
@@ -667,7 +743,7 @@ export default function ReservationEmbedPage() {
             <Button
               className="w-full"
               onClick={handleSubmit}
-              disabled={loading || !contact.firstName || !contact.lastName || !contact.email || !contact.phone}
+              disabled={loading || !contact.firstName || !contact.lastName || !contact.email || !contact.phone || (hasConsentLinks && !consentAccepted)}
               style={catalog?.reservation.brandColor ? { backgroundColor: catalog.reservation.brandColor, color: "#fff" } : undefined}
             >
               {loading ? "Foglalás..." : "Foglalás megerősítése"}
@@ -701,6 +777,7 @@ export default function ReservationEmbedPage() {
               setError(null);
               setSelectedProfileToken(null);
               setRememberCustomer(false);
+              setConsentAccepted(false);
               setView("catalog");
             }}
             className="mt-4"

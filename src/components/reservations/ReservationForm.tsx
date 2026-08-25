@@ -70,6 +70,8 @@ interface ReservationFormValues {
   brandColor: string;
   iframeWidth: string;
   iframeHeight: string;
+  privacyPolicyUrl: string;
+  cookiePolicyUrl: string;
 }
 
 interface ReservationFormProps {
@@ -108,6 +110,8 @@ const ReservationForm = ({
     brandColor: z.string(),
     iframeWidth: z.string(),
     iframeHeight: z.string(),
+    privacyPolicyUrl: z.string(),
+    cookiePolicyUrl: z.string(),
   });
 
   const form = useForm<ReservationFormValues, unknown, ReservationFormValues>({
@@ -122,6 +126,8 @@ const ReservationForm = ({
       brandColor: initialData?.brandColor ?? "#0A2540",
       iframeWidth: initialData?.iframeWidth ?? "100%",
       iframeHeight: initialData?.iframeHeight ?? "760px",
+      privacyPolicyUrl: initialData?.privacyPolicyUrl ?? "",
+      cookiePolicyUrl: initialData?.cookiePolicyUrl ?? "",
     },
   });
 
@@ -148,6 +154,8 @@ const ReservationForm = ({
         brandColor: values.brandColor,
         iframeWidth: values.iframeWidth,
         iframeHeight: values.iframeHeight,
+        privacyPolicyUrl: values.privacyPolicyUrl || null,
+        cookiePolicyUrl: values.cookiePolicyUrl || null,
       };
       onSubmit(payload);
     } else {
@@ -160,6 +168,8 @@ const ReservationForm = ({
         brandColor: values.brandColor,
         iframeWidth: values.iframeWidth,
         iframeHeight: values.iframeHeight,
+        privacyPolicyUrl: values.privacyPolicyUrl || null,
+        cookiePolicyUrl: values.cookiePolicyUrl || null,
       };
       onSubmit(payload);
     }
@@ -461,6 +471,42 @@ const ReservationForm = ({
               />
             </div>
 
+
+            {/* Privacy policy URL */}
+            <FormField
+              control={form.control}
+              name="privacyPolicyUrl"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("reservations:privacy_policy_url")}</FormLabel>
+                  <FormControl>
+                    <Input {...field} placeholder={t("reservations:privacy_policy_url_placeholder")} type="url" />
+                  </FormControl>
+                  <FormDescription>
+                    {t("reservations:privacy_policy_url_help")}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {/* Cookie policy URL */}
+            <FormField
+              control={form.control}
+              name="cookiePolicyUrl"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("reservations:cookie_policy_url")}</FormLabel>
+                  <FormControl>
+                    <Input {...field} placeholder={t("reservations:cookie_policy_url_placeholder")} type="url" />
+                  </FormControl>
+                  <FormDescription>
+                    {t("reservations:cookie_policy_url_help")}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             {/* Status */}
             <FormField
               control={form.control}

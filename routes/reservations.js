@@ -148,6 +148,8 @@ const rowToReservationDTO = (row) => {
     brandColor: row.brand_color ?? "#0A2540",
     iframeWidth: row.iframe_width ?? "100%",
     iframeHeight: row.iframe_height ?? "760px",
+    privacyPolicyUrl: row.privacy_policy_url ?? null,
+    cookiePolicyUrl: row.cookie_policy_url ?? null,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
@@ -887,6 +889,28 @@ function validateReservationBody(body, { partial = false } = {}) {
     out.iframe_height = "760px";
   }
 
+
+  // privacyPolicyUrl — link to the privacy policy on the embed form.
+  if (body.privacyPolicyUrl !== undefined) {
+    if (body.privacyPolicyUrl !== null && typeof body.privacyPolicyUrl !== "string") {
+      errors.push("privacyPolicyUrl must be a string or null");
+    } else if (body.privacyPolicyUrl && !/^https?:\/\//.test(body.privacyPolicyUrl)) {
+      errors.push("privacyPolicyUrl must be a valid URL (http or https)");
+    } else {
+      out.privacy_policy_url = body.privacyPolicyUrl || null;
+    }
+  }
+
+  // cookiePolicyUrl — link to the cookie policy on the embed form.
+  if (body.cookiePolicyUrl !== undefined) {
+    if (body.cookiePolicyUrl !== null && typeof body.cookiePolicyUrl !== "string") {
+      errors.push("cookiePolicyUrl must be a string or null");
+    } else if (body.cookiePolicyUrl && !/^https?:\/\//.test(body.cookiePolicyUrl)) {
+      errors.push("cookiePolicyUrl must be a valid URL (http or https)");
+    } else {
+      out.cookie_policy_url = body.cookiePolicyUrl || null;
+    }
+  }
   if (errors.length > 0) {
     return { ok: false, error: errors.join("; ") };
   }
@@ -1975,6 +1999,7 @@ router.get("/:id", async (req, res) => {
               r.status,
               r.extra_fields_enabled, r.disable_hungarian_holidays,
               r.embed_title, r.brand_color, r.iframe_width, r.iframe_height,
+              r.privacy_policy_url, r.cookie_policy_url,
               r.created_at, r.updated_at
        FROM reservations r
        JOIN projects p ON p.id = r.project_id
@@ -2042,8 +2067,9 @@ router.post("/", async (req, res) => {
       `INSERT INTO reservations
         (project_id, module_id, name, slug, secret_token, allowed_origins, status,
          extra_fields_enabled, embed_title,
-         brand_color, iframe_width, iframe_height)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         brand_color, iframe_width, iframe_height,
+         privacy_policy_url, cookie_policy_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING id`,
       [
         v.project_id,
@@ -2058,6 +2084,8 @@ router.post("/", async (req, res) => {
         v.brand_color ?? "#0A2540",
         v.iframe_width ?? "100%",
         v.iframe_height ?? "760px",
+        v.privacy_policy_url || null,
+        v.cookie_policy_url || null,
       ],
     );
     const newId = Number(insertResult.rows[0].id);
@@ -2069,6 +2097,7 @@ router.post("/", async (req, res) => {
               r.status,
               r.extra_fields_enabled, r.disable_hungarian_holidays,
               r.embed_title, r.brand_color, r.iframe_width, r.iframe_height,
+              r.privacy_policy_url, r.cookie_policy_url,
               r.created_at, r.updated_at
        FROM reservations r
        JOIN projects p ON p.id = r.project_id
@@ -2141,6 +2170,7 @@ router.put("/:id", async (req, res) => {
               r.status,
               r.extra_fields_enabled, r.disable_hungarian_holidays,
               r.embed_title, r.brand_color, r.iframe_width, r.iframe_height,
+              r.privacy_policy_url, r.cookie_policy_url,
               r.created_at, r.updated_at
        FROM reservations r
        JOIN projects p ON p.id = r.project_id
