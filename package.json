@@ -17,6 +17,7 @@
     "db:seed": "node db/seed.js",
     "db:fresh": "node scripts/db-fresh.mjs",
     "db:status": "node scripts/migration-status.mjs",
+    "db:fix-names": "node scripts/fix-migration-names.mjs",
     "db:create": "node scripts/create-migration.mjs"
   },
   "dependencies": {
