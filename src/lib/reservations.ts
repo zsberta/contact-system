@@ -91,6 +91,16 @@ export const deleteReservation = (id: number): Promise<void> => {
   });
 };
 
+export async function deleteReservationBooking(
+  reservationId: number,
+  bookingId: number,
+): Promise<{ success: true }> {
+  return apiFetch<{ success: true }>(
+    `/reservations/${reservationId}/bookings/${bookingId}`,
+    { method: "DELETE" },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Bookings (admin)
 // ---------------------------------------------------------------------------

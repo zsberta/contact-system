@@ -330,5 +330,12 @@
   "booking_status_confirmed": "Megerősítve",
   "booking_status_cancelled": "Lemondva",
   "booking_status_completed": "Befejezve",
-  "booking_status_no_show": "Nem jelent meg"
+  "booking_status_no_show": "Nem jelent meg",
+
+  "booking_delete": "Foglalás törlése",
+  "booking_delete_title": "Törlöd ezt a foglalást?",
+  "booking_delete_description": "A művelet nem vonható vissza. A vendég e-mailben értesítést kap a foglalás törléséről.",
+  "booking_deleting": "Foglalás törlése…",
+  "booking_deleted": "Foglalás törölve",
+  "booking_delete_failed": "A foglalást nem sikerült törölni."
 }

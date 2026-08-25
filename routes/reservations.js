@@ -2850,6 +2850,85 @@ router.patch("/:id/bookings/:bookingId", async (req, res, next) => {
   }
 });
 
+// ---- DELETE /api/reservations/:id/bookings/:bookingId — hard delete ----
+router.delete("/:id/bookings/:bookingId", async (req, res, next) => {
+  try {
+    const reservationId = parseInt(req.params.id, 10);
+    const bookingId = parseInt(req.params.bookingId, 10);
+    if (!Number.isFinite(reservationId) || !Number.isFinite(bookingId)) {
+      return res.status(400).json({ errorMessage: "Invalid ids" });
+    }
+
+    // Load booking with reservation/project ownership
+    const bookingResult = await pool.query(
+      `SELECT rb.*, r.project_id
+       FROM reservation_bookings rb
+       JOIN reservations r ON r.id = rb.reservation_id
+       WHERE rb.reservation_id = $1 AND rb.id = $2`,
+      [reservationId, bookingId],
+    );
+    if (bookingResult.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "Booking not found" });
+    }
+    const booking = bookingResult.rows[0];
+
+    // Enduser scope check
+    if (isEnduser(req)) {
+      const allowed = Array.isArray(req.user.projectIds)
+        ? req.user.projectIds.includes(Number(booking.project_id))
+        : false;
+      if (!allowed) {
+        return res.status(404).json({ errorMessage: "Booking not found" });
+      }
+    }
+
+    // Load pre-delete snapshot for customer email (service name, customer, dates)
+    const snapshotResult = await pool.query(
+      `SELECT b.id, b.starts_at, b.ends_at, b.locale,
+              b.service_name_snapshot,
+              COALESCE(rst.name, b.service_name_snapshot) AS service_name,
+              rc.first_name AS customer_first_name, rc.last_name AS customer_last_name,
+              rc.email AS customer_email, rc.phone AS customer_phone,
+              b.customer_id, b.service_id
+       FROM reservation_bookings b
+       LEFT JOIN reservation_service_translations rst ON rst.service_id = b.service_id AND rst.locale = 'hu'
+       LEFT JOIN reservation_customers rc ON rc.id = b.customer_id
+       WHERE b.reservation_id = $1 AND b.id = $2`,
+      [reservationId, bookingId],
+    );
+    const snapshot = snapshotResult.rows[0];
+
+    // Delete the booking
+    await pool.query(
+      `DELETE FROM reservation_bookings WHERE reservation_id = $1 AND id = $2`,
+      [reservationId, bookingId],
+    );
+
+    // Send deletion notification email to customer (fire-and-forget).
+    // Reuses notifySubmitter so project resolution, branding, and
+    // fromName handling match the booking-creation email path exactly.
+    if (snapshot && snapshot.customer_email) {
+      notifySubmitter({
+        kind: "reservation_deleted",
+        projectId: booking.project_id,
+        formName: snapshot.service_name || "Reservation",
+        data: null,
+        locale: snapshot.locale || "hu",
+        startsAt: snapshot.starts_at,
+        endsAt: snapshot.ends_at,
+        bookingId: snapshot.id,
+        serviceName: snapshot.service_name,
+        email: snapshot.customer_email,
+      }).catch(() => {});
+    }
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("[reservations/bookings/delete]", err.code, err.message);
+    next(err);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // POST /api/reservations/:id/bookings — admin-only booking creation.
 //

@@ -330,5 +330,12 @@
   "booking_status_confirmed": "Confirmed",
   "booking_status_cancelled": "Cancelled",
   "booking_status_completed": "Completed",
-  "booking_status_no_show": "No-show"
+  "booking_status_no_show": "No-show",
+
+  "booking_delete": "Delete booking",
+  "booking_delete_title": "Delete this booking?",
+  "booking_delete_description": "This action cannot be undone. The customer will receive an email that the booking was deleted.",
+  "booking_deleting": "Deleting booking…",
+  "booking_deleted": "Booking deleted",
+  "booking_delete_failed": "The booking could not be deleted."
 }

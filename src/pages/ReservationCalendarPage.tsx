@@ -40,6 +40,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -48,9 +58,10 @@ import {
   Clock,
   Loader2,
   Plus,
+  Trash2,
 } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
-import { createEnrichedReservationBooking } from "@/lib/reservations";
+import { createEnrichedReservationBooking, deleteReservationBooking } from "@/lib/reservations";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -135,10 +146,12 @@ function DaySession({
   session,
   locale,
   t,
+  onDeleteBooking,
 }: {
   session: CalendarSessionSummary;
   locale: string;
   t: (key: string) => string;
+  onDeleteBooking?: (bookingId: number) => void;
 }) {
   const workerName = [session.workerFirstName, session.workerLastName]
     .filter(Boolean)
@@ -183,20 +196,35 @@ function DaySession({
                     </p>
                   )}
                 </div>
-                <Badge
-                  variant={
-                    booking.status === "confirmed"
-                      ? "default"
-                      : booking.status === "cancelled"
-                        ? "destructive"
-                        : booking.status === "no_show"
-                          ? "outline"
-                          : "secondary"
-                  }
-                  className="mt-0.5 shrink-0 text-[10px]"
-                >
-                  {t(`reservations:booking_status_${booking.status}`)}
-                </Badge>
+                <div className="flex items-center gap-1 mt-0.5 shrink-0">
+                  <Badge
+                    variant={
+                      booking.status === "confirmed"
+                        ? "default"
+                        : booking.status === "cancelled"
+                          ? "destructive"
+                          : booking.status === "no_show"
+                            ? "outline"
+                            : "secondary"
+                    }
+                    className="text-[10px]"
+                  >
+                    {t(`reservations:booking_status_${booking.status}`)}
+                  </Badge>
+                  {onDeleteBooking && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-5 w-5 p-0"
+                      onClick={() => onDeleteBooking(booking.id)}
+                      aria-label={t("reservations:booking_delete")}
+                      title={t("reservations:booking_delete")}
+                    >
+                      <Trash2 className="h-3 w-3 text-destructive" />
+                    </Button>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -212,12 +240,14 @@ function DayServiceAccordion({
   expanded,
   onToggle,
   t,
+  onDeleteBooking,
 }: {
   service: CalendarServiceDetails;
   locale: string;
   expanded: boolean;
   onToggle: () => void;
   t: (key: string) => string;
+  onDeleteBooking?: (bookingId: number) => void;
 }) {
   const totalBookings = service.sessions.reduce(
     (sum, session) => sum + session.bookings.length,
@@ -269,6 +299,7 @@ function DayServiceAccordion({
                 session={session}
                 locale={locale}
                 t={t}
+                onDeleteBooking={onDeleteBooking}
               />
             ))
           )}
@@ -469,6 +500,33 @@ export default function ReservationCalendarPage() {
       showError(t("reservations:calendar_booking_failed", { error: err.message }));
     },
   });
+
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
+
+  const deleteBookingMutation = useMutation({
+    mutationFn: (bookingId: number) =>
+      deleteReservationBooking(reservationId!, bookingId),
+    onSuccess: () => {
+      showSuccess(t("reservations:booking_deleted"));
+      queryClient.invalidateQueries({
+        queryKey: ["reservation-calendar-month", reservationId, monthQueryKey],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["reservation-calendar-day", reservationId, selectedDateStr],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["reservation-bookings", reservationId],
+      });
+      setDeleteTargetId(null);
+    },
+    onError: (err: Error) => {
+      showError(err.message || t("reservations:booking_delete_failed"));
+    },
+  });
+
+  const handleDeleteBooking = useCallback((bookingId: number) => {
+    setDeleteTargetId(bookingId);
+  }, []);
 
   if (!reservationId) {
     return <div className="text-center p-8">{t("common:invalid_id")}</div>;
@@ -811,6 +869,7 @@ export default function ReservationCalendarPage() {
                     expanded={expandedServiceId === service.serviceId}
                     onToggle={() => handleServiceToggle(service.serviceId)}
                     t={t}
+                    onDeleteBooking={handleDeleteBooking}
                   />
                 ))}
               </div>
@@ -818,6 +877,42 @@ export default function ReservationCalendarPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={deleteTargetId !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTargetId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("reservations:booking_delete_title")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("reservations:booking_delete_description")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteBookingMutation.isPending}>
+              {t("common:cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deleteTargetId !== null) {
+                  deleteBookingMutation.mutate(deleteTargetId);
+                }
+              }}
+              disabled={deleteBookingMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteBookingMutation.isPending
+                ? t("reservations:booking_deleting")
+                : t("reservations:booking_delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

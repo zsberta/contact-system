@@ -6,13 +6,24 @@
 
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { DataTable } from "@/components/DataTable";
-import { Eye } from "lucide-react";
-import { getReservationBookings } from "@/lib/reservations";
+import { Eye, Trash2 } from "lucide-react";
+import { getReservationBookings, deleteReservationBooking } from "@/lib/reservations";
+import { showError, showSuccess } from "@/utils/toast";
 import type { ReservationBookingDTO } from "@/types/reservation";
 import { ReservationBookingDetailModal } from "@/components/reservations/ReservationBookingDetailModal";
 
@@ -41,8 +52,25 @@ export function ReservationBookingsList({ reservationId }: Props) {
   const locale = i18n.language?.startsWith("hu") ? "hu" : "en";
   const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(locale, { year: "numeric", month: "numeric", day: "numeric" });
   const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false });
+  const queryClient = useQueryClient();
   const [selectedBookingId, setSelectedBookingId] = useState<number | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
+
+  const deleteMutation = useMutation({
+    mutationFn: (bookingId: number) =>
+      deleteReservationBooking(reservationId, bookingId),
+    onSuccess: () => {
+      showSuccess(t("reservations:booking_deleted"));
+      queryClient.invalidateQueries({
+        queryKey: ["reservation-bookings", reservationId],
+      });
+      setDeleteTargetId(null);
+    },
+    onError: (err: Error) => {
+      showError(err.message || t("reservations:booking_delete_failed"));
+    },
+  });
 
   const [queryState, setQueryState] = useState<QueryState>({
     page: 0,
@@ -148,16 +176,31 @@ export function ReservationBookingsList({ reservationId }: Props) {
       accessorKey: "actions",
       header: t("common:actions"),
       cell: (row: ReservationBookingDTO) => (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => openDetails(row.id)}
-          aria-label={t("reservations:booking_details")}
-          title={t("reservations:booking_details")}
-        >
-          <Eye className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => openDetails(row.id)}
+            aria-label={t("reservations:booking_details")}
+            title={t("reservations:booking_details")}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setDeleteTargetId(row.id);
+            }}
+            aria-label={t("reservations:booking_delete")}
+            title={t("reservations:booking_delete")}
+          >
+            <Trash2 className="h-4 w-4 text-destructive" />
+          </Button>
+        </div>
       ),
     },
   ];
@@ -202,6 +245,42 @@ export function ReservationBookingsList({ reservationId }: Props) {
           setSelectedBookingId(null);
         }}
       />
+
+      <AlertDialog
+        open={deleteTargetId !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTargetId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("reservations:booking_delete_title")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("reservations:booking_delete_description")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>
+              {t("common:cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deleteTargetId !== null) {
+                  deleteMutation.mutate(deleteTargetId);
+                }
+              }}
+              disabled={deleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteMutation.isPending
+                ? t("reservations:booking_deleting")
+                : t("reservations:booking_delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
