@@ -66,7 +66,7 @@ import { createEnrichedReservationBooking, deleteReservationBooking } from "@/li
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 const DAYS_IN_WEEK = 7;
-const CELL_H = "min-h-[100px] md:min-h-[120px]";
+const CELL_H = "min-h-[72px] sm:min-h-[100px] md:min-h-[120px]";
 
 function buildMonthGrid(year: number, month: number): Date[][] {
   const firstOfMonth = new Date(Date.UTC(year, month, 1));
@@ -535,7 +535,7 @@ export default function ReservationCalendarPage() {
   const locale = i18n.language?.startsWith("hu") ? "hu" : "en";
   const todayStr = ymd(new Date());
   const dayNames = Array.from({ length: DAYS_IN_WEEK }, (_, i) =>
-    new Date(Date.UTC(2024, 0, i + 1)).toLocaleDateString(locale, { weekday: "short" }),
+    new Date(Date.UTC(2024, 0, i + 7)).toLocaleDateString(locale, { weekday: "short" }),
   );
   const monthNames =
     locale === "hu"
@@ -555,37 +555,36 @@ export default function ReservationCalendarPage() {
     <div className="max-w-5xl mx-auto space-y-6 w-full">
       <Card>
         <CardContent className="pt-6">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
             <div className="flex items-center gap-2">
               <CalendarDays className="h-5 w-5 text-muted-foreground" />
               <h2 className="text-lg font-bold">{t("reservations:calendar_title")}</h2>
             </div>
 
-            <div className="flex items-center gap-1">
-              <Button variant="outline" size="icon" className="h-8 w-8" onClick={prevMonth}>
+            <div className="flex items-center gap-1 flex-wrap justify-center sm:justify-end">
+              <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={prevMonth}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <Button variant="outline" size="sm" className="h-8 px-3 font-semibold" onClick={prevYear}>
+              <Button variant="outline" size="sm" className="h-8 px-3 font-semibold hidden sm:inline-flex" onClick={prevYear}>
                 {year - 1}
               </Button>
               <span className="text-sm font-semibold px-2">
                 {year}. {monthNames[month]}
               </span>
-              <Button variant="outline" size="sm" className="h-8 px-3 font-semibold" onClick={nextYear}>
+              <Button variant="outline" size="sm" className="h-8 px-3 font-semibold hidden sm:inline-flex" onClick={nextYear}>
                 {year + 1}
               </Button>
-              <Button variant="outline" size="icon" className="h-8 w-8" onClick={nextMonth}>
+              <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={nextMonth}>
                 <ChevronRight className="h-4 w-4" />
               </Button>
+              <Button variant="ghost" size="sm" className="h-8 shrink-0" onClick={goToToday}>
+                {t("reservations:calendar_today")}
+              </Button>
             </div>
-
-            <Button variant="ghost" size="sm" onClick={goToToday}>
-              {t("reservations:calendar_today")}
-            </Button>
           </div>
 
           {/* Filters */}
-          <div className="flex items-center gap-4 mb-4 text-sm">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-4 mb-4 text-sm">
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -612,7 +611,7 @@ export default function ReservationCalendarPage() {
 
           <div className="grid grid-cols-7 border-b">
             {dayNames.map((name) => (
-              <div key={name} className="text-center text-xs font-medium text-muted-foreground py-2">
+              <div key={name} className="text-center text-[10px] sm:text-xs font-medium text-muted-foreground py-1.5 sm:py-2">
                 {name}
               </div>
             ))}
@@ -638,7 +637,7 @@ export default function ReservationCalendarPage() {
                       type="button"
                       onClick={() => openDay(date)}
                       className={`
-                        border-b border-r p-1.5 text-left align-top transition-colors
+                        border-b border-r p-0.5 sm:p-1.5 text-left align-top transition-colors
                         hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
                         ${CELL_H}
                         ${!isCurrentMonth ? "bg-muted/30 text-muted-foreground" : ""}
@@ -647,7 +646,7 @@ export default function ReservationCalendarPage() {
                     >
                       <span
                         className={`
-                          inline-flex items-center justify-center w-7 h-7 text-xs font-medium rounded-full
+                          inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 text-[10px] sm:text-xs font-medium rounded-full
                           ${isToday ? "bg-primary text-primary-foreground" : ""}
                         `}
                       >
@@ -655,12 +654,12 @@ export default function ReservationCalendarPage() {
                       </span>
 
                       <div className="mt-0.5 space-y-0.5">
-                        {daySlots.slice(0, 3).map((slot) => (
+                        {daySlots.slice(0, 2).map((slot) => (
                           <CalendarSlotChip key={slotKey(slot)} slot={slot} locale={locale} />
                         ))}
-                        {daySlots.length > 3 && (
-                          <div className="text-[10px] text-muted-foreground">
-                            +{daySlots.length - 3}
+                        {daySlots.length > 2 && (
+                          <div className="text-[9px] sm:text-[10px] text-muted-foreground">
+                            +{daySlots.length - 2}
                           </div>
                         )}
                       </div>
@@ -686,7 +685,7 @@ export default function ReservationCalendarPage() {
         }}
       >
         <DialogContent className="sm:max-w-xl max-h-[85vh] overflow-hidden flex flex-col">
-          <DialogHeader className="flex flex-row items-center justify-between space-y-0 pr-6">
+          <DialogHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 space-y-0 pr-0 sm:pr-6">
             <DialogTitle className="flex items-center gap-2">
               <CalendarDays className="h-5 w-5" />
               {selectedDayDate
@@ -700,6 +699,7 @@ export default function ReservationCalendarPage() {
             </DialogTitle>
             <Button
               size="sm"
+              className="self-start sm:self-auto"
               onClick={() => handleStartCreate(expandedServiceId ?? dayServices[0]?.serviceId ?? null)}
               disabled={showCreateForm}
             >

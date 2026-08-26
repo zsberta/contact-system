@@ -341,7 +341,7 @@ export default function SubmissionsCalendarTab({ projectId }: Props) {
   const monthLabel = formatMonth(year, month, locale);
   const todayStr = ymd(new Date());
   const dayNames = Array.from({ length: 7 }, (_, i) =>
-    new Date(Date.UTC(2024, 0, i + 1)).toLocaleDateString(locale, {
+    new Date(Date.UTC(2024, 0, i + 7)).toLocaleDateString(locale, {
       weekday: "short",
     }),
   );
