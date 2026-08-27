@@ -70,9 +70,11 @@ const CELL_H = "min-h-[72px] sm:min-h-[100px] md:min-h-[120px]";
 
 function buildMonthGrid(year: number, month: number): Date[][] {
   const firstOfMonth = new Date(Date.UTC(year, month, 1));
-  const startDow = firstOfMonth.getUTCDay();
+  const startDow = firstOfMonth.getUTCDay(); // 0=Sun..6=Sat
+  // Shift to Monday-start: Mon=0, Tue=1, ..., Sun=6
+  const mondayOffset = (startDow + 6) % 7;
   const gridStart = new Date(firstOfMonth);
-  gridStart.setUTCDate(gridStart.getUTCDate() - startDow);
+  gridStart.setUTCDate(gridStart.getUTCDate() - mondayOffset);
 
   const rows: Date[][] = [];
   const cursor = new Date(gridStart);
@@ -147,11 +149,13 @@ function DaySession({
   locale,
   t,
   onDeleteBooking,
+  serviceName,
 }: {
   session: CalendarSessionSummary;
   locale: string;
   t: (key: string) => string;
   onDeleteBooking?: (bookingId: number) => void;
+  serviceName?: string;
 }) {
   const workerName = [session.workerFirstName, session.workerLastName]
     .filter(Boolean)
@@ -161,6 +165,7 @@ function DaySession({
     <div className="rounded-md border bg-muted/20 p-3 space-y-2">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
+          {serviceName && <p className="text-xs font-semibold text-muted-foreground mb-0.5">{serviceName}</p>}
           <p className="text-sm font-medium leading-tight">
             {fmtTime(locale, session.startsAt)} – {fmtTime(locale, session.endsAt)}
           </p>
@@ -182,49 +187,51 @@ function DaySession({
               .filter(Boolean)
               .join(" ");
             return (
-              <div
-                key={booking.id}
-                className="flex items-start justify-between gap-3 text-sm"
-              >
-                <div className="min-w-0">
-                  <p className="font-medium truncate">{name || "—"}</p>
-                  {(booking.customer.email || booking.customer.phone) && (
-                    <p className="text-xs text-muted-foreground truncate">
-                      {[booking.customer.email, booking.customer.phone]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                  )}
-                </div>
-                <div className="flex items-center gap-1 mt-0.5 shrink-0">
-                  <Badge
-                    variant={
-                      booking.status === "confirmed"
-                        ? "default"
-                        : booking.status === "cancelled"
-                          ? "destructive"
-                          : booking.status === "no_show"
-                            ? "outline"
-                            : "secondary"
-                    }
-                    className="text-[10px]"
-                  >
-                    {t(`reservations:booking_status_${booking.status}`)}
-                  </Badge>
-                  {onDeleteBooking && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-5 w-5 p-0"
-                      onClick={() => onDeleteBooking(booking.id)}
-                      aria-label={t("reservations:booking_delete")}
-                      title={t("reservations:booking_delete")}
+              <div key={booking.id}>
+                <div className="flex items-start justify-between gap-3 text-sm">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{name || "—"}</p>
+                    {(booking.customer.email || booking.customer.phone) && (
+                      <p className="text-xs text-muted-foreground truncate">
+                        {[booking.customer.email, booking.customer.phone]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 mt-0.5 shrink-0">
+                    <Badge
+                      variant={
+                        booking.status === "confirmed"
+                          ? "default"
+                          : booking.status === "cancelled"
+                            ? "destructive"
+                            : booking.status === "no_show"
+                              ? "outline"
+                              : "secondary"
+                      }
+                      className="text-[10px]"
                     >
-                      <Trash2 className="h-3 w-3 text-destructive" />
-                    </Button>
-                  )}
+                      {t(`reservations:booking_status_${booking.status}`)}
+                    </Badge>
+                    {onDeleteBooking && booking.status !== "cancelled" && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 w-5 p-0"
+                        onClick={() => onDeleteBooking(booking.id)}
+                        aria-label={t("reservations:booking_delete")}
+                        title={t("reservations:booking_delete")}
+                      >
+                        <Trash2 className="h-3 w-3 text-destructive" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
+                {booking.status === "cancelled" && booking.cancellationReason && (
+                  <p className="text-[11px] text-muted-foreground mt-0.5">{booking.cancellationReason}</p>
+                )}
               </div>
             );
           })}
@@ -534,8 +541,9 @@ export default function ReservationCalendarPage() {
 
   const locale = i18n.language?.startsWith("hu") ? "hu" : "en";
   const todayStr = ymd(new Date());
+  // Monday-first weekday names: Jan 8 2024 = Monday
   const dayNames = Array.from({ length: DAYS_IN_WEEK }, (_, i) =>
-    new Date(Date.UTC(2024, 0, i + 7)).toLocaleDateString(locale, { weekday: "short" }),
+    new Date(Date.UTC(2024, 0, i + 8)).toLocaleDateString(locale, { weekday: "short" }),
   );
   const monthNames =
     locale === "hu"
@@ -861,17 +869,18 @@ export default function ReservationCalendarPage() {
 
             {!dayQuery.isLoading && !dayQuery.isError && dayServices.length > 0 && (
               <div className="space-y-2">
-                {dayServices.map((service) => (
-                  <DayServiceAccordion
-                    key={service.serviceId}
-                    service={service}
-                    locale={locale}
-                    expanded={expandedServiceId === service.serviceId}
-                    onToggle={() => handleServiceToggle(service.serviceId)}
-                    t={t}
-                    onDeleteBooking={handleDeleteBooking}
-                  />
-                ))}
+                {dayServices.map((service) =>
+                  service.sessions.map((session, idx) => (
+                    <DaySession
+                      key={`${service.serviceId}-${session.startsAt}-${idx}`}
+                      session={session}
+                      locale={locale}
+                      t={t}
+                      onDeleteBooking={handleDeleteBooking}
+                      serviceName={service.serviceName}
+                    />
+                  ))
+                )}
               </div>
             )}
           </div>

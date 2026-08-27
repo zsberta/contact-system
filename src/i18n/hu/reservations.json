@@ -2,14 +2,12 @@
   "reservation_management": "Foglalások",
   "reservation": "foglalás",
   "reservations": "foglalások",
-
   "create_reservation": "Foglalás létrehozása",
   "create_reservation_description": "Új, beágyazható foglalási űrlap hozzáadása egy projekthez",
   "edit_reservation": "Foglalás szerkesztése",
   "reservation_details": "Foglalás részletei",
   "reservation_not_found": "A foglalás nem található",
   "back_to_reservations": "Vissza a foglalásokhoz",
-
   "name": "Név",
   "name_placeholder": "Ügyfél felé látható foglalásnév",
   "slug": "Slug",
@@ -23,12 +21,10 @@
   "secret_token_help": "A szerver által generált hitelesítő adat a publikus végpont URL-jében. Csak egyszer jelenik meg — létrehozás után nem módosítható.",
   "secret_token_immutable_tooltip": "Létrehozás után nem módosítható",
   "secret_token_copied": "Titkos token a vágólapra másolva",
-
   "project": "Projekt",
   "project_required": "Kérjük, válasszon projektet",
   "project_immutable_tooltip": "Létrehozás után nem módosítható",
   "select_project_placeholder": "Válasszon projektet…",
-
   "status": "Státusz",
   "status_placeholder": "Válasszon státuszt",
   "status_active": "Aktív",
@@ -39,7 +35,6 @@
   "disable_confirm_description": "A(z) \"{{name}}\" nem fogad új foglalásokat, amíg újra nem engedélyezik.",
   "enable_confirm_title": "Foglalás engedélyezése?",
   "enable_confirm_description": "A(z) \"{{name}}\" újra fogad foglalásokat.",
-
   "allowed_origins_label": "Engedélyezett origin-ek",
   "allowed_origins_help": "Korlátozza a foglalásokat adott webhelyekre (pl. https://example.com). Hagyja üresen, ha bárhonnan fogad foglalásokat.",
   "allowed_origins_placeholder": "https://example.com vagy *.example.com",
@@ -51,7 +46,6 @@
   "allowed_origins": "Engedélyezett origin-ek",
   "allowed_origins_snippet_warning_title": "Korlátozott beágyazás",
   "allowed_origins_snippet_warning_body": "Ez a foglalás {{count}} origin-re van korlátozva. Más origin-ről érkező foglalások elutasításra kerülnek.",
-
   "snippet_title": "Beágyazási kódrészlet",
   "snippet_description": "Illessze be ezt a kódot az ügyfél weboldalába a foglalási widget megjelenítéséhez.",
   "snippet_origin_label": "Origin",
@@ -60,10 +54,8 @@
   "snippet_help": "A kódrészlet egy iframe, amely a foglalási widgetet jeleníti meg. A szélesség és magasság tetszőlegesen állítható.",
   "copy_snippet": "Másolás",
   "copy": "Másolás",
-
   "details_tab": "Részletek",
   "bookings_tab": "Foglalások",
-
   "bookings_section": "Foglalások",
   "no_bookings_yet": "Még nincsenek foglalások.",
   "booking_starts_at": "Kezdés",
@@ -83,11 +75,9 @@
   "submission_referer": "Hivatkozó",
   "submission_locale": "Nyelv",
   "submission_view_json": "Részletek",
-
   "max_length": "Túllépted a maximális hosszt",
   "required_field": "Ez a mező kötelező",
   "slot_duration_invalid": "A slot hossza pozitív egész számú perc kell legyen",
-
   "day": "Nap",
   "granularity": "Felbontás",
   "hour": "Óra",
@@ -108,16 +98,12 @@
   "max_advance_days_help": "Milyen messzire lehet előre foglalni (1–365 nap).",
   "extra_fields_enabled": "Extra mezők",
   "extra_fields_enabled_help": "További űrlapmezők (név, e-mail, telefon stb.) rögzítése az időpont mellé.",
-
   "project_section_reservations_title": "Foglalások",
   "project_section_reservations_empty": "Még nincsenek foglalások. Hozzon létre egyet a foglalások fogadásához.",
   "project_section_create_reservation": "Foglalás létrehozása",
-
   "slot_overlap_error": "Ez az időpont már nem elérhető. Kérjük, válasszon másikat.",
-
   "confirm_delete_title": "Foglalás törlése?",
   "confirm_delete_description": "Biztosan törli a(z) \"{{name}}\" foglalást? Az összes foglalás is törlődik. Ez nem visszavonható.",
-
   "calendar_hide_empty": "Üres időpontok elrejtése",
   "calendar_all_workers": "Minden felelős",
   "seats_remaining": "hely",
@@ -140,7 +126,6 @@
   "calendar_month_next": "Következő hónap",
   "calendar_today": "Ma",
   "calendar_time_placeholder": "pl. 09:00",
-
   "blocked_tab": "Tiltott",
   "disabled_ranges_section": "Tiltott időtartamok",
   "disabled_range_add": "Tiltott időszak hozzáadása",
@@ -193,7 +178,6 @@
   "holidays_active_count": "aktív",
   "manual_ranges_section": "📝 Kézi tiltások",
   "select_reservation": "Válasszon foglalást…",
-
   "import_tab": "Importálás",
   "import_title": "Foglalások importálása JSON-ből",
   "import_description": "Illesszen be egy JSON tömböt a foglalásokkal a másik rendszerből átköltöztetéshez. Minden elemnek ISO 8601 UTC formátumú startsAt és endsAt mezőt kell tartalmaznia. Az Ellenőrzés gombra kattintás után a szerver ugyanazokat a vizsgálatokat futtatja, mint egy valódi mentésnél (elérhetőségi beosztás, extra mezők szabályai). Az előnézet az első 100 érvényes elemet mutatja. Nem küldünk e-mailt.",
@@ -238,7 +222,6 @@
   "import_error_end_before_start": "az endsAt a startsAt után kell legyen",
   "import_error_not_object": "az elemnek objektumnak kell lennie",
   "import_error_data_must_be_object": "a `data` mezőnek egyszerű objektumnak kell lennie",
-
   "schedules_tab": "Időbeosztás",
   "schedule_add": "Idősáv hozzáadása",
   "schedule_frequency": "Gyakoriság",
@@ -337,11 +320,11 @@
   "booking_status_cancelled": "Lemondva",
   "booking_status_completed": "Befejezve",
   "booking_status_no_show": "Nem jelent meg",
-
   "booking_delete": "Foglalás törlése",
   "booking_delete_title": "Törlöd ezt a foglalást?",
   "booking_delete_description": "A művelet nem vonható vissza. A vendég e-mailben értesítést kap a foglalás törléséről.",
   "booking_deleting": "Foglalás törlése…",
   "booking_deleted": "Foglalás törölve",
-  "booking_delete_failed": "A foglalást nem sikerült törölni."
+  "booking_delete_failed": "A foglalást nem sikerült törölni.",
+  "cancellation_reason": "Lemondás oka"
 }

@@ -17,7 +17,14 @@ import {
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ArrowLeft, Clock, Users, CheckCircle2, AlertCircle, RotateCcw, Trash2, UserPlus } from "lucide-react";
-import { publicSubmitServiceBooking, publicResolveReservationCustomerProfiles } from "@/lib/reservations";
+import {
+  publicSubmitServiceBooking,
+  publicResolveReservationCustomerProfiles,
+  publicGetBookingByToken,
+  publicCancelBookingByToken,
+  publicRescheduleBookingByToken,
+  type PublicBookingDetails,
+} from "@/lib/reservations";
 import {
   readReservationProfileTokens,
   addReservationProfileToken,
@@ -26,7 +33,7 @@ import {
 } from "@/lib/reservation-profiles";
 import type { ReservationCustomerProfileDTO } from "@/types/reservation";
 
-type ViewState = "catalog" | "scheduling" | "contact" | "confirmation";
+type ViewState = "catalog" | "scheduling" | "contact" | "confirmation" | "manage" | "modify" | "cancelled" | "rescheduled" | "bookingNotFound";
 
 interface CatalogService {
   id: number;
@@ -109,6 +116,23 @@ function maskEmail(email: string): string {
 function maskPhone(phone: string): string {
   if (phone.length <= 4) return phone;
   return `${"*".repeat(phone.length - 4)}${phone.slice(-4)}`;
+}
+
+// ── Budapest time helpers ──────────────────────────────────────────────────────
+const BUDAPEST_TZ = "Europe/Budapest";
+
+/** Check if a UTC ISO timestamp is in the past (Budapest timezone). */
+function isPastInBudapest(isoUtc: string): boolean {
+  const budapestNow = new Date(new Date().toLocaleString("en-US", { timeZone: BUDAPEST_TZ }));
+  const budapestSlot = new Date(new Date(isoUtc).toLocaleString("en-US", { timeZone: BUDAPEST_TZ }));
+  return budapestSlot.getTime() <= budapestNow.getTime();
+}
+
+/** Check if a booking starts within 12 hours (Budapest timezone). */
+function isWithin12HoursBudapest(isoUtc: string): boolean {
+  const budapestNow = new Date(new Date().toLocaleString("en-US", { timeZone: BUDAPEST_TZ }));
+  const budapestSlot = new Date(new Date(isoUtc).toLocaleString("en-US", { timeZone: BUDAPEST_TZ }));
+  return budapestSlot.getTime() - budapestNow.getTime() < 12 * 60 * 60 * 1000;
 }
 
 // ── profile UI translations ──────────────────────────────────────────────────
@@ -215,7 +239,7 @@ function translateError(message: string, locale: string): string {
 }
 
 export default function ReservationEmbedPage() {
-  const { secretToken } = useParams<{ secretToken: string }>();
+  const { secretToken, bookingToken } = useParams<{ secretToken: string; bookingToken: string }>();
 
   const [view, setView] = useState<ViewState>("catalog");
   const [catalog, setCatalog] = useState<CatalogData | null>(null);
@@ -243,6 +267,13 @@ export default function ReservationEmbedPage() {
   const [storageAvailable, setStorageAvailable] = useState(true);
   const [consentAccepted, setConsentAccepted] = useState(false);
 
+  // ── manage/modify state ────────────────────────────────────────────────────
+  const [manageBooking, setManageBooking] = useState<PublicBookingDetails | null>(null);
+  const [manageLoading, setManageLoading] = useState(false);
+  const [manageError, setManageError] = useState<string | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+
   // Check localStorage availability once
   useEffect(() => {
     try {
@@ -263,6 +294,22 @@ export default function ReservationEmbedPage() {
       .then((data) => { if (data.services) setCatalog(data); })
       .catch(() => setError(translateError("Network error", "hu")));
   }, [secretToken]);
+
+  // ── load booking details when bookingToken is present (manage mode) ──────
+  useEffect(() => {
+    if (!secretToken || !bookingToken) return;
+    setManageLoading(true);
+    publicGetBookingByToken(secretToken, bookingToken)
+      .then((booking) => {
+        setManageBooking(booking);
+        setView("manage");
+      })
+      .catch(() => {
+        setManageError("Foglalás nem található");
+        setView("bookingNotFound");
+      })
+      .finally(() => setManageLoading(false));
+  }, [secretToken, bookingToken]);
 
   // ── load saved profiles on mount ───────────────────────────────────────────
   useEffect(() => {
@@ -334,6 +381,76 @@ export default function ReservationEmbedPage() {
   }, [secretToken, selectedService, currentMonth]);
 
   useEffect(() => { loadAvailability(); }, [loadAvailability]);
+
+  // ── cancel booking (manage mode) ──────────────────────────────────────────
+  async function handleCancelBooking() {
+    if (!secretToken || !bookingToken) return;
+    setManageLoading(true);
+    setManageError(null);
+    try {
+      await publicCancelBookingByToken(secretToken, bookingToken, cancelReason || undefined);
+      setView("cancelled");
+    } catch (err) {
+      setManageError(err instanceof Error ? err.message : "Cancellation failed");
+    } finally {
+      setManageLoading(false);
+      setDeleteConfirmOpen(false);
+      setCancelReason("");
+    }
+  }
+
+  // ── reschedule booking (modify mode) ──────────────────────────────────────
+  async function handleReschedule() {
+    if (!secretToken || !bookingToken || !selectedSlot) return;
+    setManageLoading(true);
+    setManageError(null);
+    try {
+      const result = await publicRescheduleBookingByToken(secretToken, bookingToken, {
+        startsAt: selectedSlot.startsAt,
+        endsAt: selectedSlot.endsAt,
+      });
+      setBookingId(result.id);
+      setView("rescheduled");
+    } catch (err) {
+      setManageError(err instanceof Error ? err.message : "Reschedule failed");
+    } finally {
+      setManageLoading(false);
+    }
+  }
+
+  // ── enter modify mode (reuse scheduling) ──────────────────────────────────
+  async function handleEnterModify() {
+    if (!manageBooking || !secretToken) return;
+    setManageLoading(true);
+    setManageError(null);
+    try {
+      let catalogServices = catalog?.services;
+      if (!catalogServices) {
+        const res = await fetch(`/api/public/reservations/${secretToken}/catalog`, { credentials: "omit" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (data.services) {
+          setCatalog(data);
+          catalogServices = data.services;
+        }
+      }
+      const svc = catalogServices?.find((s: any) => Number(s.id) === manageBooking.serviceId);
+      if (!svc) {
+        setManageError("Szolgáltatás nem található");
+        setView("manage");
+        return;
+      }
+      setSelectedService(svc);
+      setView("scheduling");
+    } catch (err) {
+      console.error("[handleEnterModify]", err);
+      setManageError("Szolgáltatások betöltése sikertelen");
+      setView("manage");
+    } finally {
+      setManageLoading(false);
+    }
+  }
+
 
   // Submit booking
   async function handleSubmit() {
@@ -442,6 +559,25 @@ export default function ReservationEmbedPage() {
         </div>
       )}
 
+      {/* Booking Not Found */}
+      {view === "bookingNotFound" && (
+        <div className="max-w-lg mx-auto text-center space-y-4 py-12">
+          <AlertCircle className="h-16 w-16 text-muted-foreground mx-auto" />
+          <h2 className="text-2xl font-bold">{locale === "en" ? "Booking not found" : "Foglalás nem található"}</h2>
+          <p className="text-muted-foreground">
+            {locale === "en"
+              ? "This booking may have been cancelled or the link is invalid."
+              : "Ez a foglalás lemondásra kerülhetett, vagy a link érvénytelen."}
+          </p>
+          <Button
+            variant="outline"
+            onClick={() => { setView("catalog"); setManageBooking(null); setManageError(null); }}
+          >
+            {locale === "en" ? "Back to booking" : "Vissza a foglaláshoz"}
+          </Button>
+        </div>
+      )}
+
       {/* Catalog View */}
       {view === "catalog" && catalog && (
         <div className="max-w-5xl mx-auto grid gap-4 md:grid-cols-2">
@@ -483,7 +619,7 @@ export default function ReservationEmbedPage() {
       {/* Scheduling View */}
       {view === "scheduling" && selectedService && (
         <div className="max-w-5xl mx-auto">
-          <Button variant="ghost" onClick={() => { setView("catalog"); setSelectedService(null); setSelectedSlot(null); }} className="mb-2">
+          <Button variant="ghost" onClick={() => { setView(manageBooking ? "manage" : "catalog"); setSelectedService(null); setSelectedSlot(null); }} className="mb-2">
             <ArrowLeft className="mr-2 h-4 w-4" />{locale === "en" ? "Back" : "Vissza"}
           </Button>
 
@@ -574,13 +710,14 @@ export default function ReservationEmbedPage() {
                     {availability.slots.filter((s) => s.date === selectedDate).map((slot) => {
                       const isSelected = selectedSlot?.startsAt === slot.startsAt;
                       const hasSeats = slot.remainingSeats > 0;
+                      const isPast = isPastInBudapest(slot.startsAt);
                       return (
                         <button
                           key={slot.startsAt}
-                          className={`rounded-lg border p-3 text-center text-sm transition-colors ${isSelected ? "border-transparent text-white" : "border-border hover:border-primary/50"} ${!hasSeats ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
-                          disabled={!hasSeats}
+                          className={`rounded-lg border p-3 text-center text-sm transition-colors ${isSelected ? "border-transparent text-white" : "border-border hover:border-primary/50"} ${!hasSeats || isPast ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+                          disabled={!hasSeats || isPast}
                           style={isSelected && catalog?.reservation.brandColor ? { backgroundColor: catalog.reservation.brandColor, borderColor: catalog.reservation.brandColor } : undefined}
-                          onClick={() => { setSelectedSlot(slot); setView("contact"); setSelectedProfileToken(null); setRememberCustomer(false); }}
+                          onClick={() => { setSelectedSlot(slot); setView(manageBooking ? "modify" : "contact"); setSelectedProfileToken(null); setRememberCustomer(false); }}
                         >
                           <p className="font-medium">{slot.startTime}</p>
                           <p className={`text-xs mt-1 ${isSelected ? "text-white/80" : "text-muted-foreground"}`}>
@@ -607,7 +744,7 @@ export default function ReservationEmbedPage() {
       {/* Contact Form View */}
       {view === "contact" && selectedService && selectedSlot && (
         <div className="max-w-lg mx-auto space-y-6">
-          <Button variant="ghost" onClick={() => setView("scheduling")} className="mb-2">
+          <Button variant="ghost" onClick={() => { setView("scheduling"); setError(null); }} className="mb-2">
             <ArrowLeft className="mr-2 h-4 w-4" />Vissza
           </Button>
 
@@ -752,8 +889,8 @@ export default function ReservationEmbedPage() {
         </div>
       )}
 
-      {/* Confirmation View */}
-      {view === "confirmation" && (
+      {/* Confirmation View (after booking or reschedule) */}
+      {(view === "confirmation" || view === "rescheduled") && (
         <div className="max-w-lg mx-auto text-center space-y-4 py-12">
           <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto" />
           <h2 className="text-2xl font-bold">Foglalás megerősítve!</h2>
@@ -778,11 +915,137 @@ export default function ReservationEmbedPage() {
               setSelectedProfileToken(null);
               setRememberCustomer(false);
               setConsentAccepted(false);
-              setView("catalog");
+              setManageError(null);
+              setView(bookingToken ? "manage" : "catalog");
+              if (!bookingToken) setManageBooking(null);
             }}
             className="mt-4"
           >
             <RotateCcw className="mr-2 h-4 w-4" />Vissza az elejére
+          </Button>
+        </div>
+      )}
+
+      {/* ── Manage Booking View ─────────────────────────────────────────────── */}
+      {view === "manage" && manageBooking && (
+        <div className="max-w-lg mx-auto space-y-6">
+          <Button variant="ghost" onClick={() => { setView("catalog"); setManageBooking(null); setSelectedService(null); setSelectedSlot(null); }} className="mb-2">
+            <ArrowLeft className="mr-2 h-4 w-4" />{locale === "en" ? "New booking" : "Új foglalás"}
+          </Button>
+
+          <Card className="overflow-hidden">
+            <CardContent className="p-4 space-y-3">
+              <h3 className="font-semibold text-lg">{manageBooking.serviceName}</h3>
+              <div className="space-y-1 text-sm text-muted-foreground">
+                <p>{manageBooking.firstName} {manageBooking.lastName}</p>
+                <p>{manageBooking.email}</p>
+                <p>{manageBooking.phone}</p>
+              </div>
+              <div className="border-t pt-3 mt-3">
+                <p className="text-sm">
+                  <span className="text-muted-foreground">{locale === "en" ? "Date" : "Időpont"}: </span>
+                  <strong>
+                    {new Date(manageBooking.startsAt).toLocaleDateString(locale === "en" ? "en-US" : "hu-HU", { year: "numeric", month: "long", day: "numeric" })}
+                    {" "}
+                    {new Date(manageBooking.startsAt).toLocaleTimeString(locale === "en" ? "en-US" : "hu-HU", { hour: "2-digit", minute: "2-digit" })}
+                    {" – "}
+                    {new Date(manageBooking.endsAt).toLocaleTimeString(locale === "en" ? "en-US" : "hu-HU", { hour: "2-digit", minute: "2-digit" })}
+                  </strong>
+                </p>
+                <p className="text-sm">
+                  <span className="text-muted-foreground">{locale === "en" ? "Booking ID" : "Foglalás azonosító"}: </span>
+                  <strong>#{manageBooking.id}</strong>
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {manageError && (
+            <div className="flex items-center gap-2 text-sm text-destructive">
+              <AlertCircle className="h-4 w-4" />{manageError}
+            </div>
+          )}
+
+          {isWithin12HoursBudapest(manageBooking.startsAt) && (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
+              {locale === "en"
+                ? "This booking starts within 12 hours. Modifications and cancellations are no longer possible."
+                : "Ez a foglalás 12 órán belül kezdődik. Módosításra és lemondásra már nincs lehetőség."}
+            </div>
+          )}
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={handleEnterModify}
+              disabled={manageLoading || isWithin12HoursBudapest(manageBooking.startsAt)}
+            >
+              {locale === "en" ? "Modify booking" : "Módosítás"}
+            </Button>
+            <Button
+              variant="destructive"
+              className="flex-1"
+              onClick={() => setDeleteConfirmOpen(true)}
+              disabled={manageLoading || isWithin12HoursBudapest(manageBooking.startsAt)}
+            >
+              {locale === "en" ? "Cancel booking" : "Lemondás"}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Cancelled View ────────────────────────────────────────────────── */}
+      {view === "cancelled" && (
+        <div className="max-w-lg mx-auto text-center space-y-4 py-12">
+          <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto" />
+          <h2 className="text-2xl font-bold">{locale === "en" ? "Booking cancelled" : "Foglalás lemondva"}</h2>
+          <p className="text-muted-foreground">
+            {locale === "en"
+              ? "Your booking has been successfully cancelled."
+              : "A foglalásodat sikeresen lemondtuk."}
+          </p>
+        </div>
+      )}
+
+      {/* ── Modify scheduling view — reuse scheduling but with reschedule on confirm ─ */}
+      {view === "modify" && selectedService && selectedSlot && (
+        <div className="max-w-lg mx-auto space-y-6">
+          <Button variant="ghost" onClick={() => { setView("manage"); setSelectedSlot(null); }} className="mb-2">
+            <ArrowLeft className="mr-2 h-4 w-4" />{locale === "en" ? "Back" : "Vissza"}
+          </Button>
+
+          <Card className="overflow-hidden">
+            <div className="flex">
+              {selectedService.imageUrl && (
+                <img src={selectedService.imageUrl} alt={selectedService.name} className="w-24 sm:w-28 aspect-[4/5] object-cover shrink-0" />
+              )}
+              <CardContent className="p-4 space-y-1 flex-1 min-w-0">
+                <p className="font-medium">{selectedService.name}</p>
+                <p className="text-sm text-muted-foreground">
+                  {formatHungarianDate(selectedSlot.date)}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {selectedSlot.startTime} – {selectedSlot.endTime}
+                </p>
+              </CardContent>
+            </div>
+          </Card>
+
+          {manageError && (
+            <div className="flex items-center gap-2 text-sm text-destructive">
+              <AlertCircle className="h-4 w-4" />{manageError}
+            </div>
+          )}
+
+          <Button
+            className="w-full"
+            onClick={handleReschedule}
+            disabled={manageLoading}
+            style={catalog?.reservation.brandColor ? { backgroundColor: catalog.reservation.brandColor, color: "#fff" } : undefined}
+          >
+            {manageLoading
+              ? (locale === "en" ? "Processing..." : "Feldolgozás...")
+              : (locale === "en" ? "Confirm new time" : "Új időpont megerősítése")}
           </Button>
         </div>
       )}
@@ -800,6 +1063,41 @@ export default function ReservationEmbedPage() {
             <AlertDialogCancel>{profileCopy(locale, "cancel")}</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDeleteProfile} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               {profileCopy(locale, "confirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Booking cancel confirmation dialog ───────────────────────────── */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={(open) => { if (!open) { setDeleteConfirmOpen(false); setCancelReason(""); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{locale === "en" ? "Cancel this booking?" : "Lemondod ezt a foglalást?"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {locale === "en"
+                ? "This action cannot be undone. Your booking will be permanently cancelled."
+                : "Ez a művelet nem vonható vissza. A foglalásod véglegesen törlődik."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2">
+            <Label htmlFor="cancel-reason">{locale === "en" ? "Reason for cancellation" : "Lemondás oka"} <span className="text-red-500">*</span></Label>
+            <Textarea
+              id="cancel-reason"
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder={locale === "en" ? "Why are you cancelling?" : "Miért mondod le?"}
+              rows={3}
+              className="mt-1"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setCancelReason("")}>{locale === "en" ? "No, keep it" : "Nem, megtartom"}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleCancelBooking}
+              disabled={!cancelReason.trim()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {locale === "en" ? "Yes, cancel" : "Igen, lemondás"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

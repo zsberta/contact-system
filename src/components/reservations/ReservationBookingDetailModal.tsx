@@ -143,6 +143,16 @@ export function ReservationBookingDetailModal({
                 </div>
               </div>
 
+              {/* Cancellation reason */}
+              {data.status === "cancelled" && data.cancellationReason && (
+                <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 space-y-1">
+                  <p className="text-sm font-medium text-destructive">
+                    {t("reservations:cancellation_reason", "Lemondás oka")}
+                  </p>
+                  <p className="text-sm">{data.cancellationReason}</p>
+                </div>
+              )}
+
             </>
           )}
         </div>

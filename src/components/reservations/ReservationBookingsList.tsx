@@ -166,9 +166,16 @@ export function ReservationBookingsList({ reservationId }: Props) {
       accessorKey: "status",
       header: t("reservations:booking_status"),
       cell: (row: ReservationBookingDTO) => (
-        <Badge variant={row.status === "confirmed" ? "default" : row.status === "cancelled" ? "destructive" : row.status === "no_show" ? "outline" : "secondary"}>
-          {t(`reservations:booking_status_${row.status}`)}
-        </Badge>
+        <div>
+          <Badge variant={row.status === "confirmed" ? "default" : row.status === "cancelled" ? "destructive" : row.status === "no_show" ? "outline" : "secondary"}>
+            {t(`reservations:booking_status_${row.status}`)}
+          </Badge>
+          {row.status === "cancelled" && row.cancellationReason && (
+            <p className="text-xs text-muted-foreground mt-1 max-w-[200px] truncate" title={row.cancellationReason}>
+              {row.cancellationReason}
+            </p>
+          )}
+        </div>
       ),
       enableSorting: true,
     },

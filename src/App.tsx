@@ -209,6 +209,7 @@ const App = () => (
               </Route>
 
               {/* Public embed route — outside ProtectedRoute */}
+              <Route path="/embed/reservations/:secretToken/manage/:bookingToken" element={<ReservationEmbedPage />} />
               <Route path="/embed/reservations/:secretToken" element={<ReservationEmbedPage />} />
             </Routes>
           </AuthProvider>

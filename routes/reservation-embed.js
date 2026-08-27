@@ -151,6 +151,30 @@ function normaliseAllowedOrigins(raw) {
 }
 
 // ---------------------------------------------------------------------------
+// Budapest time helpers — all customer-facing time logic uses Europe/Budapest.
+// ---------------------------------------------------------------------------
+const BUDAPEST_TZ = "Europe/Budapest";
+const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
+
+/** Get UTC offset in ms for a timezone at a given date (handles DST). */
+function getTzOffsetMs(timezone, date) {
+  const d = date instanceof Date ? date : new Date(date);
+  const tzStr = d.toLocaleString("en-US", { timeZone: timezone, hour12: false });
+  const utcStr = d.toLocaleString("en-US", { timeZone: "UTC", hour12: false });
+  return new Date(tzStr).getTime() - new Date(utcStr).getTime();
+}
+
+/** Check if a booking's starts_at is within 12 hours (Budapest time). */
+function isWithin12Hours(startsAt) {
+  const nowMs = Date.now();
+  const bookingMs = new Date(startsAt).getTime();
+  const offsetMs = getTzOffsetMs(BUDAPEST_TZ, new Date(startsAt));
+  const currentOffsetMs = getTzOffsetMs(BUDAPEST_TZ, new Date());
+  // Add positive offset to convert UTC → local for east-of-UTC zones
+  return (bookingMs + offsetMs) - (nowMs + currentOffsetMs) < TWELVE_HOURS_MS;
+}
+
+// ---------------------------------------------------------------------------
 // Reservation configurator — fetch by secret_token, returning every field
 // the public endpoints need in one round-trip. Returns null when the token
 // is unknown OR the reservation is disabled (indistinguishable from the
@@ -648,6 +672,9 @@ router.post(
         email: contactResult.value.email,
         replyTo: workerEmail || undefined,
         signerName: workerName || undefined,
+        bookingToken: booking.booking_token,
+        secretToken,
+        timezone: reservation.timezone || "UTC",
       }).catch(() => {});
 
       // Worker notification — Nexus branding, customer details, no reply hint, no sign-off
@@ -689,6 +716,7 @@ router.post(
         startsAt,
         endsAt,
         bookedAt,
+        bookingToken: booking.booking_token,
         ...(customerProfile ? { customerProfile } : {}),
       });
     } catch (err) {
@@ -941,3 +969,403 @@ router.get("/assets/:filename", async (req, res) => {
     return res.status(500).json({ errorMessage: "Internal server error" });
   }
 });
+
+// ===========================================================================
+// GET /api/public/reservations/:secret_token/bookings/by-token/:bookingToken
+// Public booking lookup — returns booking details for the customer
+// self-service manage page. Only returns bookings belonging to the
+// reservation identified by secret_token.
+// ===========================================================================
+router.get(
+  "/:secret_token/bookings/by-token/:bookingToken",
+  reservationAvailabilityBurst,
+  reservationSustainedLimiter,
+  async (req, res) => {
+    const { secret_token: secretToken, bookingToken } = req.params;
+    if (typeof secretToken !== "string" || secretToken.length !== 22) {
+      return res.status(400).json({ errorMessage: "Invalid secret token" });
+    }
+    if (typeof bookingToken !== "string" || bookingToken.length === 0) {
+      return res.status(400).json({ errorMessage: "Invalid booking token" });
+    }
+
+    try {
+      const reservation = await loadReservationByToken(secretToken);
+      if (!reservation) {
+        return res.status(404).json({ errorMessage: "Reservation not found" });
+      }
+
+      const result = await pool.query(
+        `SELECT rb.id, rb.starts_at, rb.ends_at, rb.status,
+                rb.first_name, rb.last_name, rb.email, rb.phone, rb.comment,
+                rb.service_id, rb.service_name_snapshot,
+                rb.duration_minutes_snapshot, rb.price_amount_snapshot,
+                rb.currency_snapshot, rb.locale,
+                COALESCE(rst.name, rb.service_name_snapshot) AS service_name
+         FROM reservation_bookings rb
+         LEFT JOIN reservation_service_translations rst
+           ON rst.service_id = rb.service_id
+           AND rst.locale = (SELECT default_locale FROM reservations WHERE id = rb.reservation_id)
+         WHERE rb.reservation_id = $1
+           AND rb.booking_token = $2`,
+        [Number(reservation.id), bookingToken],
+      );
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({ errorMessage: "Booking not found" });
+      }
+
+      const booking = result.rows[0];
+
+      if (booking.status === "cancelled") {
+        return res.status(410).json({ errorMessage: "Booking has been cancelled" });
+      }
+
+      return res.json({
+        id: Number(booking.id),
+        startsAt: booking.starts_at instanceof Date ? booking.starts_at.toISOString() : booking.starts_at,
+        endsAt: booking.ends_at instanceof Date ? booking.ends_at.toISOString() : booking.ends_at,
+        status: booking.status,
+        firstName: booking.first_name,
+        lastName: booking.last_name,
+        email: booking.email,
+        phone: booking.phone,
+        comment: booking.comment,
+        serviceId: Number(booking.service_id),
+        serviceName: booking.service_name,
+        durationMinutes: booking.duration_minutes_snapshot,
+        priceAmount: Number(booking.price_amount_snapshot),
+        currency: booking.currency_snapshot,
+        locale: booking.locale,
+      });
+    } catch (err) {
+      console.error("[reservations/public/booking-by-token]", err.code, err.message);
+      return res.status(500).json({ errorMessage: "Internal server error" });
+    }
+  },
+);
+
+// ===========================================================================
+// DELETE /api/public/reservations/:secret_token/bookings/by-token/:bookingToken
+// Public booking cancellation — soft-deletes (sets status to cancelled)
+// and sends a deletion notification email to the customer.
+// ===========================================================================
+router.delete(
+  "/:secret_token/bookings/by-token/:bookingToken",
+  reservationBurstLimiter,
+  reservationSustainedLimiter,
+  async (req, res) => {
+    const { secret_token: secretToken, bookingToken } = req.params;
+    if (typeof secretToken !== "string" || secretToken.length !== 22) {
+      return res.status(400).json({ errorMessage: "Invalid secret token" });
+    }
+    if (typeof bookingToken !== "string" || bookingToken.length === 0) {
+      return res.status(400).json({ errorMessage: "Invalid booking token" });
+    }
+
+    try {
+      const reservation = await loadReservationByToken(secretToken);
+      if (!reservation) {
+        return res.status(404).json({ errorMessage: "Reservation not found" });
+      }
+
+      // Load booking snapshot for email before updating
+      const snapshotResult = await pool.query(
+        `SELECT rb.id, rb.starts_at, rb.ends_at, rb.locale, rb.status,
+                rb.service_name_snapshot, rb.email, rb.customer_id,
+                rb.service_id,
+                COALESCE(rst.name, rb.service_name_snapshot) AS service_name
+         FROM reservation_bookings rb
+         LEFT JOIN reservation_service_translations rst
+           ON rst.service_id = rb.service_id
+           AND rst.locale = (SELECT default_locale FROM reservations WHERE id = rb.reservation_id)
+         WHERE rb.reservation_id = $1
+           AND rb.booking_token = $2`,
+        [Number(reservation.id), bookingToken],
+      );
+
+      if (snapshotResult.rowCount === 0) {
+        return res.status(404).json({ errorMessage: "Booking not found" });
+      }
+
+      const booking = snapshotResult.rows[0];
+
+      if (booking.status === "cancelled") {
+        return res.status(410).json({ errorMessage: "Booking has been cancelled" });
+      }
+
+      // 12-hour guard: prevent cancellation within 12 hours of start
+      if (isWithin12Hours(booking.starts_at)) {
+        return res.status(400).json({
+          errorMessage: "A foglalás kezdete előtt 12 órán belül nem lehetséges a lemondás.",
+        });
+      }
+
+      // Accept optional cancellation reason from request body
+      let cancelReason = "Cancelled by customer";
+      try {
+        const body = req.body ?? {};
+        if (typeof body.reason === "string" && body.reason.trim().length > 0) {
+          cancelReason = body.reason.trim().slice(0, 500);
+        }
+      } catch { /* ignore parse errors */ }
+
+      // Soft-delete: set status to cancelled
+      await pool.query(
+        `UPDATE reservation_bookings
+         SET status = 'cancelled',
+             cancelled_at = NOW(),
+             cancellation_reason = $3
+         WHERE reservation_id = $1
+           AND booking_token = $2`,
+        [Number(reservation.id), bookingToken, cancelReason],
+      );
+
+      // Send deletion notification email (fire-and-forget)
+      if (booking.email) {
+        notifySubmitter({
+          kind: "reservation_deleted",
+          projectId: reservation.project_id,
+          formName: booking.service_name || "Reservation",
+          data: null,
+          locale: booking.locale || "hu",
+          startsAt: booking.starts_at,
+          endsAt: booking.ends_at,
+          bookingId: booking.id,
+          serviceName: booking.service_name,
+          email: booking.email,
+          timezone: reservation.timezone || "UTC",
+        }).catch(() => {});
+      }
+
+      return res.json({ success: true });
+    } catch (err) {
+      console.error("[reservations/public/booking-delete]", err.code, err.message);
+      return res.status(500).json({ errorMessage: "Internal server error" });
+    }
+  },
+);
+
+// ===========================================================================
+// PATCH /api/public/reservations/:secret_token/bookings/by-token/:bookingToken/reschedule
+// Public booking reschedule — cancels the old booking and creates a new
+// one in the requested slot. Uses a transaction with advisory lock to
+// prevent races. Returns the new booking ID on success.
+// ===========================================================================
+router.patch(
+  "/:secret_token/bookings/by-token/:bookingToken/reschedule",
+  reservationBurstLimiter,
+  reservationSustainedLimiter,
+  async (req, res) => {
+    const { secret_token: secretToken, bookingToken } = req.params;
+    if (typeof secretToken !== "string" || secretToken.length !== 22) {
+      return res.status(400).json({ errorMessage: "Invalid secret token" });
+    }
+    if (typeof bookingToken !== "string" || bookingToken.length === 0) {
+      return res.status(400).json({ errorMessage: "Invalid booking token" });
+    }
+
+    const body = req.body ?? {};
+
+    let startsAtIso;
+    let endsAtIso;
+    try {
+      const startsAt = parseStrictIso(body.startsAt);
+      const endsAt = parseStrictIso(body.endsAt);
+      if (!startsAt || !endsAt) {
+        return res.status(400).json({ errorMessage: "startsAt and endsAt must be ISO 8601 UTC" });
+      }
+      if (endsAt.getTime() <= startsAt.getTime()) {
+        return res.status(400).json({ errorMessage: "endsAt must be after startsAt" });
+      }
+      startsAtIso = startsAt.toISOString();
+      endsAtIso = endsAt.toISOString();
+    } catch {
+      return res.status(400).json({ errorMessage: "startsAt and endsAt must be ISO 8601 UTC" });
+    }
+
+    const client = await pool.connect();
+    try {
+      const reservation = await loadReservationByToken(secretToken);
+      if (!reservation) {
+        return res.status(404).json({ errorMessage: "Reservation not found" });
+      }
+
+      // Load existing booking
+      const existingResult = await client.query(
+        `SELECT rb.*, rst.name AS service_name
+         FROM reservation_bookings rb
+         LEFT JOIN reservation_service_translations rst
+           ON rst.service_id = rb.service_id
+           AND rst.locale = (SELECT default_locale FROM reservations WHERE id = rb.reservation_id)
+         WHERE rb.reservation_id = $1
+           AND rb.booking_token = $2`,
+        [Number(reservation.id), bookingToken],
+      );
+
+      if (existingResult.rowCount === 0) {
+        return res.status(404).json({ errorMessage: "Booking not found" });
+      }
+
+      const existing = existingResult.rows[0];
+
+      if (existing.status === "cancelled") {
+        return res.status(410).json({ errorMessage: "Booking has been cancelled" });
+      }
+
+      // 12-hour guard: prevent reschedule within 12 hours of start
+      if (isWithin12Hours(existing.starts_at)) {
+        return res.status(400).json({
+          errorMessage: "A foglalás kezdete előtt 12 órán belül nem lehetséges a módosítás.",
+        });
+      }
+
+      // Cancel old booking
+      await client.query(
+        `UPDATE reservation_bookings
+         SET status = 'cancelled',
+             cancelled_at = NOW(),
+             cancellation_reason = 'Rescheduled by customer'
+         WHERE id = $1`,
+        [existing.id],
+      );
+
+      // Load service for capacity check
+      const svcResult = await client.query(
+        `SELECT id, status, duration_minutes, capacity, worker_user_id
+         FROM reservation_services
+         WHERE id = $1 AND reservation_id = $2`,
+        [existing.service_id, Number(reservation.id)],
+      );
+      if (svcResult.rowCount === 0 || svcResult.rows[0].status !== "active") {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ errorMessage: "Service is no longer available" });
+      }
+      const serviceRow = svcResult.rows[0];
+
+      // Check availability for new slot
+      const avail = await checkSlotAvailability(
+        Number(reservation.id),
+        existing.service_id,
+        startsAtIso,
+        endsAtIso,
+        client,
+      );
+      if (!avail.available) {
+        // Restore old booking before returning error
+        await client.query(
+          `UPDATE reservation_bookings
+           SET status = 'confirmed', cancelled_at = NULL, cancellation_reason = NULL
+           WHERE id = $1`,
+          [existing.id],
+        );
+        return res.status(409).json({ errorMessage: "Selected time slot is no longer available" });
+      }
+
+      // Count overlapping confirmed bookings (capacity check)
+      const overlapResult = await client.query(
+        `SELECT COUNT(*)::int AS cnt
+         FROM reservation_bookings
+         WHERE service_id = $1
+           AND status = 'confirmed'
+           AND id != $4
+           AND tstzrange(starts_at, ends_at, '[)') && tstzrange($2, $3, '[)')`,
+        [existing.service_id, startsAtIso, endsAtIso, existing.id],
+      );
+      const overlapCount = overlapResult.rows[0]?.cnt || 0;
+      if (overlapCount >= serviceRow.capacity) {
+        // Restore old booking
+        await client.query(
+          `UPDATE reservation_bookings
+           SET status = 'confirmed', cancelled_at = NULL, cancellation_reason = NULL
+           WHERE id = $1`,
+          [existing.id],
+        );
+        return res.status(409).json({ errorMessage: "Selected time slot is no longer available" });
+      }
+
+      // Create new booking (reuse createReservationBooking with the client)
+      const result = await createReservationBooking({
+        db: client,
+        reservation,
+        service: { ...serviceRow, name: existing.service_name, price_amount: existing.price_amount_snapshot, currency: existing.currency_snapshot },
+        startsAtIso,
+        endsAtIso,
+        contact: {
+          firstName: existing.first_name,
+          lastName: existing.last_name,
+          email: existing.email,
+          phone: existing.phone,
+          comment: existing.comment,
+        },
+        customerId: existing.customer_id,
+        customData: existing.data,
+        locale: existing.locale,
+        createdByUserId: null,
+        source: "public",
+        workerUserId: existing.worker_user_id,
+      });
+
+      if (result.error) {
+        // Restore old booking
+        await client.query(
+          `UPDATE reservation_bookings
+           SET status = 'confirmed', cancelled_at = NULL, cancellation_reason = NULL
+           WHERE id = $1`,
+          [existing.id],
+        );
+        return res.status(409).json({ errorMessage: result.error });
+      }
+
+      const newBooking = result.booking;
+
+      // Send cancellation email for old booking (fire-and-forget)
+      if (existing.email) {
+        notifySubmitter({
+          kind: "reservation_deleted",
+          projectId: reservation.project_id,
+          formName: existing.service_name || "Reservation",
+          data: null,
+          locale: existing.locale || "hu",
+          startsAt: existing.starts_at,
+          endsAt: existing.ends_at,
+          bookingId: existing.id,
+          serviceName: existing.service_name,
+          email: existing.email,
+          timezone: reservation.timezone || "UTC",
+        }).catch(() => {});
+      }
+
+      // Send confirmation email for new booking (fire-and-forget)
+      if (existing.email) {
+        notifySubmitter({
+          kind: "reservation",
+          projectId: reservation.project_id,
+          formName: existing.service_name || "Reservation",
+          data: null,
+          locale: existing.locale || "hu",
+          startsAt: newBooking.starts_at,
+          endsAt: newBooking.ends_at,
+          bookingId: Number(newBooking.id),
+          serviceName: existing.service_name,
+          email: existing.email,
+          bookingToken: newBooking.booking_token,
+          secretToken,
+        }).catch(() => {});
+      }
+
+      return res.status(200).json({
+        id: Number(newBooking.id),
+        bookingToken: newBooking.booking_token,
+        startsAt: newBooking.starts_at instanceof Date ? newBooking.starts_at.toISOString() : newBooking.starts_at,
+        endsAt: newBooking.ends_at instanceof Date ? newBooking.ends_at.toISOString() : newBooking.ends_at,
+        bookedAt: newBooking.booked_at instanceof Date ? newBooking.booked_at.toISOString() : newBooking.booked_at,
+      });
+    } catch (err) {
+      console.error("[reservations/public/booking-reschedule]", err.code, err.message);
+      return res.status(500).json({ errorMessage: "Internal server error" });
+    } finally {
+      client.release();
+    }
+  },
+);

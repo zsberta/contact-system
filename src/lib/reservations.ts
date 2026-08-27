@@ -758,3 +758,127 @@ export async function publicResolveReservationCustomerProfiles(
     },
   ).then((r) => r.json());
 }
+
+
+// ---------------------------------------------------------------------------
+// Public booking management — customer self-service via booking token.
+// ---------------------------------------------------------------------------
+
+export interface PublicBookingDetails {
+  id: number;
+  startsAt: string;
+  endsAt: string;
+  status: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  comment: string | null;
+  serviceId: number;
+  serviceName: string;
+  durationMinutes: number;
+  priceAmount: number;
+  currency: string;
+  locale: string;
+}
+
+/**
+ * GET /api/public/reservations/:secret_token/bookings/by-token/:bookingToken
+ * Fetch booking details for the customer self-service manage page.
+ */
+export async function publicGetBookingByToken(
+  secretToken: string,
+  bookingToken: string,
+): Promise<PublicBookingDetails> {
+  const res = await fetch(
+    `/api/public/reservations/${encodeURIComponent(secretToken)}/bookings/by-token/${encodeURIComponent(bookingToken)}`,
+    { method: "GET", credentials: "omit" },
+  );
+  if (!res.ok) {
+    let msg = "Booking not found";
+    try {
+      const errBody = await res.json();
+      if (errBody && typeof errBody === "object" && errBody.errorMessage) {
+        msg = errBody.errorMessage;
+      }
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+/**
+ * DELETE /api/public/reservations/:secret_token/bookings/by-token/:bookingToken
+ * Cancel a booking via the customer self-service endpoint.
+ */
+export async function publicCancelBookingByToken(
+  secretToken: string,
+  bookingToken: string,
+  reason?: string,
+): Promise<{ success: true }> {
+  const res = await fetch(
+    `/api/public/reservations/${encodeURIComponent(secretToken)}/bookings/by-token/${encodeURIComponent(bookingToken)}`,
+    {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      credentials: "omit",
+      body: reason ? JSON.stringify({ reason }) : undefined,
+    },
+  );
+  if (!res.ok) {
+    let msg = "Cancellation failed";
+    try {
+      const errBody = await res.json();
+      if (errBody && typeof errBody === "object" && errBody.errorMessage) {
+        msg = errBody.errorMessage;
+      }
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+export interface RescheduleRequest {
+  startsAt: string;
+  endsAt: string;
+}
+
+export interface RescheduleResponse {
+  id: number;
+  bookingToken: string;
+  startsAt: string;
+  endsAt: string;
+  bookedAt: string;
+}
+
+/**
+ * PATCH /api/public/reservations/:secret_token/bookings/by-token/:bookingToken/reschedule
+ * Reschedule a booking: cancels the old one and creates a new one in the
+ * requested slot. Returns the new booking details on success.
+ */
+export async function publicRescheduleBookingByToken(
+  secretToken: string,
+  bookingToken: string,
+  body: RescheduleRequest,
+): Promise<RescheduleResponse> {
+  const res = await fetch(
+    `/api/public/reservations/${encodeURIComponent(secretToken)}/bookings/by-token/${encodeURIComponent(bookingToken)}/reschedule`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "omit",
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    let msg = "Reschedule failed";
+    try {
+      const errBody = await res.json();
+      if (errBody && typeof errBody === "object" && errBody.errorMessage) {
+        msg = errBody.errorMessage;
+      }
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  return res.json();
+}

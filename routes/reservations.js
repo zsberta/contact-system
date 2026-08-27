@@ -282,7 +282,7 @@ function dayRangeForUtcDate(dateStr, tz) {
 
   const startLocal = buildUtcDateFromLocalParts(year, month, day, 0, 0);
   const startOffset = getUtcOffsetMinutes(startLocal, tz);
-  const startUtc = new Date(startLocal.getTime() - startOffset * 60000);
+  const startUtc = new Date(startLocal.getTime() + startOffset * 60000);
   const endUtc = new Date(startUtc.getTime() + 24 * 60 * 60 * 1000);
   return { startUtc, endUtc };
 }
@@ -498,15 +498,15 @@ function generateServiceSlotsForDate({ service, schedules, timezone, dateStr, di
   return slots;
 }
 
-async function loadBookingsForDate(reservationId, dateStr, db = pool) {
-  const { startUtc, endUtc } = dayRangeForUtcDate(dateStr, "UTC");
+async function loadBookingsForDate(reservationId, dateStr, tz = "UTC", db = pool) {
+  const { startUtc, endUtc } = dayRangeForUtcDate(dateStr, tz);
   const result = await db.query(
     `SELECT b.id, b.reservation_id, b.starts_at, b.ends_at, b.booked_at, b.data, b.locale,
             b.service_id, b.first_name, b.last_name, b.email, b.phone, b.comment,
             b.customer_id, b.created_by_user_id, b.worker_user_id,
             b.service_name_snapshot, b.duration_minutes_snapshot,
             b.price_amount_snapshot, b.currency_snapshot, b.timezone,
-            b.status, b.source,
+            b.status, b.source, b.cancellation_reason,
             COALESCE(
               rst_default.name,
               rst_fallback.name,
@@ -535,7 +535,10 @@ async function loadBookingsForDate(reservationId, dateStr, db = pool) {
 }
 
 function aggregateActiveBookings(bookings) {
-  return bookings.filter((booking) => booking.status !== "cancelled");
+  // Include all bookings for display, but the caller uses this list
+  // for both display and capacity counting. Cancelled bookings show
+  // in the UI but don't consume seats.
+  return bookings;
 }
 
 async function getCalendarMonthSlots({ reservationId, monthKey, db = pool }) {
@@ -631,7 +634,7 @@ async function getCalendarDayDetails({ reservationId, dateStr, db = pool }) {
   if (!reservationMeta) return null;
 
   const services = await loadActiveReservationServices(reservationId, db);
-  const bookings = await loadBookingsForDate(reservationId, dateStr, db);
+  const bookings = await loadBookingsForDate(reservationId, dateStr, reservationMeta.timezone || "UTC", db);
   const activeBookings = aggregateActiveBookings(bookings);
   const bookingsByService = Object.create(null);
   for (const booking of activeBookings) {
@@ -684,6 +687,7 @@ async function getCalendarDayDetails({ reservationId, dateStr, db = pool }) {
             phone: row.phone || null,
           },
           status: row.status,
+          cancellationReason: row.cancellation_reason || null,
         })),
       });
     }
@@ -706,6 +710,7 @@ function bookingsForRange(bookings, startIso, endIso) {
   const startMs = new Date(startIso).getTime();
   const endMs = new Date(endIso).getTime();
   return bookings.filter((booking) => {
+    if (booking.status === "cancelled") return false;
     const bookingStartMs = new Date(booking.starts_at).getTime();
     const bookingEndMs = new Date(booking.ends_at).getTime();
     return startMs < bookingEndMs && bookingStartMs < endMs;
@@ -2949,6 +2954,7 @@ router.delete("/:id/bookings/:bookingId", async (req, res, next) => {
         bookingId: snapshot.id,
         serviceName: snapshot.service_name,
         email: snapshot.customer_email,
+        timezone: snapshot.timezone || "UTC",
       }).catch(() => {});
     }
 
@@ -2981,7 +2987,7 @@ router.post("/:id/bookings", async (req, res, next) => {
 
     const reservationResult = await pool.query(
       `SELECT id, project_id, status, granularity, slot_duration_minutes,
-              extra_fields_enabled, default_locale, timezone
+              extra_fields_enabled, default_locale, timezone, secret_token
        FROM reservations WHERE id = $1`,
       [reservationId],
     );
@@ -3100,6 +3106,9 @@ router.post("/:id/bookings", async (req, res, next) => {
       email: contactResult.value.email,
       replyTo: workerEmail || undefined,
       signerName: workerName || undefined,
+      bookingToken: result.booking.booking_token,
+      secretToken: reservation.secret_token,
+      timezone: reservation.timezone || "UTC",
     }).catch(() => {});
 
     // Worker notification — Nexus branding, customer details, no reply hint, no sign-off

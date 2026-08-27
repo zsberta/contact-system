@@ -2,14 +2,12 @@
   "reservation_management": "Reservations",
   "reservation": "reservation",
   "reservations": "reservations",
-
   "create_reservation": "Create reservation",
   "create_reservation_description": "Add a new embeddable reservation form tied to a project",
   "edit_reservation": "Edit reservation",
   "reservation_details": "Reservation details",
   "reservation_not_found": "Reservation not found",
   "back_to_reservations": "Back to reservations",
-
   "name": "Name",
   "name_placeholder": "Customer-facing reservation name",
   "slug": "Slug",
@@ -23,12 +21,10 @@
   "secret_token_help": "Server-generated credential used in the public endpoint URL. Shown only once — cannot be changed after creation.",
   "secret_token_immutable_tooltip": "Cannot be changed after creation",
   "secret_token_copied": "Secret token copied to clipboard",
-
   "project": "Project",
   "project_required": "Please select a project",
   "project_immutable_tooltip": "Cannot be changed after creation",
   "select_project_placeholder": "Select a project…",
-
   "status": "Status",
   "status_placeholder": "Select status",
   "status_active": "Active",
@@ -39,7 +35,6 @@
   "disable_confirm_description": "\"{{name}}\" will stop accepting new bookings until re-enabled.",
   "enable_confirm_title": "Enable reservation?",
   "enable_confirm_description": "\"{{name}}\" will start accepting bookings again.",
-
   "allowed_origins_label": "Allowed origins",
   "allowed_origins_help": "Restrict submissions to specific host sites (e.g. https://example.com). Leave empty to accept bookings from any site.",
   "allowed_origins_placeholder": "https://example.com or *.example.com",
@@ -51,7 +46,6 @@
   "allowed_origins": "Allowed origins",
   "allowed_origins_snippet_warning_title": "Restricted embed",
   "allowed_origins_snippet_warning_body": "This reservation is restricted to {{count}} allowed origin(s). Bookings from any other origin will be rejected.",
-
   "snippet_title": "Embed snippet",
   "snippet_description": "Paste this code into your customer's website to display the booking widget.",
   "snippet_origin_label": "Origin",
@@ -60,10 +54,8 @@
   "snippet_help": "The snippet is an iframe that displays the booking widget. Width and height can be customized.",
   "copy_snippet": "Copy",
   "copy": "Copy",
-
   "details_tab": "Details",
   "bookings_tab": "Bookings",
-
   "bookings_section": "Bookings",
   "no_bookings_yet": "No bookings yet.",
   "booking_starts_at": "Starts at",
@@ -83,11 +75,9 @@
   "submission_referer": "Referer",
   "submission_locale": "Locale",
   "submission_view_json": "View details",
-
   "max_length": "Maximum length exceeded",
   "required_field": "This field is required",
   "slot_duration_invalid": "Slot duration must be a positive whole number of minutes",
-
   "day": "Day",
   "granularity": "Granularity",
   "hour": "Hour",
@@ -108,16 +98,12 @@
   "max_advance_days_help": "How far into the future customers can book (1–365 days).",
   "extra_fields_enabled": "Extra fields",
   "extra_fields_enabled_help": "Capture additional form fields (name, email, phone, etc.) on top of the time slot.",
-
   "project_section_reservations_title": "Reservations",
   "project_section_reservations_empty": "No reservations yet. Create one to start collecting bookings.",
   "project_section_create_reservation": "Create reservation",
-
   "slot_overlap_error": "This slot is no longer available. Please pick a different time.",
-
   "confirm_delete_title": "Delete reservation?",
   "confirm_delete_description": "Are you sure you want to delete \\\"{{name}}\\\"? All bookings will also be deleted. This cannot be undone.",
-
   "calendar_hide_empty": "Hide empty slots",
   "calendar_all_workers": "All workers",
   "seats_remaining": "seats",
@@ -140,7 +126,6 @@
   "calendar_month_next": "Next month",
   "calendar_today": "Today",
   "calendar_time_placeholder": "e.g. 09:00",
-
   "blocked_tab": "Blocked",
   "disabled_ranges_section": "Blocked date/time ranges",
   "disabled_range_add": "Add blocked range",
@@ -193,7 +178,6 @@
   "holidays_active_count": "active",
   "manual_ranges_section": "📝 Manual blocks",
   "select_reservation": "Select a reservation…",
-
   "import_tab": "Import",
   "import_title": "Import bookings from JSON",
   "import_description": "Paste a JSON array of bookings to migrate from another system. Each item must include ISO 8601 UTC startsAt and endsAt. After clicking Verify the server runs the exact same checks a real save would, including availability schedules and per-item extra-field rules. The preview shows the first 100 valid items. No emails will be sent.",
@@ -238,7 +222,6 @@
   "import_error_end_before_start": "endsAt must be after startsAt",
   "import_error_not_object": "item must be an object",
   "import_error_data_must_be_object": "`data` must be a plain object",
-
   "schedules_tab": "Schedule",
   "schedule_add": "Add time slot",
   "schedule_frequency": "Frequency",
@@ -337,11 +320,11 @@
   "booking_status_cancelled": "Cancelled",
   "booking_status_completed": "Completed",
   "booking_status_no_show": "No-show",
-
   "booking_delete": "Delete booking",
   "booking_delete_title": "Delete this booking?",
   "booking_delete_description": "This action cannot be undone. The customer will receive an email that the booking was deleted.",
   "booking_deleting": "Deleting booking…",
   "booking_deleted": "Booking deleted",
-  "booking_delete_failed": "The booking could not be deleted."
+  "booking_delete_failed": "The booking could not be deleted.",
+  "cancellation_reason": "Reason for cancellation"
 }

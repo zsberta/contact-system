@@ -184,6 +184,8 @@ export interface ReservationBookingAck {
   startsAt: string;
   endsAt: string;
   bookedAt: string;
+  /** Opaque token for customer self-service manage/delete/modify. */
+  bookingToken?: string;
   /** Present when the visitor opted in with "remember me" and the association succeeded. */
   customerProfile?: ReservationCustomerProfileDTO;
 }
@@ -613,6 +615,7 @@ export interface CalendarBookingSummary {
   id: number;
   customer: CalendarBookingCustomer;
   status: ReservationBookingStatus;
+  cancellationReason: string | null;
 }
 
 export interface CalendarSessionSummary {
