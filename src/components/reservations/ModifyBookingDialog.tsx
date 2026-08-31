@@ -43,6 +43,7 @@ function fmtTime(locale: string, iso: string) {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
+    timeZone: BUDAPEST_TZ,
   });
 }
 
@@ -81,18 +82,11 @@ export function ModifyBookingDialog({
   // Month query key
   const monthQueryKey = `${String(pickerYear).padStart(4, "0")}-${String(pickerMonth + 1).padStart(2, "0")}`;
 
-  // Fetch availability for the month window (±7 days for padding)
-  const windowStart = useMemo(() => {
-    const d = new Date(Date.UTC(pickerYear, pickerMonth, 1));
-    d.setUTCDate(d.getUTCDate() - 7);
-    return ymd(d);
-  }, [pickerYear, pickerMonth]);
-
-  const windowEnd = useMemo(() => {
-    const d = new Date(Date.UTC(pickerYear, pickerMonth + 1, 0));
-    d.setUTCDate(d.getUTCDate() + 7);
-    return ymd(d);
-  }, [pickerYear, pickerMonth]);
+  // Month window — must stay within the availability endpoint's 31-day cap.
+  // The old ±7-day padding made the span ~44 days, so the endpoint 404'd
+  // and every day in the picker rendered disabled.
+  const windowStart = ymd(new Date(Date.UTC(pickerYear, pickerMonth, 1)));
+  const windowEnd = ymd(new Date(Date.UTC(pickerYear, pickerMonth + 1, 0)));
 
   const availabilityQuery = useQuery({
     queryKey: ["modify-slots", reservationId, service.serviceId, windowStart, windowEnd],

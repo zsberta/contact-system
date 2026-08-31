@@ -232,8 +232,15 @@ function formatDateKey(date) {
   return `${String(date.getUTCFullYear()).padStart(4, "0")}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
 }
 
-function formatTimeFromIso(iso) {
-  return typeof iso === "string" ? iso.slice(11, 16) : iso;
+function formatTimeFromIso(iso, timezone) {
+  if (typeof iso !== "string") return iso;
+  // Day-details sessions must display in the reservation's timezone — the
+  // month grid generates Budapest-labelled slots, so a raw UTC slice here
+  // made the day modal disagree with the calendar (e.g. 00:00 Budapest
+  // slots stored as 22:00Z showed as "22:00" in the modal).
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(11, 16);
+  return formatTimeInTz(d, timezone || "UTC");
 }
 
 function calendarDayOfWeek(date) {
@@ -283,7 +290,13 @@ function dayRangeForUtcDate(dateStr, tz) {
   const startLocal = buildUtcDateFromLocalParts(year, month, day, 0, 0);
   const startOffset = getUtcOffsetMinutes(startLocal, tz);
   const startUtc = new Date(startLocal.getTime() + startOffset * 60000);
-  const endUtc = new Date(startUtc.getTime() + 24 * 60 * 60 * 1000);
+
+  // End = 00:00 local on the NEXT day. Computing it from the next day's
+  // local midnight keeps 23/25-hour DST transition days correct; adding
+  // a fixed 24h to startUtc clipped the last hour on fall-back days.
+  const nextLocal = buildUtcDateFromLocalParts(year, month, day + 1, 0, 0);
+  const nextOffset = getUtcOffsetMinutes(nextLocal, tz);
+  const endUtc = new Date(nextLocal.getTime() + nextOffset * 60000);
   return { startUtc, endUtc };
 }
 
@@ -299,24 +312,37 @@ function getUtcOffsetMinutes(utcReferenceDate, timezone) {
     hour12: false,
   });
 
-  const parts = formatter.formatToParts(utcReferenceDate);
-  const map = Object.create(null);
-  for (const part of parts) {
-    if (part.type !== "literal") {
-      map[part.type] = parseInt(part.value, 10);
+  const localMs = (instantMs) => {
+    const parts = formatter.formatToParts(new Date(instantMs));
+    const map = Object.create(null);
+    for (const part of parts) {
+      if (part.type !== "literal") {
+        map[part.type] = parseInt(part.value, 10);
+      }
     }
+    return Date.UTC(
+      map.year,
+      map.month - 1,
+      map.day,
+      map.hour === 24 ? 0 : map.hour,
+      map.minute,
+      map.second || 0,
+    );
+  };
+
+  const targetMs = utcReferenceDate.getTime();
+  let offsetMin = (targetMs - localMs(targetMs)) / 60000;
+
+  // Round-trip verification: the chosen instant must display back as the
+  // requested local wall time. Keeps DST-ambiguous slot labels honest
+  // (see lib/reservation-availability.js getUtcOffsetMinutes).
+  for (let i = 0; i < 2; i++) {
+    const candidateMs = targetMs + offsetMin * 60000;
+    const deltaMs = localMs(candidateMs) - targetMs;
+    if (deltaMs === 0) break;
+    offsetMin -= deltaMs / 60000;
   }
-
-  const tzAsUtc = Date.UTC(
-    map.year,
-    map.month - 1,
-    map.day,
-    map.hour === 24 ? 0 : map.hour,
-    map.minute,
-    map.second || 0,
-  );
-
-  return (utcReferenceDate.getTime() - tzAsUtc) / 60000;
+  return offsetMin;
 }
 
 async function loadReservationTimezone(reservationId, db = pool) {
@@ -431,6 +457,16 @@ function overlapsDisabledRange(startUtc, endUtc, disabledRanges) {
   });
 }
 
+// Format an instant as HH:MM wall-clock in a timezone.
+function formatTimeInTz(date, timezone) {
+  return date.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: timezone,
+  });
+}
+
 function generateServiceSlotsForDate({ service, schedules, timezone, dateStr, disabledRanges, enabledHolidays, bookingsForDate }) {
   const date = new Date(`${dateStr}T00:00:00Z`);
   const windows = collectScheduleWindows(schedules, date);
@@ -445,6 +481,7 @@ function generateServiceSlotsForDate({ service, schedules, timezone, dateStr, di
   if (isHolidayBlocked) return []; // entire day blocked
 
   for (const window of windows) {
+
     const windowStartMin = parseTimeToMinutes(window.start_time);
     const windowEndMin = parseTimeToMinutes(window.end_time);
     const interval = Number(service.slot_duration_minutes || durationMin || 60);
@@ -460,6 +497,11 @@ function generateServiceSlotsForDate({ service, schedules, timezone, dateStr, di
       const slotStartOffset = getUtcOffsetMinutes(slotStartLocal, timezone);
       const startUtc = new Date(slotStartLocal.getTime() + slotStartOffset * 60000);
       const endUtc = new Date(startUtc.getTime() + durationMin * 60000);
+      // Skip phantom slots — local wall times that don't exist due to
+      // spring-forward DST: the resolved instant displays as a different
+      // wall time than the label, so the slot would be misleading.
+      const startLabel = `${String(cursorHour).padStart(2, "0")}:${String(cursorMinute).padStart(2, "0")}`;
+      if (formatTimeInTz(startUtc, timezone) !== startLabel) continue;
 
       const now = new Date();
       const leadTimeMs = Number(service.lead_time_minutes || 0) * 60000;
@@ -671,8 +713,8 @@ async function getCalendarDayDetails({ reservationId, dateStr, db = pool }) {
       sessions.push({
         workerFirstName: booking.worker_first_name || service.worker_first_name || null,
         workerLastName: booking.worker_last_name || service.worker_last_name || null,
-        startTime: formatTimeFromIso(startIso),
-        endTime: formatTimeFromIso(endIso),
+        startTime: formatTimeFromIso(startIso, reservationMeta.timezone),
+        endTime: formatTimeFromIso(endIso, reservationMeta.timezone),
         startsAt: startIso,
         endsAt: endIso,
         seatsTaken: Math.min(capacity, overlapCount),
@@ -3003,7 +3045,8 @@ router.post("/:id/bookings", async (req, res, next) => {
     let serviceRow;
     if (serviceId && Number.isFinite(serviceId)) {
       const svcResult = await pool.query(
-        `SELECT rs.id, rst.name, rs.duration_minutes, rs.price_amount, rs.currency, rs.capacity, rs.worker_user_id, rs.status
+        `SELECT rs.id, rst.name, rs.duration_minutes, rs.price_amount, rs.currency, rs.capacity, rs.worker_user_id, rs.status,
+                rs.granularity, rs.slot_duration_minutes
          FROM reservation_services rs
          LEFT JOIN reservation_service_translations rst ON rst.service_id = rs.id AND rst.locale = 'hu'
          WHERE rs.id = $1 AND rs.reservation_id = $2`,
@@ -3015,7 +3058,8 @@ router.post("/:id/bookings", async (req, res, next) => {
       serviceRow = svcResult.rows[0];
     } else {
       const defaultSvc = await pool.query(
-        `SELECT rs.id, rst.name, rs.duration_minutes, rs.price_amount, rs.currency, rs.capacity, rs.worker_user_id, rs.status
+        `SELECT rs.id, rst.name, rs.duration_minutes, rs.price_amount, rs.currency, rs.capacity, rs.worker_user_id, rs.status,
+                rs.granularity, rs.slot_duration_minutes
          FROM reservation_services rs
          LEFT JOIN reservation_service_translations rst ON rst.service_id = rs.id AND rst.locale = 'hu'
          WHERE rs.reservation_id = $1 AND rs.status = 'active' ORDER BY rs.sort_order, rs.id LIMIT 1`,
@@ -3069,7 +3113,7 @@ router.post("/:id/bookings", async (req, res, next) => {
     });
 
     if (result.error) {
-      return res.status(result.code === "SLOT_FULL" ? 409 : 400).json({ errorMessage: result.error });
+      return res.status(result.code === "SLOT_FULL" || result.code === "DUPLICATE_BOOKING" ? 409 : 400).json({ errorMessage: result.error });
     }
 
     // Fire-and-forget notifications

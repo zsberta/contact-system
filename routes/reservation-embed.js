@@ -624,7 +624,7 @@ router.post(
         endsAtIso,
         contact: contactResult.value,
         customerId: null,
-        customData: body.fields || dataJson ? JSON.parse(dataJson || "{}") : null,
+        customData: body.fields ? { ...(dataJson ? JSON.parse(dataJson || "{}") : {}), ...body.fields } : (dataJson ? JSON.parse(dataJson || "{}") : null),
         locale: locale || reservation.default_locale || "hu",
         createdByUserId: null,
         source: "public",
@@ -1220,6 +1220,67 @@ router.patch(
         });
       }
 
+      // Load service for window/alignment/capacity checks. Runs BEFORE the
+      // old booking is cancelled so invalid requests never mutate state.
+      const svcResult = await client.query(
+        `SELECT id, status, duration_minutes, capacity, worker_user_id,
+                granularity, slot_duration_minutes, lead_time_minutes, max_advance_days
+         FROM reservation_services
+         WHERE id = $1 AND reservation_id = $2`,
+        [existing.service_id, Number(reservation.id)],
+      );
+      if (svcResult.rowCount === 0 || svcResult.rows[0].status !== "active") {
+        return res.status(400).json({ errorMessage: "Service is no longer available" });
+      }
+      const serviceRow = svcResult.rows[0];
+
+      // Window enforcement: lead time + max advance (per-service config).
+      // Without this a customer could reschedule into the past or beyond
+      // the booking horizon via a crafted request.
+      const nowMs = Date.now();
+      const startsMs = new Date(startsAtIso).getTime();
+      const leadMs = (serviceRow.lead_time_minutes || 0) * 60 * 1000;
+      if (startsMs - nowMs < leadMs) {
+        return res.status(400).json({
+          errorMessage: `Booking must start at least ${serviceRow.lead_time_minutes || 0} minute(s) from now`,
+        });
+      }
+      const maxAdvanceMs = (serviceRow.max_advance_days || 90) * 24 * 60 * 60 * 1000;
+      if (startsMs - nowMs > maxAdvanceMs) {
+        return res.status(400).json({
+          errorMessage: `Booking cannot start more than ${serviceRow.max_advance_days || 90} day(s) from now`,
+        });
+      }
+
+      // Slot alignment — same rule as POST /bookings.
+      if (
+        serviceRow.slot_duration_minutes !== null &&
+        serviceRow.slot_duration_minutes !== undefined &&
+        serviceRow.granularity !== "day"
+      ) {
+        const slot = serviceRow.slot_duration_minutes;
+        const startDate = new Date(startsAtIso);
+        const startDayAnchor = Date.UTC(
+          startDate.getUTCFullYear(),
+          startDate.getUTCMonth(),
+          startDate.getUTCDate(),
+          0, 0, 0, 0,
+        );
+        const offsetMin = Math.round((startsMs - startDayAnchor) / 60000);
+        if (offsetMin < 0 || (offsetMin % slot) !== 0) {
+          return res.status(400).json({
+            errorMessage: `startsAt must align to ${slot}-minute slot boundary`,
+          });
+        }
+        const endDate = new Date(endsAtIso);
+        const endOffsetMin = Math.round((endDate.getTime() - startDayAnchor) / 60000);
+        if (endOffsetMin <= 0 || (endOffsetMin % slot) !== 0) {
+          return res.status(400).json({
+            errorMessage: `endsAt must align to ${slot}-minute slot boundary`,
+          });
+        }
+      }
+
       // Cancel old booking
       await client.query(
         `UPDATE reservation_bookings
@@ -1229,19 +1290,6 @@ router.patch(
          WHERE id = $1`,
         [existing.id],
       );
-
-      // Load service for capacity check
-      const svcResult = await client.query(
-        `SELECT id, status, duration_minutes, capacity, worker_user_id
-         FROM reservation_services
-         WHERE id = $1 AND reservation_id = $2`,
-        [existing.service_id, Number(reservation.id)],
-      );
-      if (svcResult.rowCount === 0 || svcResult.rows[0].status !== "active") {
-        await client.query("ROLLBACK");
-        return res.status(400).json({ errorMessage: "Service is no longer available" });
-      }
-      const serviceRow = svcResult.rows[0];
 
       // Check availability for new slot
       const avail = await checkSlotAvailability(
