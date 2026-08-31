@@ -117,8 +117,8 @@ function parseStrictInt(raw, { min, max } = {}) {
 }
 
 // Strict ISO 8601 parse — imported from lib/booking-validation.js
-// (shared with routes/reservation-embed.js so dry-run + create + public
-// all use identical parsing rules).
+// (shared with routes/reservation-embed.js so admin create + public
+// submission use identical parsing rules).
 
 // Snake_case DB row → camelCase API DTO. `allowed_origins` is a TEXT[] 
 // so pg may return either an array or a JSON string — handle both.
@@ -458,7 +458,7 @@ function generateServiceSlotsForDate({ service, schedules, timezone, dateStr, di
 
       const slotStartLocal = buildUtcDateFromLocalParts(yearRaw, monthRaw - 1, dayRaw, cursorHour, cursorMinute);
       const slotStartOffset = getUtcOffsetMinutes(slotStartLocal, timezone);
-      const startUtc = new Date(slotStartLocal.getTime() - slotStartOffset * 60000);
+      const startUtc = new Date(slotStartLocal.getTime() + slotStartOffset * 60000);
       const endUtc = new Date(startUtc.getTime() + durationMin * 60000);
 
       const now = new Date();
@@ -485,8 +485,8 @@ function generateServiceSlotsForDate({ service, schedules, timezone, dateStr, di
         workerUserId: service.worker_user_id != null ? Number(service.worker_user_id) : null,
         workerFirstName: service.worker_first_name || null,
         workerInitial: (service.worker_first_name || "").trim().charAt(0) || null,
-        startTime: formatTimeFromIso(startIso),
-        endTime: formatTimeFromIso(endIso),
+        startTime: `${String(cursorHour).padStart(2, "0")}:${String(cursorMinute).padStart(2, "0")}`,
+        endTime: `${String(endHour).padStart(2, "0")}:${String(endMinute).padStart(2, "0")}`,
         startsAt: startIso,
         endsAt: endIso,
         seatsTaken,
@@ -561,8 +561,8 @@ async function getCalendarMonthSlots({ reservationId, monthKey, db = pool }) {
     loadReservationSchedules(reservationId, db),
     loadDisabledRanges(
       reservationId,
-      startOfMonthUtc(year, month),
-      startOfNextMonthUtc(year, month),
+      new Date(startOfMonthUtc(year, month).getTime() - 24 * 60 * 60 * 1000),
+      new Date(startOfNextMonthUtc(year, month).getTime() + 24 * 60 * 60 * 1000),
       db,
     ),
     loadServiceHolidayRules(reservationId, db),
@@ -575,17 +575,16 @@ async function getCalendarMonthSlots({ reservationId, monthKey, db = pool }) {
      FROM reservation_bookings b
      WHERE b.reservation_id = $1
        AND b.status = 'confirmed'
-       AND b.starts_at >= $2::timestamptz
-       AND b.starts_at < $3::timestamptz`,
+       AND b.starts_at >= $2::timestamptz - interval '1 day'
+       AND b.ends_at < $3::timestamptz + interval '1 day'`,
     [reservationId, startDate.toISOString(), endDate.toISOString()],
   );
 
-  const bookingsByDateAndService = Object.create(null);
+  const bookingsByService = Object.create(null);
   for (const booking of bookingsResult.rows) {
-    const bookingDate = new Date(booking.starts_at).toISOString().slice(0, 10);
-    const key = `${bookingDate}:${booking.service_id}`;
-    if (!bookingsByDateAndService[key]) bookingsByDateAndService[key] = [];
-    bookingsByDateAndService[key].push(booking);
+    const key = Number(booking.service_id);
+    if (!bookingsByService[key]) bookingsByService[key] = [];
+    bookingsByService[key].push(booking);
   }
 
   const slots = [];
@@ -595,7 +594,7 @@ async function getCalendarMonthSlots({ reservationId, monthKey, db = pool }) {
     const dateStr = `${String(year).padStart(4, "0")}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 
     for (const service of services) {
-      const serviceBookings = bookingsByDateAndService[`${dateStr}:${service.id}`] || [];
+      const serviceBookings = bookingsByService[Number(service.id)] || [];
       const serviceRanges = filterManualRangesForService(disabledRanges, service.id);
       const serviceHolidayKeys = holidayRules[service.id] || new Set();
       const generatedSlots = generateServiceSlotsForDate({
@@ -695,9 +694,8 @@ async function getCalendarDayDetails({ reservationId, dateStr, db = pool }) {
     sessions.sort((a, b) => (a.startsAt || "").localeCompare(b.startsAt || ""));
 
     serviceGroups.push({
-      serviceId: service.id,
       serviceName: service.service_name,
-      price: Number(service.price_amount || 0),
+      serviceId: Number(service.id),
       sessions,
     });
   }
@@ -1806,8 +1804,8 @@ function rowToServiceDTO(row) {
     ? `/api/public/reservations/assets/${row.image_stored_filename}`
     : null;
   return {
-    id: row.id,
-    reservationId: row.reservation_id,
+    id: Number(row.id),
+    reservationId: Number(row.reservation_id),
     status: row.status,
     sortOrder: row.sort_order,
     durationMinutes: row.duration_minutes,
@@ -1818,7 +1816,7 @@ function rowToServiceDTO(row) {
     slotDurationMinutes: row.slot_duration_minutes ?? null,
     leadTimeMinutes: row.lead_time_minutes ?? 60,
     maxAdvanceDays: row.max_advance_days ?? 90,
-    workerUserId: row.worker_user_id,
+    workerUserId: row.worker_user_id != null ? Number(row.worker_user_id) : null,
     workerFirstName: row.worker_first_name || null,
     workerLastName: row.worker_last_name || null,
     name: row.name || null,
@@ -2973,9 +2971,8 @@ router.delete("/:id/bookings/:bookingId", async (req, res, next) => {
 // + disabled ranges, overlap (via DB EXCLUDE), and (when present) the
 // bounded `data` bag.
 //
-// The full validation lives in lib/booking-validation.js so the dry-run
-// endpoint (below) can run the EXACT same checks against a list of items
-// without inserting anything.
+// The full validation lives in lib/booking-validation.js, shared with the
+// public embed submission path.
 // ---------------------------------------------------------------------------
 router.post("/:id/bookings", async (req, res, next) => {
   try {
@@ -3054,8 +3051,7 @@ router.post("/:id/bookings", async (req, res, next) => {
     });
     if (!v.ok) return res.status(400).json({ errorMessage: v.error });
 
-    const source = typeof body._source === "string" && body._source === "import"
-      ? "import" : (isEnduser(req) ? "portal" : "admin");
+    const source = isEnduser(req) ? "portal" : "admin";
 
     // Create booking via transaction with capacity enforcement
     const result = await createReservationBooking({
@@ -3133,136 +3129,6 @@ router.post("/:id/bookings", async (req, res, next) => {
       return res.status(409).json({ errorMessage: "Slot already booked" });
     }
     console.error("[reservations/bookings/admin-create]", err.code, err.message);
-    next(err);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// POST /api/reservations/:id/bookings/dry-run — bulk-validate an import list
-// without inserting any row.
-//
-// Body: { items: [ { startsAt, endsAt, data? }, ... ] }
-//
-// Returns: { results: [ { index, ok, error?, startsAt, endsAt }, ... ] }
-//          duplicate: an optional { startsAt, endsAt } field when `ok`, so
-//          the FE preview table has aligned columns.
-//
-// Use case: the reservation-bookings import UI calls this for "Verify".
-// Per-item result rows map 1:1 to the input array. The FE uses `ok: false`
-// rows to populate the error panel and `ok: true` rows as the canonical
-// "what will be created" preview — so what you see in Verify IS what Save
-// will do.
-// ---------------------------------------------------------------------------
-router.post("/:id/bookings/dry-run", async (req, res, next) => {
-  try {
-
-    const reservationId = parseInt(req.params.id, 10);
-    if (!Number.isFinite(reservationId) || reservationId <= 0) {
-      return res.status(400).json({ errorMessage: "Invalid reservation id" });
-    }
-
-    const reservationResult = await pool.query(
-      `SELECT id, status, granularity, slot_duration_minutes,
-              extra_fields_enabled
-       FROM reservations WHERE id = $1`,
-      [reservationId],
-    );
-    if (reservationResult.rowCount === 0) {
-      return res.status(404).json({ errorMessage: "Reservation not found" });
-    }
-    const reservation = reservationResult.rows[0];
-    if (reservation.status !== "active") {
-      return res.status(400).json({ errorMessage: "Reservation is not active" });
-    }
-
-    const body = req.body ?? {};
-    const items = Array.isArray(body.items) ? body.items : null;
-    if (!items) {
-      return res
-        .status(400)
-        .json({ errorMessage: "items must be an array of booking candidates" });
-    }
-    if (items.length > 500) {
-      return res
-        .status(400)
-        .json({ errorMessage: "items must contain at most 500 entries per request" });
-    }
-
-    // Resolve service for availability checks (body.serviceId or default)
-    let dryRunService = null;
-    const dryRunServiceId = parseInt(body.serviceId, 10);
-    if (dryRunServiceId && Number.isFinite(dryRunServiceId)) {
-      const svcResult = await pool.query(
-        `SELECT rs.id, rst.name, rs.duration_minutes, rs.price_amount, rs.currency, rs.capacity, rs.worker_user_id, rs.status
-         FROM reservation_services rs
-         LEFT JOIN reservation_service_translations rst ON rst.service_id = rs.id AND rst.locale = 'hu'
-         WHERE rs.id = $1 AND rs.reservation_id = $2`,
-        [dryRunServiceId, reservationId],
-      );
-      if (svcResult.rowCount > 0 && svcResult.rows[0].status === "active") {
-        dryRunService = svcResult.rows[0];
-      }
-    }
-    if (!dryRunService) {
-      const defaultSvc = await pool.query(
-        `SELECT rs.id, rst.name, rs.duration_minutes, rs.price_amount, rs.currency, rs.capacity, rs.worker_user_id, rs.status
-         FROM reservation_services rs
-         LEFT JOIN reservation_service_translations rst ON rst.service_id = rs.id AND rst.locale = 'hu'
-         WHERE rs.reservation_id = $1 AND rs.status = 'active' ORDER BY rs.sort_order, rs.id LIMIT 1`,
-        [reservationId],
-      );
-      if (defaultSvc.rowCount > 0) {
-        dryRunService = defaultSvc.rows[0];
-      }
-    }
-
-    const results = [];
-    // Track slots we've already-validated within THIS batch so duplicates
-    // in the user's input are caught before Save — Save would otherwise
-    // fail with 409 on the second occurrence (the first inserts OK and
-    // the second hits the EXCLUDE constraint).
-    const seenSlots = new Set();
-    for (let i = 0; i < items.length; i++) {
-      const v = await validateBookingItem({
-        body: items[i],
-        reservation,
-        service: dryRunService,
-        checkAvailability: checkSlotAvailability,
-        // Dry-run MUST also catch slots already booked in the DB so the
-        // FE preview matches what Save will accept. Otherwise the user
-        // sees "X valid" then Save fails on every row that already has a
-        // booking, surfacing 409 errors they had no signal for up front.
-        pool,
-        checkExistingBookings: true,
-      });
-      if (v.ok) {
-        // Deduplicate within this batch (slot overlap with an earlier row
-        // in the same array).
-        const slotKey = `${v.startsAtIso}|${v.endsAtIso}`;
-        if (seenSlots.has(slotKey)) {
-          results.push({
-            index: i + 1,
-            ok: false,
-            error: "Slot already booked (duplicate within batch)",
-          });
-          continue;
-        }
-        seenSlots.add(slotKey);
-        results.push({
-          index: i + 1,
-          ok: true,
-          startsAt: v.startsAtIso,
-          endsAt: v.endsAtIso,
-          hasData: v.dataJson !== null,
-        });
-      } else {
-        results.push({ index: i + 1, ok: false, error: v.error });
-      }
-    }
-
-    return res.json({ results });
-  } catch (err) {
-    console.error("[reservations/bookings/dry-run]", err.code, err.message);
     next(err);
   }
 });

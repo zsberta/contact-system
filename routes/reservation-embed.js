@@ -85,7 +85,7 @@ const reservationSustainedLimiter = rateLimit({
 });
 
 // Validation constants + parseStrictIso + measureBag — imported from
-// the shared lib so the import feature can run the same checks via dry-run.
+// the shared lib so the public endpoint and admin create run identical checks.
 import {
   parseStrictIso,
   DATA_MAX_KEYS_PER_LEVEL,

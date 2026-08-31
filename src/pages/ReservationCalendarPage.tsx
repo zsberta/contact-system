@@ -165,6 +165,7 @@ function DaySession({
   onNoShowBooking,
   onModifyBooking,
   serviceName,
+  service,
 }: {
   session: CalendarSessionSummary;
   locale: string;
@@ -548,9 +549,13 @@ export default function ReservationCalendarPage() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedDateStr || !reservationId || !selectedCustomer || !createServiceId || !selectedSlot) return;
+      if (!selectedDateStr || !reservationId || !selectedCustomer || !createServiceId || !selectedSlot) {
+        throw new Error("Missing booking data");
+      }
       const service = servicesQuery.data?.find((s) => s.id === createServiceId);
-      if (!service) return;
+      if (!service) {
+        throw new Error("Selected service not found");
+      }
 
       return createEnrichedReservationBooking(reservationId, {
         serviceId: service.id,

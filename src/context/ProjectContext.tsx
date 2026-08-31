@@ -56,17 +56,25 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
 
   const projects = projectsData?.content ?? [];
 
+  // URL wins; with exactly one authorized project, default to it so the
+  // sidebar shows project context on routes that carry no projectId param
+  // (dashboard, /projects, global list pages). Multi-project users must
+  // still pick explicitly via the selector.
   const selectedProject =
-    projects.find((p) => p.id === parsedProjectId) ?? null;
+    projects.find((p) => p.id === parsedProjectId) ??
+    (projects.length === 1 ? projects[0] : null);
 
   const { data: modules = [], isLoading: isModulesLoading } = useQuery({
     queryKey: ["workspace", "modules", selectedProject?.id],
     queryFn: () => getProjectModules(selectedProject!.id),
     enabled: !!selectedProject?.id,
   });
-
+  // Same rule as the project above: URL wins; a project with exactly one
+  // module gets it selected by default, so the sidebar exposes the module
+  // links on routes that carry no moduleId param.
   const selectedModule =
-    modules.find((m) => Number(m.id) === parsedModuleId) ?? null;
+    modules.find((m) => Number(m.id) === parsedModuleId) ??
+    (modules.length === 1 ? modules[0] : null);
 
   const setSelectedId = useCallback(
     (id: number) => {

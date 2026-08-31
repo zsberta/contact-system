@@ -40,7 +40,6 @@ import ReservationCreatePage from "./pages/ReservationCreatePage";
 import ReservationEditPage from "./pages/ReservationEditPage";
 import ReservationViewPage from "./pages/ReservationViewPage";
 import ReservationBookingsPage from "./pages/ReservationBookingsPage";
-import ReservationBookingsImportPage from "./pages/ReservationBookingsImportPage";
 import ReservationCalendarPage from "./pages/ReservationCalendarPage";
 import ReservationDisabledRangesPage from "./pages/ReservationDisabledRangesPage";
 import ReservationDisabledRangeCreatePage from "./pages/ReservationDisabledRangeCreatePage";
@@ -161,7 +160,6 @@ const App = () => (
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/services/:serviceId/schedules" element={<ReservationServiceSchedulesPage />} />
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/services" element={<ReservationServicesPage />} />
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/bookings" element={<ReservationBookingsPage />} />
-                  <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/bookings/import" element={<ReservationBookingsImportPage />} />
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/calendar" element={<ReservationCalendarPage />} />
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/blocked/new" element={<ReservationDisabledRangeCreatePage />} />
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/blocked" element={<ReservationDisabledRangesPage />} />

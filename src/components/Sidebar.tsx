@@ -14,7 +14,6 @@ import {
   BookOpen,
   Code,
   MessageSquare,
-  Upload,
   Settings,
   CalendarDays,
   Lock,
@@ -43,7 +42,6 @@ const MODULE_LINKS: Record<ProjectModuleKind, Array<{ page: string; icon: React.
     { page: "calendar", icon: <CalendarDays className="h-4 w-4" />, translationKey: "navigation:calendar" },
     { page: "blocked", icon: <Lock className="h-4 w-4" />, translationKey: "navigation:blocked" },
     { page: "customers", icon: <UserCircle className="h-4 w-4" />, translationKey: "navigation:reservation_customers" },
-    { page: "bookings/import", icon: <Upload className="h-4 w-4" />, translationKey: "navigation:import" },
   ],
   form: [
     { page: "details", icon: <FileText className="h-4 w-4" />, translationKey: "navigation:details" },
