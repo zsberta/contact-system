@@ -2831,7 +2831,7 @@ router.patch("/:id/bookings/:bookingId", async (req, res, next) => {
       return res.status(400).json({ errorMessage: "Invalid ids" });
     }
     const body = req.body ?? {};
-    const VALID_STATUSES = new Set(["confirmed", "cancelled", "completed", "no_show"]);
+    const VALID_STATUSES = new Set(["confirmed", "cancelled", "completed", "no_show", "attended"]);
     if (!body.status || !VALID_STATUSES.has(body.status)) {
       return res.status(400).json({ errorMessage: "Invalid status" });
     }

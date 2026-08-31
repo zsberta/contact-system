@@ -445,7 +445,7 @@ export interface ReservationCustomerUpdateDTO {
 // Booking lifecycle types
 // ===========================================================================
 
-export type ReservationBookingStatus = "confirmed" | "cancelled" | "completed" | "no_show";
+export type ReservationBookingStatus = "confirmed" | "cancelled" | "completed" | "no_show" | "attended";
 export type ReservationBookingSource = "public" | "admin" | "portal" | "import";
 
 // Enriched booking DTO — extends the base with service, customer, status

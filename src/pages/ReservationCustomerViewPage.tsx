@@ -22,6 +22,7 @@ const STATUS_VARIANT: Record<string, "default" | "destructive" | "secondary"> = 
   cancelled: "destructive",
   completed: "secondary",
   no_show: "destructive",
+  attended: "default",
 };
 
 function formatTime(iso: string): string {

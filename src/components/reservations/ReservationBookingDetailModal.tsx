@@ -132,7 +132,7 @@ export function ReservationBookingDetailModal({
                   </span>
                   <Badge
                     variant={
-                      data.status === "confirmed" ? "default"
+                      data.status === "confirmed" || data.status === "attended" ? "default"
                         : data.status === "cancelled" ? "destructive"
                           : data.status === "no_show" ? "outline"
                             : "secondary"

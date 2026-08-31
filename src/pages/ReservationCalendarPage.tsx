@@ -10,29 +10,36 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { useModuleResolution } from "@/hooks/useModuleResolution";
 import { ReservationCustomerPicker } from "@/components/reservations/ReservationCustomerPicker";
+import { ModifyBookingDialog } from "@/components/reservations/ModifyBookingDialog";
 import {
   createReservationCustomer,
+  createEnrichedReservationBooking,
   getAdminServiceAvailability,
   getReservationById,
   getReservationCalendarDay,
   getReservationCalendarMonth,
   getReservationServices,
   getReservationWorkers,
+  updateReservationBookingStatus,
 } from "@/lib/reservations";
 import type {
-  CalendarDayDetailsResponse,
+  CalendarBookingSummary,
   CalendarSessionSummary,
   CalendarServiceDetails,
   CalendarSlotSummary,
   ReservationCustomerDTO,
   ReservationCustomerCreateDTO,
-  ReservationServiceDTO,
+  ReservationBookingStatus,
 } from "@/types/reservation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -55,13 +62,10 @@ import {
   ChevronDown,
   ChevronUp,
   CalendarDays,
-  Clock,
   Loader2,
   Plus,
-  Trash2,
 } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
-import { createEnrichedReservationBooking, deleteReservationBooking } from "@/lib/reservations";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -117,6 +121,16 @@ function fmtPrice(price: number, currency: string | null | undefined, locale: st
   }
 }
 
+// ── Budapest time helpers ────────────────────────────────────────────────────
+const BUDAPEST_TZ = "Europe/Budapest";
+
+/** Check if a UTC ISO timestamp is in the past (Budapest timezone). */
+function isPastInBudapest(isoUtc: string): boolean {
+  const budapestNow = new Date(new Date().toLocaleString("en-US", { timeZone: BUDAPEST_TZ }));
+  const budapestSlot = new Date(new Date(isoUtc).toLocaleString("en-US", { timeZone: BUDAPEST_TZ }));
+  return budapestSlot.getTime() <= budapestNow.getTime();
+}
+
 // ── calendar slot chip ───────────────────────────────────────────────────────
 
 function CalendarSlotChip({
@@ -142,24 +156,30 @@ function CalendarSlotChip({
   );
 }
 
-// ── day detail components ────────────────────────────────────────────────────
-
 function DaySession({
   session,
   locale,
   t,
-  onDeleteBooking,
+  onCancelBooking,
+  onCompleteBooking,
+  onNoShowBooking,
+  onModifyBooking,
   serviceName,
 }: {
   session: CalendarSessionSummary;
   locale: string;
   t: (key: string) => string;
-  onDeleteBooking?: (bookingId: number) => void;
+  onCancelBooking?: (bookingId: number) => void;
+  onCompleteBooking?: (bookingId: number) => void;
+  onNoShowBooking?: (bookingId: number) => void;
+  onModifyBooking?: (bookingId: number, startsAt: string, booking: CalendarBookingSummary, session: CalendarSessionSummary, service: CalendarServiceDetails) => void;
   serviceName?: string;
+  service?: CalendarServiceDetails;
 }) {
   const workerName = [session.workerFirstName, session.workerLastName]
     .filter(Boolean)
     .join(" ");
+  const sessionIsPast = isPastInBudapest(session.startsAt);
 
   return (
     <div className="rounded-md border bg-muted/20 p-3 space-y-2">
@@ -186,6 +206,7 @@ function DaySession({
             const name = [booking.customer.lastName, booking.customer.firstName]
               .filter(Boolean)
               .join(" ");
+            const isCancelled = booking.status === "cancelled";
             return (
               <div key={booking.id}>
                 <div className="flex items-start justify-between gap-3 text-sm">
@@ -200,36 +221,58 @@ function DaySession({
                     )}
                   </div>
                   <div className="flex items-center gap-1 mt-0.5 shrink-0">
-                    <Badge
-                      variant={
-                        booking.status === "confirmed"
-                          ? "default"
-                          : booking.status === "cancelled"
-                            ? "destructive"
-                            : booking.status === "no_show"
-                              ? "outline"
-                              : "secondary"
-                      }
-                      className="text-[10px]"
-                    >
-                      {t(`reservations:booking_status_${booking.status}`)}
-                    </Badge>
-                    {onDeleteBooking && booking.status !== "cancelled" && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-5 w-5 p-0"
-                        onClick={() => onDeleteBooking(booking.id)}
-                        aria-label={t("reservations:booking_delete")}
-                        title={t("reservations:booking_delete")}
-                      >
-                        <Trash2 className="h-3 w-3 text-destructive" />
-                      </Button>
-                    )}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          disabled={isCancelled}
+                          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-colors ${
+                            isCancelled
+                              ? "border-destructive/30 bg-destructive/10 text-destructive cursor-not-allowed opacity-60"
+                              : "cursor-pointer hover:opacity-80 border-transparent"
+                          } ${
+                            booking.status === "confirmed"
+                              ? "bg-primary/15 text-primary"
+                              : booking.status === "attended"
+                                ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                                : booking.status === "completed"
+                                  ? "bg-secondary text-secondary-foreground"
+                                  : booking.status === "no_show"
+                                    ? "border-border bg-background text-muted-foreground"
+                                    : ""
+                          }`}
+                          title={isCancelled ? t("reservations:booking_action_disabled") : undefined}
+                        >
+                          {t(`reservations:booking_status_${booking.status}`)}
+                        </button>
+                      </DropdownMenuTrigger>
+                      {!isCancelled && (
+                        <DropdownMenuContent align="end">
+                          {sessionIsPast ? (
+                            <>
+                              <DropdownMenuItem onClick={() => onCompleteBooking?.(booking.id)}>
+                                {t("reservations:booking_action_attended")}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => onNoShowBooking?.(booking.id)}>
+                                {t("reservations:booking_action_no_show")}
+                              </DropdownMenuItem>
+                            </>
+                          ) : (
+                            <>
+                              <DropdownMenuItem onClick={() => onCancelBooking?.(booking.id)}>
+                                {t("reservations:booking_action_cancel")}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => service && onModifyBooking?.(booking.id, session.startsAt, booking, session, service)}>
+                                {t("reservations:booking_action_modify")}
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      )}
+                    </DropdownMenu>
                   </div>
                 </div>
-                {booking.status === "cancelled" && booking.cancellationReason && (
+                {isCancelled && booking.cancellationReason && (
                   <p className="text-[11px] text-muted-foreground mt-0.5">{booking.cancellationReason}</p>
                 )}
               </div>
@@ -241,20 +284,28 @@ function DaySession({
   );
 }
 
+// ── day detail components ────────────────────────────────────────────────────
+
 function DayServiceAccordion({
   service,
   locale,
   expanded,
   onToggle,
   t,
-  onDeleteBooking,
+  onCancelBooking,
+  onCompleteBooking,
+  onNoShowBooking,
+  onModifyBooking,
 }: {
   service: CalendarServiceDetails;
   locale: string;
   expanded: boolean;
   onToggle: () => void;
   t: (key: string) => string;
-  onDeleteBooking?: (bookingId: number) => void;
+  onCancelBooking?: (bookingId: number) => void;
+  onCompleteBooking?: (bookingId: number) => void;
+  onNoShowBooking?: (bookingId: number) => void;
+  onModifyBooking?: (bookingId: number, startsAt: string, booking: CalendarBookingSummary, session: CalendarSessionSummary, service: CalendarServiceDetails) => void;
 }) {
   const totalBookings = service.sessions.reduce(
     (sum, session) => sum + session.bookings.length,
@@ -306,7 +357,11 @@ function DayServiceAccordion({
                 session={session}
                 locale={locale}
                 t={t}
-                onDeleteBooking={onDeleteBooking}
+                onCancelBooking={onCancelBooking}
+                onCompleteBooking={onCompleteBooking}
+                onNoShowBooking={onNoShowBooking}
+                onModifyBooking={onModifyBooking}
+                service={service}
               />
             ))
           )}
@@ -470,6 +525,27 @@ export default function ReservationCalendarPage() {
     onError: (err: Error) => showError(err.message),
   });
 
+  // ── modify dialog state ───────────────────────────────────────────────────
+  const [modifyDialogOpen, setModifyDialogOpen] = useState(false);
+  const [modifyData, setModifyData] = useState<{
+    booking: CalendarBookingSummary;
+    session: CalendarSessionSummary;
+    service: CalendarServiceDetails;
+  } | null>(null);
+
+  // Helper: invalidate all calendar queries
+  const invalidateCalendar = useCallback(() => {
+    queryClient.invalidateQueries({
+      queryKey: ["reservation-calendar-month", reservationId, monthQueryKey],
+    });
+    queryClient.invalidateQueries({
+      queryKey: ["reservation-calendar-day", reservationId, selectedDateStr],
+    });
+    queryClient.invalidateQueries({
+      queryKey: ["reservation-bookings", reservationId],
+    });
+  }, [queryClient, reservationId, monthQueryKey, selectedDateStr]);
+
   const createMutation = useMutation({
     mutationFn: async () => {
       if (!selectedDateStr || !reservationId || !selectedCustomer || !createServiceId || !selectedSlot) return;
@@ -489,15 +565,7 @@ export default function ReservationCalendarPage() {
     },
     onSuccess: () => {
       showSuccess(t("reservations:calendar_booking_created"));
-      queryClient.invalidateQueries({
-        queryKey: ["reservation-calendar-month", reservationId, monthQueryKey],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["reservation-calendar-day", reservationId, selectedDateStr],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["reservation-bookings", reservationId],
-      });
+      invalidateCalendar();
       setShowCreateForm(false);
       setCreateServiceId(null);
       setSelectedSlot(null);
@@ -508,31 +576,70 @@ export default function ReservationCalendarPage() {
     },
   });
 
-  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
+  // ── cancel (Lemondás) ────────────────────────────────────────────────────
+  const [cancelTargetId, setCancelTargetId] = useState<number | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
 
-  const deleteBookingMutation = useMutation({
-    mutationFn: (bookingId: number) =>
-      deleteReservationBooking(reservationId!, bookingId),
+  const cancelMutation = useMutation({
+    mutationFn: ({ bookingId, reason }: { bookingId: number; reason: string }) =>
+      updateReservationBookingStatus(reservationId!, bookingId, {
+        status: "cancelled",
+        cancellationReason: reason || undefined,
+      }),
     onSuccess: () => {
-      showSuccess(t("reservations:booking_deleted"));
-      queryClient.invalidateQueries({
-        queryKey: ["reservation-calendar-month", reservationId, monthQueryKey],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["reservation-calendar-day", reservationId, selectedDateStr],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["reservation-bookings", reservationId],
-      });
-      setDeleteTargetId(null);
+      showSuccess(t("reservations:booking_action_cancel_success"));
+      invalidateCalendar();
+      setCancelTargetId(null);
+      setCancelReason("");
     },
     onError: (err: Error) => {
       showError(err.message || t("reservations:booking_delete_failed"));
     },
   });
 
-  const handleDeleteBooking = useCallback((bookingId: number) => {
-    setDeleteTargetId(bookingId);
+  // ── complete (Részt vett) ────────────────────────────────────────────────
+  const completeMutation = useMutation({
+    mutationFn: (bookingId: number) =>
+      updateReservationBookingStatus(reservationId!, bookingId, {
+        status: "attended",
+      }),
+    onSuccess: () => {
+      showSuccess(t("reservations:booking_action_attended_success"));
+      invalidateCalendar();
+    },
+    onError: (err: Error) => showError(err.message),
+  });
+
+  // ── no-show (Nem jött el) ───────────────────────────────────────────────
+  const noShowMutation = useMutation({
+    mutationFn: (bookingId: number) =>
+      updateReservationBookingStatus(reservationId!, bookingId, {
+        status: "no_show",
+      }),
+    onSuccess: () => {
+      showSuccess(t("reservations:booking_action_no_show_success"));
+      invalidateCalendar();
+    },
+    onError: (err: Error) => showError(err.message),
+  });
+
+  // ── handlers ──────────────────────────────────────────────────────────────
+  const handleCancelBooking = useCallback((bookingId: number) => {
+    setCancelTargetId(bookingId);
+    setCancelReason("");
+  }, []);
+
+  const handleCompleteBooking = useCallback((bookingId: number) => {
+    completeMutation.mutate(bookingId);
+  }, [completeMutation]);
+
+  const handleNoShowBooking = useCallback((bookingId: number) => {
+    noShowMutation.mutate(bookingId);
+  }, [noShowMutation]);
+
+  const handleModifyBooking = useCallback((bookingId: number, _sessionStartsAt: string, bookingData: CalendarBookingSummary, sessionData: CalendarSessionSummary, serviceData: CalendarServiceDetails) => {
+    setModifyData({ booking: bookingData, session: sessionData, service: serviceData });
+    setModifyDialogOpen(true);
   }, []);
 
   if (!reservationId) {
@@ -876,8 +983,12 @@ export default function ReservationCalendarPage() {
                       session={session}
                       locale={locale}
                       t={t}
-                      onDeleteBooking={handleDeleteBooking}
+                      onCancelBooking={handleCancelBooking}
+                      onCompleteBooking={handleCompleteBooking}
+                      onNoShowBooking={handleNoShowBooking}
+                      onModifyBooking={handleModifyBooking}
                       serviceName={service.serviceName}
+                      service={service}
                     />
                   ))
                 )}
@@ -888,40 +999,69 @@ export default function ReservationCalendarPage() {
       </Dialog>
 
       <AlertDialog
-        open={deleteTargetId !== null}
+        open={cancelTargetId !== null}
         onOpenChange={(open) => {
-          if (!open) setDeleteTargetId(null);
+          if (!open) {
+            setCancelTargetId(null);
+            setCancelReason("");
+          }
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {t("reservations:booking_delete_title")}
+              {t("reservations:booking_action_cancel_title")}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {t("reservations:booking_delete_description")}
+              {t("reservations:booking_action_cancel_description")}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="py-2">
+            <Label htmlFor="cancel-reason">{t("reservations:booking_action_cancel_reason")}</Label>
+            <textarea
+              id="cancel-reason"
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder={t("reservations:booking_action_cancel_reason_placeholder")}
+              className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm min-h-[60px]"
+            />
+          </div>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteBookingMutation.isPending}>
+            <AlertDialogCancel disabled={cancelMutation.isPending}>
               {t("common:cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                if (deleteTargetId !== null) {
-                  deleteBookingMutation.mutate(deleteTargetId);
+                if (cancelTargetId !== null) {
+                  cancelMutation.mutate({ bookingId: cancelTargetId, reason: cancelReason });
                 }
               }}
-              disabled={deleteBookingMutation.isPending}
+              disabled={cancelMutation.isPending}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deleteBookingMutation.isPending
+              {cancelMutation.isPending
                 ? t("reservations:booking_deleting")
-                : t("reservations:booking_delete")}
+                : t("reservations:booking_action_cancel")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {modifyData && (
+        <ModifyBookingDialog
+          open={modifyDialogOpen}
+          onOpenChange={setModifyDialogOpen}
+          reservationId={reservationId!}
+          booking={modifyData.booking}
+          session={modifyData.session}
+          service={modifyData.service}
+          onModified={() => {
+            setModifyDialogOpen(false);
+            setModifyData(null);
+            invalidateCalendar();
+          }}
+        />
+      )}
     </div>
   );
 }

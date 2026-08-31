@@ -167,7 +167,7 @@ export function ReservationBookingsList({ reservationId }: Props) {
       header: t("reservations:booking_status"),
       cell: (row: ReservationBookingDTO) => (
         <div>
-          <Badge variant={row.status === "confirmed" ? "default" : row.status === "cancelled" ? "destructive" : row.status === "no_show" ? "outline" : "secondary"}>
+          <Badge variant={row.status === "confirmed" || row.status === "attended" ? "default" : row.status === "cancelled" ? "destructive" : row.status === "no_show" ? "outline" : "secondary"}>
             {t(`reservations:booking_status_${row.status}`)}
           </Badge>
           {row.status === "cancelled" && row.cancellationReason && (
