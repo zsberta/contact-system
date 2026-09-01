@@ -1037,6 +1037,7 @@ router.get(
         priceAmount: Number(booking.price_amount_snapshot),
         currency: booking.currency_snapshot,
         locale: booking.locale,
+        timezone: reservation.timezone || "UTC",
       });
     } catch (err) {
       console.error("[reservations/public/booking-by-token]", err.code, err.message);

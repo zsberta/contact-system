@@ -945,11 +945,11 @@ export default function ReservationEmbedPage() {
                 <p className="text-sm">
                   <span className="text-muted-foreground">{locale === "en" ? "Date" : "Időpont"}: </span>
                   <strong>
-                    {new Date(manageBooking.startsAt).toLocaleDateString(locale === "en" ? "en-US" : "hu-HU", { year: "numeric", month: "long", day: "numeric" })}
+                    {new Date(manageBooking.startsAt).toLocaleDateString(locale === "en" ? "en-US" : "hu-HU", { year: "numeric", month: "long", day: "numeric", timeZone: manageBooking.timezone || "UTC" })}
                     {" "}
-                    {new Date(manageBooking.startsAt).toLocaleTimeString(locale === "en" ? "en-US" : "hu-HU", { hour: "2-digit", minute: "2-digit" })}
+                    {new Date(manageBooking.startsAt).toLocaleTimeString(locale === "en" ? "en-US" : "hu-HU", { hour: "2-digit", minute: "2-digit", timeZone: manageBooking.timezone || "UTC" })}
                     {" – "}
-                    {new Date(manageBooking.endsAt).toLocaleTimeString(locale === "en" ? "en-US" : "hu-HU", { hour: "2-digit", minute: "2-digit" })}
+                    {new Date(manageBooking.endsAt).toLocaleTimeString(locale === "en" ? "en-US" : "hu-HU", { hour: "2-digit", minute: "2-digit", timeZone: manageBooking.timezone || "UTC" })}
                   </strong>
                 </p>
                 <p className="text-sm">

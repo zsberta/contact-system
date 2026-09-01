@@ -705,6 +705,7 @@ export interface PublicBookingDetails {
   priceAmount: number;
   currency: string;
   locale: string;
+  timezone: string;
 }
 
 /**
