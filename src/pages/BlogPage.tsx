@@ -9,7 +9,7 @@
 // no client-side filtering is applied.
 // ----------------------------------------------------------------------------
 
-import React, { useState, useCallback } from "react";
+import React, { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -18,7 +18,6 @@ import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/DataTable";
 import { Badge } from "@/components/ui/badge";
 import { PlusCircle } from "lucide-react";
-import { QueryParams } from "@/types/common";
 import {
   getAllBlogPostsPaged,
   GetAllBlogPostsParams,
@@ -27,6 +26,7 @@ import {
 import { BlogPostDTO, BlogPostStatus } from "@/types/blog";
 import BlogActions from "@/components/blog/BlogActions";
 import BlogPublishButton from "@/components/blog/BlogPublishButton";
+import { useDataTableQuery } from "@/hooks/useDataTableQuery";
 
 const statusBadgeVariant = (status: BlogPostStatus) => {
   switch (status) {
@@ -78,63 +78,33 @@ const BlogPage: React.FC<BlogPageProps> = ({ showCreateButton = true, showRowAct
       ? localeParam
       : "hu";
 
-  const [queryParams, setQueryParams] = useState<QueryParams>({
-    page: 0,
-    size: 10,
-    sortField: "updatedAt",
-    sortOrder: "desc",
-    queries: [],
-    filterType: "any",
+  const { query, handlers } = useDataTableQuery({
+    defaultSize: 10,
+    defaultSortField: "updatedAt",
+    defaultSortOrder: "desc",
   });
 
   const fetchParams: GetAllBlogPostsParams = {
-    page: queryParams.page,
-    size: queryParams.size,
-    sortField: queryParams.sortField,
-    sortOrder: queryParams.sortOrder,
-    queries: queryParams.queries,
-    filterType: queryParams.filterType,
+    page: query.page,
+    size: query.size,
+    sortField: query.sortField,
+    sortOrder: query.sortOrder,
+    queries: query.queries,
+    filterType: query.filterType,
     ...(projectIdFilter !== undefined ? { projectId: projectIdFilter } : {}),
     ...(statusFilter !== undefined ? { status: statusFilter } : {}),
     ...(localeFilter !== undefined ? { locale: localeFilter } : {}),
   };
 
   const { data, isLoading } = useQuery<PageBlogPostDTO>({
-    queryKey: ["blog", queryParams, projectIdFilter, statusFilter, localeFilter],
+    queryKey: ["blog", query, projectIdFilter, statusFilter, localeFilter],
     queryFn: () => getAllBlogPostsPaged(fetchParams),
   });
 
-  const handlePageChange = useCallback(
-    (page: number) => setQueryParams((p) => ({ ...p, page })),
-    [],
-  );
-  const handlePageSizeChange = useCallback(
-    (size: number) => setQueryParams((p) => ({ ...p, size, page: 0 })),
-    [],
-  );
-  const handleQueriesChange = useCallback(
-    (queries: string[]) =>
-      setQueryParams((p) => ({ ...p, queries, page: 0 })),
-    [],
-  );
-  const handleFilterTypeChange = useCallback(
-    (filterType: "any" | "all") =>
-      setQueryParams((p) => ({ ...p, filterType, page: 0 })),
-    [],
-  );
   const handleSearch = useCallback(
     (query: string) =>
-      setQueryParams((p) => ({
-        ...p,
-        queries: query ? [query] : [],
-        page: 0,
-      })),
-    [],
-  );
-  const handleSortChange = useCallback(
-    (sortField: string, sortOrder: "asc" | "desc") =>
-      setQueryParams((p) => ({ ...p, sortField, sortOrder, page: 0 })),
-    [],
+      handlers.onQueriesChange(query ? [query] : []),
+    [handlers],
   );
   const handleRowDoubleClick = useCallback(
     (row: BlogPostDTO) => navigate(`/blog/view/${row.id}`),
@@ -239,17 +209,16 @@ const BlogPage: React.FC<BlogPageProps> = ({ showCreateButton = true, showRowAct
             data={data?.content ?? []}
             isLoading={isLoading}
             pageInfo={data}
-            onPageChange={handlePageChange}
-            onPageSizeChange={handlePageSizeChange}
+            onPageChange={handlers.onPageChange}
+            onPageSizeChange={handlers.onPageSizeChange}
             onSearch={handleSearch}
-            queries={queryParams.queries ?? []}
-            filterType={queryParams.filterType ?? "any"}
-            onQueriesChange={handleQueriesChange}
-            onFilterTypeChange={handleFilterTypeChange}
-            onSortChange={handleSortChange}
-            currentSortField={queryParams.sortField || "updatedAt"}
-            currentSortOrder={queryParams.sortOrder || "desc"}
-            onRowDoubleClick={handleRowDoubleClick}
+            queries={query.queries}
+            filterType={query.filterType}
+            onQueriesChange={handlers.onQueriesChange}
+            onFilterTypeChange={handlers.onFilterTypeChange}
+            onSortChange={handlers.onSortChange}
+            currentSortField={query.sortField || "updatedAt"}
+            currentSortOrder={query.sortOrder || "desc"}
           />
         </CardContent>
       </Card>

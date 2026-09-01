@@ -5,7 +5,7 @@
 // actions via AnalyticsActions.
 // ----------------------------------------------------------------------------
 
-import React, { useState, useCallback } from "react";
+import React, { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/DataTable";
 import { Badge } from "@/components/ui/badge";
 import { BarChart3 } from "lucide-react";
-import { QueryParams } from "@/types/common";
+import { useDataTableQuery } from "@/hooks/useDataTableQuery";
 import {
   getAllAnalyticsConfigsPaged,
   PageAnalyticsConfigDTO,
@@ -30,55 +30,24 @@ const AnalyticsPage: React.FC = () => {
   const { t } = useTranslation(["analytics", "common"]);
   const navigate = useNavigate();
 
-  const [queryParams, setQueryParams] = useState<QueryParams>({
-    page: 0,
-    size: 10,
-    sortField: "createdAt",
-    sortOrder: "desc",
-    queries: [],
-    filterType: "any",
+  const { query, handlers } = useDataTableQuery({
+    defaultSize: 10,
+    defaultSortField: "createdAt",
+    defaultSortOrder: "desc",
   });
 
   const fetchParams: GetAllAnalyticsConfigsParams = {
-    ...queryParams,
+    ...query,
   };
 
   const { data, isLoading } = useQuery<PageAnalyticsConfigDTO, Error>({
-    queryKey: ["analytics", queryParams],
+    queryKey: ["analytics", query],
     queryFn: () => getAllAnalyticsConfigsPaged(fetchParams),
   });
 
-  const handlePageChange = useCallback(
-    (page: number) => setQueryParams((p) => ({ ...p, page })),
-    [],
-  );
-  const handlePageSizeChange = useCallback(
-    (size: number) => setQueryParams((p) => ({ ...p, size, page: 0 })),
-    [],
-  );
-  const handleQueriesChange = useCallback(
-    (queries: string[]) =>
-      setQueryParams((p) => ({ ...p, queries, page: 0 })),
-    [],
-  );
-  const handleFilterTypeChange = useCallback(
-    (filterType: "any" | "all") =>
-      setQueryParams((p) => ({ ...p, filterType, page: 0 })),
-    [],
-  );
   const handleSearch = useCallback(
-    (query: string) =>
-      setQueryParams((p) => ({
-        ...p,
-        queries: query ? [query] : [],
-        page: 0,
-      })),
-    [],
-  );
-  const handleSortChange = useCallback(
-    (sortField: string, sortOrder: "asc" | "desc") =>
-      setQueryParams((p) => ({ ...p, sortField, sortOrder, page: 0 })),
-    [],
+    (query: string) => handlers.onQueriesChange(query ? [query] : []),
+    [handlers],
   );
   const handleRowDoubleClick = useCallback(
     async (row: AnalyticsConfigDTO) => {
@@ -139,17 +108,17 @@ const AnalyticsPage: React.FC = () => {
             columns={columns}
             data={data?.content || []}
             pageInfo={data}
-            onPageChange={handlePageChange}
-            onPageSizeChange={handlePageSizeChange}
+            onPageChange={handlers.onPageChange}
+            onPageSizeChange={handlers.onPageSizeChange}
             onSearch={handleSearch}
-            queries={queryParams.queries}
-            filterType={queryParams.filterType}
-            onQueriesChange={handleQueriesChange}
-            onFilterTypeChange={handleFilterTypeChange}
+            queries={query.queries}
+            filterType={query.filterType}
+            onQueriesChange={handlers.onQueriesChange}
+            onFilterTypeChange={handlers.onFilterTypeChange}
             isLoading={isLoading}
-            onSortChange={handleSortChange}
-            currentSortField={queryParams.sortField || "createdAt"}
-            currentSortOrder={queryParams.sortOrder || "desc"}
+            onSortChange={handlers.onSortChange}
+            currentSortField={query.sortField}
+            currentSortOrder={query.sortOrder}
             onRowDoubleClick={handleRowDoubleClick}
             emptyMessage={t("analytics:config_section_analytics_empty")}
           />

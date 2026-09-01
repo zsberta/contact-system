@@ -2,7 +2,7 @@
 // all projects the user can access. Opens SubmissionDetailModal on click.
 // Enduser view: Name, Phone, Start, Booked, triple-dot actions.
 
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,6 +18,7 @@ import {
 import { MoreVertical, Eye } from "lucide-react";
 import { getSubmissionBookings } from "@/lib/submissions";
 import type { SubmissionBookingDTO } from "@/types/submissions";
+import { useDataTableQuery } from "@/hooks/useDataTableQuery";
 import {
   SubmissionDetailModal,
   type SubmissionDetailData,
@@ -25,15 +26,6 @@ import {
 
 interface Props {
   projectId?: number;
-}
-
-interface QueryState {
-  page: number;
-  size: number;
-  sortField: "startsAt" | "endsAt" | "bookedAt";
-  sortOrder: "asc" | "desc";
-  queries: string[];
-  filterType: "any" | "all";
 }
 
 function extractFromData(
@@ -55,56 +47,16 @@ export default function SubmissionsBookingsTab({ projectId }: Props) {
     useState<SubmissionDetailData | null>(null);
   const [modalTitle, setModalTitle] = useState("");
 
-  const [queryState, setQueryState] = useState<QueryState>({
-    page: 0,
-    size: 10,
-    sortField: "bookedAt",
-    sortOrder: "desc",
-    queries: [],
-    filterType: "any",
+  const { query, handlers } = useDataTableQuery({
+    defaultSize: 10,
+    defaultSortField: "bookedAt",
+    defaultSortOrder: "desc",
   });
 
   const { data, isLoading } = useQuery({
-    queryKey: ["submission-bookings", projectId, queryState],
-    queryFn: () => getSubmissionBookings({ ...queryState, projectId }),
+    queryKey: ["submission-bookings", projectId, query],
+    queryFn: () => getSubmissionBookings({ ...query, projectId }),
   });
-
-  const handlePageChange = useCallback(
-    (page: number) => setQueryState((s) => ({ ...s, page })),
-    [],
-  );
-  const handlePageSizeChange = useCallback(
-    (size: number) => setQueryState((s) => ({ ...s, size, page: 0 })),
-    [],
-  );
-  const handleSearch = useCallback(
-    (query: string) =>
-      setQueryState((s) => ({
-        ...s,
-        queries: query ? [query] : [],
-        page: 0,
-      })),
-    [],
-  );
-  const handleQueriesChange = useCallback(
-    (queries: string[]) => setQueryState((s) => ({ ...s, queries, page: 0 })),
-    [],
-  );
-  const handleFilterTypeChange = useCallback(
-    (filterType: "any" | "all") =>
-      setQueryState((s) => ({ ...s, filterType, page: 0 })),
-    [],
-  );
-  const handleSortChange = useCallback(
-    (sortField: string, sortOrder: "asc" | "desc") =>
-      setQueryState((s) => ({
-        ...s,
-        sortField: sortField as QueryState["sortField"],
-        sortOrder,
-        page: 0,
-      })),
-    [],
-  );
 
   const openDetails = (row: SubmissionBookingDTO) => {
     setSelectedSubmission({
@@ -194,17 +146,17 @@ export default function SubmissionsBookingsTab({ projectId }: Props) {
             columns={columns}
             data={data?.content || []}
             pageInfo={data as never}
-            onPageChange={handlePageChange}
-            onPageSizeChange={handlePageSizeChange}
-            onSearch={handleSearch}
-            queries={queryState.queries}
-            filterType={queryState.filterType}
-            onQueriesChange={handleQueriesChange}
-            onFilterTypeChange={handleFilterTypeChange}
+            onPageChange={handlers.onPageChange}
+            onPageSizeChange={handlers.onPageSizeChange}
+            onSearch={(search) => handlers.onQueriesChange(search ? [search] : [])}
+            queries={query.queries}
+            filterType={query.filterType}
+            onQueriesChange={handlers.onQueriesChange}
+            onFilterTypeChange={handlers.onFilterTypeChange}
             isLoading={isLoading}
-            onSortChange={handleSortChange}
-            currentSortField={queryState.sortField}
-            currentSortOrder={queryState.sortOrder}
+            onSortChange={handlers.onSortChange}
+            currentSortField={query.sortField}
+            currentSortOrder={query.sortOrder}
             onRowDoubleClick={(row) => openDetails(row)}
             emptyMessage={t("submissions:no_bookings")}
           />

@@ -18,6 +18,7 @@ import enBlog from "./i18n/en/blog.json";
 import enFaq from "./i18n/en/faq.json";
 import enService from "./i18n/en/service.json";
 import enAiAssistant from "./i18n/en/ai-assistant.json";
+import enImports from "./i18n/en/imports.json";
 
 import huAuth from "./i18n/hu/auth.json";
 import huCommon from "./i18n/hu/common.json";
@@ -36,6 +37,7 @@ import huBlog from "./i18n/hu/blog.json";
 import huFaq from "./i18n/hu/faq.json";
 import huService from "./i18n/hu/service.json";
 import huAiAssistant from "./i18n/hu/ai-assistant.json";
+import huImports from "./i18n/hu/imports.json";
 
 const resources = {
   en: {
@@ -56,6 +58,7 @@ const resources = {
     faq: enFaq,
     service: enService,
     "ai-assistant": enAiAssistant,
+    imports: enImports,
   },
   hu: {
     auth: huAuth,
@@ -75,9 +78,10 @@ const resources = {
     faq: huFaq,
     service: huService,
     "ai-assistant": huAiAssistant,
+    imports: huImports,
   },
-};
 
+};
 i18n.use(initReactI18next).init({
   resources,
   lng: "hu",
@@ -90,6 +94,7 @@ i18n.use(initReactI18next).init({
     "dashboard",
     "seo",
     "users",
+    "imports",
     "projects",
     "payments",
     "forms",

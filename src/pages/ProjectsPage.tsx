@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
@@ -10,7 +10,7 @@ import { PlusCircle } from "lucide-react";
 import { PageProjectDTO, ProjectDTO } from "@/types/project";
 import type { BillingPeriod } from "@/types/project";
 import { getAllProjectsPaged } from "@/lib/api";
-import { QueryParams } from "@/types/common";
+import { useDataTableQuery } from "@/hooks/useDataTableQuery";
 import ProjectActions from "@/components/projects/ProjectActions";
 
 const formatPrice = (price: number | null): string => {
@@ -54,51 +54,20 @@ const ProjectsPage: React.FC = () => {
     return d.toLocaleDateString();
   };
 
-  const [queryParams, setQueryParams] = useState<QueryParams>({
-    page: 0,
-    size: 10,
-    sortField: "createdAt",
-    sortOrder: "desc",
-    queries: [],
-    filterType: "any",
+  const { query, handlers } = useDataTableQuery({
+    defaultSize: 10,
+    defaultSortField: "createdAt",
+    defaultSortOrder: "desc",
   });
 
   const { data, isLoading } = useQuery<PageProjectDTO, Error>({
-    queryKey: ["projects", queryParams],
-    queryFn: () => getAllProjectsPaged(queryParams),
+    queryKey: ["projects", query],
+    queryFn: () => getAllProjectsPaged(query),
   });
 
-  const handlePageChange = useCallback(
-    (page: number) => setQueryParams((p) => ({ ...p, page })),
-    [],
-  );
-  const handlePageSizeChange = useCallback(
-    (size: number) => setQueryParams((p) => ({ ...p, size, page: 0 })),
-    [],
-  );
-  const handleQueriesChange = useCallback(
-    (queries: string[]) =>
-      setQueryParams((p) => ({ ...p, queries, page: 0 })),
-    [],
-  );
-  const handleFilterTypeChange = useCallback(
-    (filterType: "any" | "all") =>
-      setQueryParams((p) => ({ ...p, filterType, page: 0 })),
-    [],
-  );
   const handleSearch = useCallback(
-    (query: string) =>
-      setQueryParams((p) => ({
-        ...p,
-        queries: query ? [query] : [],
-        page: 0,
-      })),
-    [],
-  );
-  const handleSortChange = useCallback(
-    (sortField: string, sortOrder: "asc" | "desc") =>
-      setQueryParams((p) => ({ ...p, sortField, sortOrder, page: 0 })),
-    [],
+    (query: string) => handlers.onQueriesChange(query ? [query] : []),
+    [handlers],
   );
   const handleRowDoubleClick = useCallback(
     (row: ProjectDTO) => navigate(`/projects/view/${row.id}`),
@@ -175,17 +144,17 @@ const ProjectsPage: React.FC = () => {
             columns={columns}
             data={data?.content || []}
             pageInfo={data}
-            onPageChange={handlePageChange}
-            onPageSizeChange={handlePageSizeChange}
+            onPageChange={handlers.onPageChange}
+            onPageSizeChange={handlers.onPageSizeChange}
             onSearch={handleSearch}
-            queries={queryParams.queries}
-            filterType={queryParams.filterType}
-            onQueriesChange={handleQueriesChange}
-            onFilterTypeChange={handleFilterTypeChange}
+            queries={query.queries}
+            filterType={query.filterType}
+            onQueriesChange={handlers.onQueriesChange}
+            onFilterTypeChange={handlers.onFilterTypeChange}
             isLoading={isLoading}
-            onSortChange={handleSortChange}
-            currentSortField={queryParams.sortField || "createdAt"}
-            currentSortOrder={queryParams.sortOrder || "desc"}
+            onSortChange={handlers.onSortChange}
+            currentSortField={query.sortField}
+            currentSortOrder={query.sortOrder}
             onRowDoubleClick={handleRowDoubleClick}
           />
         </CardContent>

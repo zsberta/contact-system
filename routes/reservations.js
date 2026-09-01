@@ -1505,7 +1505,18 @@ router.get("/customers", async (req, res, next) => {
       return res.status(403).json({ errorMessage: "No accessible projects" });
     }
     const projectId = parseInt(req.query.projectId, 10);
+    const rawQueries = req.query.queries;
+    const queries = Array.isArray(rawQueries)
+      ? rawQueries
+      : rawQueries
+        ? [rawQueries]
+        : [];
+    // Live search text from typing (not a chip) — merge into queries
     const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+    if (search && !queries.includes(search)) {
+      queries.push(search);
+    }
+    const filterType = req.query.filterType === "all" ? "all" : "any";
     const page = Math.max(0, parseInt(req.query.page ?? "0", 10) || 0);
     const size = Math.min(100, Math.max(1, parseInt(req.query.size ?? "20", 10) || 20));
 
@@ -1520,10 +1531,16 @@ router.get("/customers", async (req, res, next) => {
       conditions.push(`rc.project_id = $${pi++}`);
       params.push(projectId);
     }
-    if (search) {
-      conditions.push(`(rc.first_name ILIKE $${pi} OR rc.last_name ILIKE $${pi} OR rc.email ILIKE $${pi} OR rc.phone ILIKE $${pi})`);
-      params.push(`%${search}%`);
-      pi++;
+    const searchTerms = queries.filter((q) => typeof q === "string" && q.trim().length > 0);
+    if (searchTerms.length > 0) {
+      const conj = filterType === "all" ? " AND " : " OR ";
+      const termClauses = searchTerms.map((term) => {
+        const clause = `(rc.first_name ILIKE $${pi} OR rc.last_name ILIKE $${pi} OR rc.email ILIKE $${pi} OR rc.phone ILIKE $${pi})`;
+        params.push(`%${term}%`);
+        pi++;
+        return clause;
+      });
+      conditions.push(`(${termClauses.join(conj)})`);
     }
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
@@ -1542,12 +1559,27 @@ router.get("/customers", async (req, res, next) => {
       params,
     );
 
+    const content = result.rows.map(rowToReservationCustomerDTO);
+
     return res.json({
-      content: result.rows.map(rowToReservationCustomerDTO),
+      content,
       totalElements: total,
-      page,
-      size,
       totalPages,
+      pageable: {
+        paged: true,
+        pageSize: size,
+        pageNumber: page,
+        unpaged: false,
+        offset: page * size,
+        sort: { sorted: false, unsorted: true, empty: false },
+      },
+      numberOfElements: content.length,
+      size,
+      number: page,
+      sort: { sorted: false, unsorted: true, empty: false },
+      first: page === 0,
+      last: page >= totalPages - 1,
+      empty: content.length === 0,
     });
   } catch (err) {
     console.error("[reservations/customers/list]", err.code, err.message);

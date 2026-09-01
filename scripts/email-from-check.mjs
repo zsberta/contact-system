@@ -49,6 +49,15 @@ const r3 = await sendMail({
   fromName: "   ",
 });
 console.log("sendMail returned:", JSON.stringify(r3));
+  console.log("\\n=== test 4: sendMail with fromAddress override (worker) ===");
+  const r4 = await sendMail({
+    to: "customer@example.com",
+    subject: "fromAddress override",
+    text: "test 4",
+    fromName: "Örökmozgó Centrum",
+    fromAddress: "worker@example.com",
+  });
+  console.log("sendMail returned:", JSON.stringify(r4));
 
 console.log("\\n=== ALL CHECKS PASSED ===");
 `;
@@ -95,6 +104,7 @@ try {
     { name: "Nexus", address: "info@zsoltberta.hu" },
     { name: "Kovács Virág", address: "info@zsoltberta.hu" },
     { name: "Nexus", address: "info@zsoltberta.hu" },
+    { name: "Örökmozgó Centrum", address: "worker@example.com" },
   ];
   let ok = true;
   for (let i = 0; i < expect.length; i += 1) {

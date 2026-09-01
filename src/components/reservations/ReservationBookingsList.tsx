@@ -4,7 +4,7 @@
 // centered Dialog on the "View details" action.
 // ----------------------------------------------------------------------------
 
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,23 +22,18 @@ import {
 } from "@/components/ui/alert-dialog";
 import { DataTable } from "@/components/DataTable";
 import { Eye, Trash2 } from "lucide-react";
-import { getReservationBookings, deleteReservationBooking } from "@/lib/reservations";
+import {
+  getReservationBookings,
+  deleteReservationBooking,
+  type BookingsQueryParams,
+} from "@/lib/reservations";
 import { showError, showSuccess } from "@/utils/toast";
 import type { ReservationBookingDTO } from "@/types/reservation";
 import { ReservationBookingDetailModal } from "@/components/reservations/ReservationBookingDetailModal";
+import { useDataTableQuery } from "@/hooks/useDataTableQuery";
 
 interface Props {
   reservationId: number;
-}
-
-interface QueryState {
-  page: number;
-  size: number;
-  sortField: "startsAt" | "endsAt" | "bookedAt" | "serviceName" | "customerName" | "workerFirstName" | "status";
-  sortOrder: "asc" | "desc";
-  queries: string[];
-  searchText: string;
-  filterType: "any" | "all";
 }
 
 const isSameDay = (a: string, b: string) => {
@@ -72,53 +67,20 @@ export function ReservationBookingsList({ reservationId }: Props) {
     },
   });
 
-  const [queryState, setQueryState] = useState<QueryState>({
-    page: 0,
-    size: 10,
-    sortField: "bookedAt",
-    sortOrder: "desc",
-    queries: [],
-    searchText: "",
-    filterType: "any",
+  const { query, handlers } = useDataTableQuery({
+    defaultSize: 10,
+    defaultSortField: "bookedAt",
+    defaultSortOrder: "desc",
   });
 
   const { data, isLoading } = useQuery({
-    queryKey: ["reservation-bookings", reservationId, queryState],
-    queryFn: () => getReservationBookings(reservationId, queryState),
+    queryKey: ["reservation-bookings", reservationId, query],
+    queryFn: () =>
+      getReservationBookings(reservationId, {
+        ...query,
+        sortField: query.sortField as BookingsQueryParams["sortField"],
+      }),
   });
-
-  const handlePageChange = useCallback(
-    (page: number) => setQueryState((s) => ({ ...s, page })),
-    [],
-  );
-  const handlePageSizeChange = useCallback(
-    (size: number) => setQueryState((s) => ({ ...s, size, page: 0 })),
-    [],
-  );
-  const handleSearchTextChange = useCallback(
-    (searchText: string) =>
-      setQueryState((s) => ({ ...s, searchText, page: 0 })),
-    [],
-  );
-  const handleQueriesChange = useCallback(
-    (queries: string[]) => setQueryState((s) => ({ ...s, queries, page: 0 })),
-    [],
-  );
-  const handleFilterTypeChange = useCallback(
-    (filterType: "any" | "all") =>
-      setQueryState((s) => ({ ...s, filterType, page: 0 })),
-    [],
-  );
-  const handleSortChange = useCallback(
-    (sortField: string, sortOrder: "asc" | "desc") =>
-      setQueryState((s) => ({
-        ...s,
-        sortField: sortField as QueryState["sortField"],
-        sortOrder,
-        page: 0,
-      })),
-    [],
-  );
 
   const openDetails = (id: number) => {
     setSelectedBookingId(id);
@@ -225,18 +187,18 @@ export function ReservationBookingsList({ reservationId }: Props) {
             columns={columns}
             data={data?.content || []}
             pageInfo={data as never}
-            onPageChange={handlePageChange}
-            onPageSizeChange={handlePageSizeChange}
+            onPageChange={handlers.onPageChange}
+            onPageSizeChange={handlers.onPageSizeChange}
             onSearch={() => {}}
-            queries={queryState.queries}
-            filterType={queryState.filterType}
-            onQueriesChange={handleQueriesChange}
-            onSearchTextChange={handleSearchTextChange}
-            onFilterTypeChange={handleFilterTypeChange}
+            queries={query.queries}
+            filterType={query.filterType}
+            onQueriesChange={handlers.onQueriesChange}
+            onSearchTextChange={handlers.onSearchTextChange}
+            onFilterTypeChange={handlers.onFilterTypeChange}
             isLoading={isLoading}
-            onSortChange={handleSortChange}
-            currentSortField={queryState.sortField}
-            currentSortOrder={queryState.sortOrder}
+            onSortChange={handlers.onSortChange}
+            currentSortField={query.sortField}
+            currentSortOrder={query.sortOrder}
             onRowDoubleClick={handleRowDoubleClick}
             emptyMessage={t("reservations:no_bookings_yet")}
           />

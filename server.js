@@ -19,6 +19,7 @@ import { router as formsRouter } from "./routes/forms.js";
 import { router as formEmbedRouter } from "./routes/form-embed.js";
 import { router as reservationsRouter } from "./routes/reservations.js";
 import { router as reservationEmbedRouter } from "./routes/reservation-embed.js";
+import { router as importsRouter } from "./routes/imports.js";
 import { router as analyticsRouter } from "./routes/analytics.js";
 import { router as analyticsEmbedRouter } from "./routes/analytics-embed.js";
 import { router as submissionsRouter } from "./routes/submissions.js";
@@ -166,6 +167,9 @@ app.use("/api/forms", formsRouter);
 // Reservations sibling module — same scoping/capability/allowlist/security
 // patterns as Forms. See routes/reservations.js and routes/reservation-embed.js.
 app.use("/api/reservations", reservationsRouter);
+
+// Admin-only CSV import module — isolated from reservation endpoints.
+app.use("/api/imports", importsRouter);
 
 // Analytics module — same sibling pattern as Forms / Reservations. Admin
 // CRUD lives on /api/analytics (mounted below), the public script loader

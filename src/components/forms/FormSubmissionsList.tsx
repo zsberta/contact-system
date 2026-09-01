@@ -5,7 +5,7 @@
 // "View details" action.
 // ----------------------------------------------------------------------------
 
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,20 +13,13 @@ import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/DataTable";
 import { Eye } from "lucide-react";
 import { getFormSubmissions } from "@/lib/forms";
+import type { SubmissionsQueryParams } from "@/lib/forms";
 import type { FormSubmissionDTO } from "@/types/form";
 import { FormSubmissionDetailsSheet } from "@/components/forms/FormSubmissionDetailsSheet";
+import { useDataTableQuery } from "@/hooks/useDataTableQuery";
 
 interface Props {
   formId: number;
-}
-
-interface QueryState {
-  page: number;
-  size: number;
-  sortField: "submittedAt" | "ipAddress" | "locale" | "createdAt";
-  sortOrder: "asc" | "desc";
-  queries: string[];
-  filterType: "any" | "all";
 }
 
 const maskIpv4 = (ip: string | null): string => {
@@ -44,56 +37,20 @@ export function FormSubmissionsList({ formId }: Props) {
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<number | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  const [queryState, setQueryState] = useState<QueryState>({
-    page: 0,
-    size: 10,
-    sortField: "submittedAt",
-    sortOrder: "desc",
-    queries: [],
-    filterType: "any",
+  const { query, handlers } = useDataTableQuery({
+    defaultSize: 10,
+    defaultSortField: "submittedAt",
+    defaultSortOrder: "desc",
   });
 
   const { data, isLoading } = useQuery({
-    queryKey: ["form-submissions", formId, queryState],
-    queryFn: () => getFormSubmissions(formId, queryState),
+    queryKey: ["form-submissions", formId, query],
+    queryFn: () =>
+      getFormSubmissions(formId, {
+        ...query,
+        sortField: query.sortField as SubmissionsQueryParams["sortField"],
+      }),
   });
-
-  const handlePageChange = useCallback(
-    (page: number) => setQueryState((s) => ({ ...s, page })),
-    [],
-  );
-  const handlePageSizeChange = useCallback(
-    (size: number) => setQueryState((s) => ({ ...s, size, page: 0 })),
-    [],
-  );
-  const handleSearch = useCallback(
-    (query: string) =>
-      setQueryState((s) => ({
-        ...s,
-        queries: query ? [query] : [],
-        page: 0,
-      })),
-    [],
-  );
-  const handleQueriesChange = useCallback(
-    (queries: string[]) => setQueryState((s) => ({ ...s, queries, page: 0 })),
-    [],
-  );
-  const handleFilterTypeChange = useCallback(
-    (filterType: "any" | "all") =>
-      setQueryState((s) => ({ ...s, filterType, page: 0 })),
-    [],
-  );
-  const handleSortChange = useCallback(
-    (sortField: string, sortOrder: "asc" | "desc") =>
-      setQueryState((s) => ({
-        ...s,
-        sortField: sortField as QueryState["sortField"],
-        sortOrder,
-        page: 0,
-      })),
-    [],
-  );
 
   const openDetails = (id: number) => {
     setSelectedSubmissionId(id);
@@ -155,17 +112,17 @@ export function FormSubmissionsList({ formId }: Props) {
             columns={columns}
             data={data?.content || []}
             pageInfo={data as never}
-            onPageChange={handlePageChange}
-            onPageSizeChange={handlePageSizeChange}
-            onSearch={handleSearch}
-            queries={queryState.queries}
-            filterType={queryState.filterType}
-            onQueriesChange={handleQueriesChange}
-            onFilterTypeChange={handleFilterTypeChange}
+            onPageChange={handlers.onPageChange}
+            onPageSizeChange={handlers.onPageSizeChange}
+            onSearch={(search) => handlers.onQueriesChange(search ? [search] : [])}
+            queries={query.queries}
+            filterType={query.filterType}
+            onQueriesChange={handlers.onQueriesChange}
+            onFilterTypeChange={handlers.onFilterTypeChange}
             isLoading={isLoading}
-            onSortChange={handleSortChange}
-            currentSortField={queryState.sortField}
-            currentSortOrder={queryState.sortOrder}
+            onSortChange={handlers.onSortChange}
+            currentSortField={query.sortField}
+            currentSortOrder={query.sortOrder}
             onRowDoubleClick={handleRowDoubleClick}
           />
         </CardContent>

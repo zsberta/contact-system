@@ -381,6 +381,7 @@ export function buildQueryString(params: CommonQueryParams): string {
     query.append("locationId", String(params.locationId));
   if (params.projectId !== undefined)
     query.append("projectId", String(params.projectId));
+  if (params.search) query.append("search", params.search);
   if (params.queries && params.queries.length > 0) {
     params.queries.forEach((q) => query.append("queries", q));
   }
@@ -798,4 +799,142 @@ export const deletePaymentAttachment = (
 
 export const getDashboardStats = (): Promise<DashboardStatsDTO> => {
   return apiFetch<DashboardStatsDTO>("/dashboard/stats");
+};
+
+// --- CSV Imports (admin-only, /api/imports) ---
+
+export interface ImportRowResult {
+  rowNumber: number;
+  ok: boolean;
+  errors?: string[];
+  skipped?: string;
+  customerId?: number;
+  bookingId?: number;
+}
+
+export interface ImportDryRunRow {
+  rowNumber: number;
+  ok: boolean;
+  errors: string[];
+  data: Record<string, unknown>;
+}
+
+export interface ImportServiceMapping {
+  name: string;
+  rowCount: number;
+  sampleStart: string | null;
+  sampleEnd: string | null;
+  existingServiceId: number | null;
+  existingDurationMinutes: number | null;
+}
+
+export interface ImportExistingService {
+  id: number;
+  name: string | null;
+  durationMinutes: number;
+  capacity: number;
+}
+
+export interface ImportDryRunResult {
+  importType: "customers" | "bookings";
+  headers: string[];
+  totalRows: number;
+  validCount: number;
+  invalidCount: number;
+  rows: ImportDryRunRow[];
+  reservationId?: number;
+  timezone?: string;
+  existingServices?: ImportExistingService[];
+  services?: ImportServiceMapping[];
+}
+
+export interface ImportCustomersPayload {
+  projectId: number;
+  rows: Array<{ rowNumber?: number; firstName: string; lastName: string; email: string; phone?: string }>;
+}
+
+export interface ImportCommitResult {
+  imported: number;
+  failed: number;
+  skippedDuplicates?: number;
+  emailsQueued?: number;
+  emailsSending?: boolean;
+  results: ImportRowResult[];
+}
+
+export interface ImportCreateServicesPayload {
+  projectId: number;
+  services: Array<{
+    name: string;
+    durationMinutes: number;
+    priceAmount?: number;
+    currency?: string;
+    capacity?: number;
+  }>;
+}
+
+export interface ImportCreateServicesResult {
+  created: Array<{ id: number; name: string; existing: boolean }>;
+  errors: Array<{ index: number; name: string; error: string }>;
+}
+
+export interface ImportBookingsPayload {
+  projectId: number;
+  bookings: Array<{
+    rowNumber?: number;
+    serviceId: number;
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone?: string;
+    startsAt: string;
+    endsAt: string;
+    status: string;
+  }>;
+}
+
+export const dryRunImport = (formData: FormData): Promise<ImportDryRunResult> => {
+  return apiFetch<ImportDryRunResult>("/imports/dry-run", {
+    method: "POST",
+    body: formData,
+  });
+};
+
+export const importCustomers = (payload: ImportCustomersPayload): Promise<ImportCommitResult> => {
+  return apiFetch<ImportCommitResult>("/imports/customers", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+};
+
+export const listImportServices = (projectId: number) => {
+  return apiFetch<{
+    reservationId: number;
+    timezone: string;
+    services: Array<{
+      id: number;
+      name: string | null;
+      durationMinutes: number;
+      priceAmount: number;
+      currency: string;
+      capacity: number;
+      status: string;
+    }>;
+  }>(`/imports/services?projectId=${projectId}`);
+};
+
+export const createImportServices = (
+  payload: ImportCreateServicesPayload,
+): Promise<ImportCreateServicesResult> => {
+  return apiFetch<ImportCreateServicesResult>("/imports/bookings/services", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+};
+
+export const importBookings = (payload: ImportBookingsPayload): Promise<ImportCommitResult> => {
+  return apiFetch<ImportCommitResult>("/imports/bookings", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 };

@@ -18,6 +18,7 @@ import {
   CalendarDays,
   Lock,
   List,
+  Upload,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -165,6 +166,10 @@ const Sidebar = ({ onClose }: SidebarProps = {}) => {
           <NavLink to="/users" onClick={() => onClose?.()} className={linkClass}>
             <Users className="h-4 w-4" />
             <span>{t("navigation:users")}</span>
+          </NavLink>
+          <NavLink to="/imports" onClick={() => onClose?.()} className={linkClass}>
+            <Upload className="h-4 w-4" />
+            <span>{t("navigation:imports")}</span>
           </NavLink>
         </>
       )}

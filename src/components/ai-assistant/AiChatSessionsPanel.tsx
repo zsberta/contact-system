@@ -17,7 +17,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { QueryParams } from "@/types/common";
+import { useDataTableQuery } from "@/hooks/useDataTableQuery";
 import { getChatSessions, getChatMessages } from "@/lib/ai-assistant";
 import type { AiChatSessionDTO, AiChatMessageDTO } from "@/types/ai-assistant";
 import ChatSessionActions from "@/components/ai-assistant/ChatSessionActions";
@@ -32,18 +32,15 @@ export function AiChatSessionsPanel({
   const { t, i18n } = useTranslation(["ai-assistant", "common"]);
 
   // Pagination / search / sort state
-  const [queryParams, setQueryParams] = useState<QueryParams>({
-    page: 0,
-    size: 10,
-    sortField: "createdAt",
-    sortOrder: "desc",
-    queries: [],
-    filterType: "any",
+  const { query, handlers } = useDataTableQuery({
+    defaultSize: 10,
+    defaultSortField: "createdAt",
+    defaultSortOrder: "desc",
   });
 
   const { data, isLoading } = useQuery({
-    queryKey: ["ai-assistant", configId, "sessions", queryParams],
-    queryFn: () => getChatSessions(configId, queryParams),
+    queryKey: ["ai-assistant", configId, "sessions", query],
+    queryFn: () => getChatSessions(configId, query),
     enabled: !!configId,
   });
 
@@ -51,37 +48,9 @@ export function AiChatSessionsPanel({
   const [selectedSession, setSelectedSession] = useState<AiChatSessionDTO | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-  const handlePageChange = useCallback(
-    (page: number) => setQueryParams((p) => ({ ...p, page })),
-    [],
-  );
-  const handlePageSizeChange = useCallback(
-    (size: number) => setQueryParams((p) => ({ ...p, size, page: 0 })),
-    [],
-  );
-  const handleQueriesChange = useCallback(
-    (queries: string[]) =>
-      setQueryParams((p) => ({ ...p, queries, page: 0 })),
-    [],
-  );
-  const handleFilterTypeChange = useCallback(
-    (filterType: "any" | "all") =>
-      setQueryParams((p) => ({ ...p, filterType, page: 0 })),
-    [],
-  );
   const handleSearch = useCallback(
-    (query: string) =>
-      setQueryParams((p) => ({
-        ...p,
-        queries: query ? [query] : [],
-        page: 0,
-      })),
-    [],
-  );
-  const handleSortChange = useCallback(
-    (sortField: string, sortOrder: "asc" | "desc") =>
-      setQueryParams((p) => ({ ...p, sortField, sortOrder, page: 0 })),
-    [],
+    (query: string) => handlers.onQueriesChange(query ? [query] : []),
+    [handlers],
   );
 
   const handleRowDoubleClick = useCallback((row: AiChatSessionDTO) => {
@@ -156,17 +125,17 @@ export function AiChatSessionsPanel({
         columns={columns}
         data={data?.content || []}
         pageInfo={data}
-        onPageChange={handlePageChange}
-        onPageSizeChange={handlePageSizeChange}
+        onPageChange={handlers.onPageChange}
+        onPageSizeChange={handlers.onPageSizeChange}
         onSearch={handleSearch}
-        queries={queryParams.queries}
-        filterType={queryParams.filterType}
-        onQueriesChange={handleQueriesChange}
-        onFilterTypeChange={handleFilterTypeChange}
+        queries={query.queries}
+        filterType={query.filterType}
+        onQueriesChange={handlers.onQueriesChange}
+        onFilterTypeChange={handlers.onFilterTypeChange}
         isLoading={isLoading}
-        onSortChange={handleSortChange}
-        currentSortField={queryParams.sortField || "createdAt"}
-        currentSortOrder={queryParams.sortOrder || "desc"}
+        onSortChange={handlers.onSortChange}
+        currentSortField={query.sortField}
+        currentSortOrder={query.sortOrder}
         onRowDoubleClick={handleRowDoubleClick}
         emptyMessage={t("ai-assistant:sessions_empty")}
       />

@@ -9,6 +9,7 @@ import CrashPage from "./pages/CrashPage";
 import LoginPage from "./pages/Login";
 import DashboardPage from "./pages/Dashboard";
 import UsersPage from "./pages/UsersPage";
+import ImportsPage from "./pages/ImportsPage";
 import UserCreatePage from "./pages/UserCreatePage";
 import UserEditPage from "./pages/UserEditPage";
 import UserViewPage from "./pages/UserViewPage";
@@ -114,6 +115,7 @@ const App = () => (
                   <Route element={<ProtectedRoute roles={["admin"]} />}>
                     <Route path="/dashboard" element={<DashboardPage />} />
                     <Route path="/users" element={<UsersPage />} />
+                    <Route path="/imports" element={<ImportsPage />} />
                     <Route path="/users/create" element={<UserCreatePage />} />
                     <Route path="/users/view/:id" element={<UserViewPage />} />
                     <Route path="/users/edit/:id" element={<UserEditPage />} />

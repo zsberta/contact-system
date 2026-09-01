@@ -4,7 +4,7 @@
 // Supports ?projectId=N deep-link filtering.
 // ----------------------------------------------------------------------------
 
-import React, { useState, useCallback } from "react";
+import React, { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/DataTable";
 import { Badge } from "@/components/ui/badge";
 import { PlusCircle } from "lucide-react";
-import { QueryParams } from "@/types/common";
 import {
   getAllFaqItemsPaged,
   GetAllFaqItemsParams,
@@ -22,6 +21,7 @@ import {
 import { FaqItemDTO, FaqItemStatus } from "@/types/faq";
 import FaqActions from "@/components/faq/FaqActions";
 import FaqPublishButton from "@/components/faq/FaqPublishButton";
+import { useDataTableQuery } from "@/hooks/useDataTableQuery";
 
 const statusBadgeVariant = (status: FaqItemStatus) => {
   switch (status) {
@@ -57,24 +57,19 @@ const FaqPage: React.FC<FaqPageProps> = ({ basePath = "/faq", contextProjectId =
       ? statusParam
       : undefined;
 
-
-
-  const [queryParams, setQueryParams] = useState<QueryParams>({
-    page: 0,
-    size: 10,
-    sortField: "sortOrder",
-    sortOrder: "asc",
-    queries: [],
-    filterType: "any",
+  const { query, handlers } = useDataTableQuery({
+    defaultSize: 10,
+    defaultSortField: "sortOrder",
+    defaultSortOrder: "asc",
   });
 
   const fetchParams: GetAllFaqItemsParams = {
-    page: queryParams.page,
-    size: queryParams.size,
-    sortField: queryParams.sortField,
-    sortOrder: queryParams.sortOrder,
-    queries: queryParams.queries,
-    filterType: queryParams.filterType,
+    page: query.page,
+    size: query.size,
+    sortField: query.sortField,
+    sortOrder: query.sortOrder,
+    queries: query.queries,
+    filterType: query.filterType,
     ...(projectIdFilter !== undefined ? { projectId: projectIdFilter } : {}),
     ...(statusFilter !== undefined ? { status: statusFilter } : {}),
   };
@@ -82,41 +77,13 @@ const FaqPage: React.FC<FaqPageProps> = ({ basePath = "/faq", contextProjectId =
   const queryKeyProjectId = projectIdFilter ?? contextProjectId ?? null;
 
   const { data, isLoading } = useQuery<PageFaqItemDTO>({
-    queryKey: ["faq", queryParams, queryKeyProjectId, statusFilter],
+    queryKey: ["faq", query, queryKeyProjectId, statusFilter],
     queryFn: () => getAllFaqItemsPaged(fetchParams),
   });
 
-  const handlePageChange = useCallback(
-    (page: number) => setQueryParams((p) => ({ ...p, page })),
-    [],
-  );
-  const handlePageSizeChange = useCallback(
-    (size: number) => setQueryParams((p) => ({ ...p, size, page: 0 })),
-    [],
-  );
-  const handleQueriesChange = useCallback(
-    (queries: string[]) =>
-      setQueryParams((p) => ({ ...p, queries, page: 0 })),
-    [],
-  );
-  const handleFilterTypeChange = useCallback(
-    (filterType: "any" | "all") =>
-      setQueryParams((p) => ({ ...p, filterType, page: 0 })),
-    [],
-  );
   const handleSearch = useCallback(
-    (query: string) =>
-      setQueryParams((p) => ({
-        ...p,
-        queries: query ? [query] : [],
-        page: 0,
-      })),
-    [],
-  );
-  const handleSortChange = useCallback(
-    (sortField: string, sortOrder: "asc" | "desc") =>
-      setQueryParams((p) => ({ ...p, sortField, sortOrder, page: 0 })),
-    [],
+    (query: string) => handlers.onQueriesChange(query ? [query] : []),
+    [handlers],
   );
   const handleRowDoubleClick = useCallback(
     (row: FaqItemDTO) => navigate(`${basePath}/view/${row.id}`),
@@ -202,17 +169,17 @@ const FaqPage: React.FC<FaqPageProps> = ({ basePath = "/faq", contextProjectId =
             columns={columns}
             data={data?.content || []}
             pageInfo={data}
-            onPageChange={handlePageChange}
-            onPageSizeChange={handlePageSizeChange}
+            onPageChange={handlers.onPageChange}
+            onPageSizeChange={handlers.onPageSizeChange}
             onSearch={handleSearch}
             isLoading={isLoading}
-            queries={queryParams.queries}
-            filterType={queryParams.filterType}
-            onQueriesChange={handleQueriesChange}
-            onFilterTypeChange={handleFilterTypeChange}
-            onSortChange={handleSortChange}
-            currentSortField={queryParams.sortField || "sortOrder"}
-            currentSortOrder={queryParams.sortOrder || "asc"}
+            queries={query.queries}
+            filterType={query.filterType}
+            onQueriesChange={handlers.onQueriesChange}
+            onFilterTypeChange={handlers.onFilterTypeChange}
+            onSortChange={handlers.onSortChange}
+            currentSortField={query.sortField || "sortOrder"}
+            currentSortOrder={query.sortOrder || "asc"}
             onRowDoubleClick={handleRowDoubleClick}
             emptyMessage={t("faq:empty", "M\u00e9g nincsenek GYIK t\u00e9telek.")}
           />

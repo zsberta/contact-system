@@ -2,6 +2,7 @@
   "dashboard": "Dashboard",
   "projects": "Projects",
   "users": "Users",
+  "imports": "Imports",
   "forms": "Forms",
   "reservations": "Reservations",
   "reservation_list": "All Reservations",
