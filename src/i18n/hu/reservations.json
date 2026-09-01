@@ -267,6 +267,8 @@
   "embed_url": "Beágyazási URL",
   "embed_title": "Beágyazó widget címe",
   "embed_title_help": "A nyilvános foglalási widgetben megjelenő címsor",
+  "timezone": "Időzóna",
+  "timezone_help": "Az időzóna, amelyet az e-mail értesítések és a dátum megjelenítés használ.",
   "privacy_policy_url": "Adatvédelmi tájékoztató URL",
   "privacy_policy_url_placeholder": "https://example.com/adatvedelem",
   "privacy_policy_url_help": "Az adatvédelmi tájékoztató linkje a beágyazási űrlapon (opcionális).",

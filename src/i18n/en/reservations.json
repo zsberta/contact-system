@@ -267,6 +267,8 @@
   "embed_url": "Embed URL",
   "embed_title": "Embed widget title",
   "embed_title_help": "Heading shown in the public booking widget",
+  "timezone": "Timezone",
+  "timezone_help": "Timezone used for email notifications and date display.",
   "privacy_policy_url": "Privacy policy URL",
   "privacy_policy_url_placeholder": "https://example.com/privacy",
   "privacy_policy_url_help": "Link to the privacy policy on the embed form (optional).",

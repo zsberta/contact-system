@@ -44,7 +44,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Copy,
+  Copy, Clock,
   ClipboardCheck,
   Globe,
   Lock,
@@ -85,6 +85,35 @@ const STATUS_OPTIONS: ReservationStatus[] = ["active", "disabled"];
 
 
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+const TIMEZONE_OPTIONS = [
+  "UTC",
+  "Europe/Budapest",
+  "Europe/Berlin",
+  "Europe/London",
+  "Europe/Paris",
+  "Europe/Rome",
+  "Europe/Vienna",
+  "Europe/Warsaw",
+  "Europe/Prague",
+  "Europe/Bratislava",
+  "Europe/Ljubljana",
+  "Europe/Zagreb",
+  "Europe/Belgrade",
+  "Europe/Bucharest",
+  "Europe/Sofia",
+  "Europe/Athens",
+  "Europe/Istanbul",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "Asia/Tokyo",
+  "Asia/Shanghai",
+  "Asia/Kolkata",
+  "Asia/Dubai",
+  "Australia/Sydney",
+];
 
 const ReservationForm = ({
   initialData,
@@ -156,6 +185,7 @@ const ReservationForm = ({
         iframeHeight: values.iframeHeight,
         privacyPolicyUrl: values.privacyPolicyUrl || null,
         cookiePolicyUrl: values.cookiePolicyUrl || null,
+        timezone: values.timezone,
       };
       onSubmit(payload);
     } else {
@@ -170,6 +200,7 @@ const ReservationForm = ({
         iframeHeight: values.iframeHeight,
         privacyPolicyUrl: values.privacyPolicyUrl || null,
         cookiePolicyUrl: values.cookiePolicyUrl || null,
+        timezone: values.timezone,
       };
       onSubmit(payload);
     }
@@ -425,6 +456,40 @@ const ReservationForm = ({
               )}
             />
 
+            {/* Timezone */}
+            <FormField
+              control={form.control}
+              name="timezone"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center gap-2">
+                    <Clock className="h-4 w-4" />
+                    {t("reservations:timezone", { defaultValue: "Timezone" })}
+                  </FormLabel>
+                  <FormControl>
+                    <Select
+                      value={field.value}
+                      onValueChange={(v) => field.onChange(v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="UTC" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TIMEZONE_OPTIONS.map((tz) => (
+                          <SelectItem key={tz} value={tz}>
+                            {tz}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FormControl>
+                  <FormDescription>
+                    {t("reservations:timezone_help", { defaultValue: "Timezone used for email notifications and date display." })}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             {/* Embed widget settings */}
             <div className="grid grid-cols-3 gap-4">
               <FormField
