@@ -63,6 +63,7 @@ import AiAssistantViewPage from "./pages/AiAssistantViewPage";
 import AiAssistantKnowledgePage from "./pages/AiAssistantKnowledgePage";
 import AiAssistantSnippetPage from "./pages/AiAssistantSnippetPage";
 import AiAssistantSessionsPage from "./pages/AiAssistantSessionsPage";
+import BulkEmailPage from "./pages/BulkEmailPage";
 import SetPasswordPage from "./pages/SetPasswordPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
@@ -116,6 +117,7 @@ const App = () => (
                     <Route path="/dashboard" element={<DashboardPage />} />
                     <Route path="/users" element={<UsersPage />} />
                     <Route path="/imports" element={<ImportsPage />} />
+                    <Route path="/bulk-email" element={<BulkEmailPage />} />
                     <Route path="/users/create" element={<UserCreatePage />} />
                     <Route path="/users/view/:id" element={<UserViewPage />} />
                     <Route path="/users/edit/:id" element={<UserEditPage />} />

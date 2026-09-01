@@ -938,3 +938,26 @@ export const importBookings = (payload: ImportBookingsPayload): Promise<ImportCo
     body: JSON.stringify(payload),
   });
 };
+
+// --- Bulk Email (admin) ---
+
+export interface BulkEmailPayload {
+  projectId: number;
+  subject: string;
+  body: string;
+}
+
+export interface BulkEmailResult {
+  success: boolean;
+  emailsQueued: number;
+  emailsSkipped: number;
+  totalCustomers: number;
+  message?: string;
+}
+
+export const sendBulkEmail = (payload: BulkEmailPayload): Promise<BulkEmailResult> => {
+  return apiFetch<BulkEmailResult>("/bulk-email", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+};

@@ -34,6 +34,7 @@ import { router as aiAssistantRouter } from "./routes/ai-assistant.js";
 import { router as aiAssistantEmbedRouter } from "./routes/ai-assistant-embed.js";
 import { router as aiConfigPresetsRouter } from "./routes/ai-config-presets.js";
 import { router as internalRouter } from "./routes/internal.js";
+import { router as bulkEmailRouter } from "./routes/bulk-email.js";
 import { router as projectModulesRouter } from "./routes/project-modules.js";
 import { pool } from "./db/pool.js";
 import { assertSafeStartup } from "./lib/startup-guard.js";
@@ -170,6 +171,8 @@ app.use("/api/reservations", reservationsRouter);
 
 // Admin-only CSV import module — isolated from reservation endpoints.
 app.use("/api/imports", importsRouter);
+// Admin-only bulk email — send freeform messages to all customers of a project.
+app.use("/api/bulk-email", bulkEmailRouter);
 
 // Analytics module — same sibling pattern as Forms / Reservations. Admin
 // CRUD lives on /api/analytics (mounted below), the public script loader

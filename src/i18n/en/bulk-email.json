@@ -1,0 +1,18 @@
+{
+  "title": "Bulk Email",
+  "project": "Project",
+  "select_project_placeholder": "Select a project...",
+  "will_send_to": "Emails will be sent to all active reservation customers of this project.",
+  "subject": "Subject",
+  "subject_placeholder": "Enter email subject...",
+  "message": "Message",
+  "message_placeholder": "Type your message here... Newlines will be preserved in the email.",
+  "newline_hint": "Newlines are preserved in the email. Use blank lines to separate paragraphs.",
+  "send": "Send Email",
+  "sending": "Sending...",
+  "send_success": "{{count}} email(s) queued for sending.",
+  "send_error": "Failed to send emails.",
+  "select_project": "Please select a project.",
+  "enter_subject": "Please enter a subject.",
+  "enter_body": "Please enter a message."
+}

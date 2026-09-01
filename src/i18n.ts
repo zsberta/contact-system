@@ -19,6 +19,7 @@ import enFaq from "./i18n/en/faq.json";
 import enService from "./i18n/en/service.json";
 import enAiAssistant from "./i18n/en/ai-assistant.json";
 import enImports from "./i18n/en/imports.json";
+import enBulkEmail from "./i18n/en/bulk-email.json";
 
 import huAuth from "./i18n/hu/auth.json";
 import huCommon from "./i18n/hu/common.json";
@@ -38,6 +39,7 @@ import huFaq from "./i18n/hu/faq.json";
 import huService from "./i18n/hu/service.json";
 import huAiAssistant from "./i18n/hu/ai-assistant.json";
 import huImports from "./i18n/hu/imports.json";
+import huBulkEmail from "./i18n/hu/bulk-email.json";
 
 const resources = {
   en: {
@@ -59,6 +61,7 @@ const resources = {
     service: enService,
     "ai-assistant": enAiAssistant,
     imports: enImports,
+    "bulk-email": enBulkEmail,
   },
   hu: {
     auth: huAuth,
@@ -79,6 +82,7 @@ const resources = {
     service: huService,
     "ai-assistant": huAiAssistant,
     imports: huImports,
+    "bulk-email": huBulkEmail,
   },
 
 };
@@ -106,6 +110,7 @@ i18n.use(initReactI18next).init({
     "faq",
     "service",
     "ai-assistant",
+    "bulk-email",
   ],
   interpolation: { escapeValue: false },
 });

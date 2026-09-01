@@ -1,0 +1,18 @@
+{
+  "title": "Tömeges levél",
+  "project": "Projekt",
+  "select_project_placeholder": "Válassz projektet...",
+  "will_send_to": "Az email-ek a projekt minden aktív foglalási ügyfelének elküldésre kerülnek.",
+  "subject": "Tárgy",
+  "subject_placeholder": "Add meg az email tárgyát...",
+  "message": "Üzenet",
+  "message_placeholder": "Írd ide az üzeneted... A sortörések megőrződnek az email-ben.",
+  "newline_hint": "A sortörések megőrződnek az email-ben. Üres sorokkal választhatod el a bekezdéseket.",
+  "send": "Email küldése",
+  "sending": "Küldés...",
+  "send_success": "{{count}} email sikeresen a sorba állítva.",
+  "send_error": "Az email-ek küldése sikertelen.",
+  "select_project": "Kérjük, válassz projektet.",
+  "enter_subject": "Kérjük, adj meg tárgyat.",
+  "enter_body": "Kérjük, írj üzenetet."
+}

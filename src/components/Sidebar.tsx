@@ -19,6 +19,7 @@ import {
   Lock,
   List,
   Upload,
+  Mail,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -170,6 +171,10 @@ const Sidebar = ({ onClose }: SidebarProps = {}) => {
           <NavLink to="/imports" onClick={() => onClose?.()} className={linkClass}>
             <Upload className="h-4 w-4" />
             <span>{t("navigation:imports")}</span>
+          </NavLink>
+          <NavLink to="/bulk-email" onClick={() => onClose?.()} className={linkClass}>
+            <Mail className="h-4 w-4" />
+            <span>{t("navigation:bulk_email")}</span>
           </NavLink>
         </>
       )}
