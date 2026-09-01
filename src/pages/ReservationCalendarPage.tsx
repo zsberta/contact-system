@@ -188,7 +188,7 @@ function DaySession({
         <div className="min-w-0">
           {serviceName && <p className="text-xs font-semibold text-muted-foreground mb-0.5">{serviceName}</p>}
           <p className="text-sm font-medium leading-tight">
-            {fmtTime(locale, session.startsAt)} – {fmtTime(locale, session.endsAt)}
+            {session.startTime} – {session.endTime}
           </p>
           <p className="text-xs text-muted-foreground mt-0.5">
             {session.seatsTaken}/{session.capacity} {t("reservations:capacity").toLowerCase()}

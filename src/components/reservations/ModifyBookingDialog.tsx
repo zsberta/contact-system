@@ -204,7 +204,7 @@ export function ModifyBookingDialog({
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              {service.serviceName} · {fmtTime(locale, session.startsAt)} – {fmtTime(locale, session.endsAt)}
+              {service.serviceName} · {session.startTime} – {session.endTime}
             </p>
           </div>
 

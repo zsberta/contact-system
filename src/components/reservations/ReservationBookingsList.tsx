@@ -45,8 +45,8 @@ const isSameDay = (a: string, b: string) => {
 export function ReservationBookingsList({ reservationId }: Props) {
   const { t, i18n } = useTranslation(["reservations", "common"]);
   const locale = i18n.language?.startsWith("hu") ? "hu" : "en";
-  const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(locale, { year: "numeric", month: "numeric", day: "numeric" });
-  const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false });
+  const fmtDate = (iso: string, tz?: string) => new Date(iso).toLocaleDateString(locale, { year: "numeric", month: "numeric", day: "numeric", ...(tz ? { timeZone: tz } : {}) });
+  const fmtTime = (iso: string, tz?: string) => new Date(iso).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false, ...(tz ? { timeZone: tz } : {}) });
   const queryClient = useQueryClient();
   const [selectedBookingId, setSelectedBookingId] = useState<number | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -111,8 +111,8 @@ export function ReservationBookingsList({ reservationId }: Props) {
       accessorKey: "startsAt",
       header: t("reservations:booking_reservation"),
       cell: (row: ReservationBookingDTO) => isSameDay(row.startsAt, row.endsAt)
-        ? <>{fmtDate(row.startsAt)} <span className="font-semibold">{fmtTime(row.startsAt)} – {fmtTime(row.endsAt)}</span></>
-        : <>{fmtDate(row.startsAt)} {fmtTime(row.startsAt)} – {fmtDate(row.endsAt)} {fmtTime(row.endsAt)}</>,
+        ? <>{fmtDate(row.startsAt, row.timezone)} <span className="font-semibold">{fmtTime(row.startsAt, row.timezone)} – {fmtTime(row.endsAt, row.timezone)}</span></>
+        : <>{fmtDate(row.startsAt, row.timezone)} {fmtTime(row.startsAt, row.timezone)} – {fmtDate(row.endsAt, row.timezone)} {fmtTime(row.endsAt, row.timezone)}</>,
       enableSorting: true,
     },
     {

@@ -41,8 +41,8 @@ export function ReservationBookingDetailModal({
     return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
   };
 
-  const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(locale, { year: "numeric", month: "numeric", day: "numeric" });
-  const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false });
+  const fmtDate = (iso: string, tz?: string) => new Date(iso).toLocaleDateString(locale, { year: "numeric", month: "numeric", day: "numeric", ...(tz ? { timeZone: tz } : {}) });
+  const fmtTime = (iso: string, tz?: string) => new Date(iso).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false, ...(tz ? { timeZone: tz } : {}) });
 
   const { data, isLoading, error } = useQuery<ReservationBookingDTO, Error>({
     queryKey: ["reservation-booking", reservationId, bookingId],
@@ -121,9 +121,9 @@ export function ReservationBookingDetailModal({
                 </p>
                 <div className="text-sm">
                   {isSameDay(data.startsAt, data.endsAt) ? (
-                    <>{fmtDate(data.startsAt)} <span className="font-semibold text-foreground">{fmtTime(data.startsAt)} – {fmtTime(data.endsAt)}</span></>
+                    <>{fmtDate(data.startsAt, data.timezone)} <span className="font-semibold text-foreground">{fmtTime(data.startsAt, data.timezone)} – {fmtTime(data.endsAt, data.timezone)}</span></>
                   ) : (
-                    <>{fmtDate(data.startsAt)} <span className="font-semibold text-foreground">{fmtTime(data.startsAt)}</span> – {fmtDate(data.endsAt)} <span className="font-semibold text-foreground">{fmtTime(data.endsAt)}</span></>
+                    <>{fmtDate(data.startsAt, data.timezone)} <span className="font-semibold text-foreground">{fmtTime(data.startsAt, data.timezone)}</span> – {fmtDate(data.endsAt, data.timezone)} <span className="font-semibold text-foreground">{fmtTime(data.endsAt, data.timezone)}</span></>
                   )}
                 </div>
                 <div className="flex items-center justify-between">
