@@ -23,7 +23,7 @@ import { getScopedProjectIds, appendProjectScope } from "../lib/scope.js";
 // generateHolidayRows removed: holiday rules are now per-service in
 // reservation_service_holiday_rules. Holidays are checked dynamically.
 import { isHungarianHoliday } from "../lib/hungarian-holidays.js";
-import { checkSlotAvailability } from "../lib/reservation-availability.js";
+import { checkSlotAvailability, getScheduleWindowStartMin } from "../lib/reservation-availability.js";
 import {
   parseStrictIso,
   SLOT_GRID_MAX_MINUTES,
@@ -3136,8 +3136,16 @@ router.post("/:id/bookings", async (req, res, next) => {
       if (!fieldsResult.ok) return res.status(400).json({ errorMessage: fieldsResult.error });
     }
 
-    // Slot alignment validation
+    // Slot alignment validation — anchored to schedule window start
+    const tz = reservation.timezone || "UTC";
+    const scheduleWindowStartMin = await getScheduleWindowStartMin(
+      reservation.id,
+      serviceRow.id,
+      body.startsAt,
+      tz,
+    );
     const v = await validateBookingItem({
+      scheduleWindowStartMin,
       body,
       reservation,
       service: serviceRow,

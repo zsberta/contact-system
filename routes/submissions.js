@@ -11,7 +11,8 @@ import express from "express";
 import { pool } from "../db/pool.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
 import { getScopedProjectIds, appendProjectScope } from "../lib/scope.js";
-import { checkSlotAvailability } from "../lib/reservation-availability.js";
+import { checkSlotAvailability, getScheduleWindowStartMin } from "../lib/reservation-availability.js";
+import { validateSlotAlignment } from "../lib/booking-validation.js";
 
 export const router = express.Router();
 router.use(requireAuth);
@@ -640,26 +641,15 @@ router.post("/bookings", async (req, res, next) => {
       if (slot > SLOT_GRID_MAX_MINUTES) {
         return res.status(500).json({ errorMessage: "Server misconfiguration" });
       }
-      const startDate = new Date(startsAtIso);
-      const startDayAnchor = Date.UTC(
-        startDate.getUTCFullYear(),
-        startDate.getUTCMonth(),
-        startDate.getUTCDate(),
-        0, 0, 0, 0,
+      const tz = reservation.timezone || "UTC";
+      const scheduleWindowStartMin = await getScheduleWindowStartMin(
+        reservation.id, null, startsAtIso, tz,
       );
-      const startsMs = new Date(startsAtIso).getTime();
-      const offsetMin = Math.round((startsMs - startDayAnchor) / 60000);
-      if (offsetMin < 0 || (offsetMin % slot) !== 0) {
-        return res.status(400).json({
-          errorMessage: `startsAt must align to ${slot}-minute slot boundary`,
-        });
-      }
-      const endDate = new Date(endsAtIso);
-      const endOffsetMin = Math.round((endDate.getTime() - startDayAnchor) / 60000);
-      if (endOffsetMin <= 0 || (endOffsetMin % slot) !== 0) {
-        return res.status(400).json({
-          errorMessage: `endsAt must align to ${slot}-minute slot boundary`,
-        });
+      const alignResult = validateSlotAlignment(
+        startsAtIso, endsAtIso, slot, tz, scheduleWindowStartMin,
+      );
+      if (!alignResult.ok) {
+        return res.status(400).json({ errorMessage: alignResult.error });
       }
     }
 

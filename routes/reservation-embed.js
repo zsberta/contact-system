@@ -41,9 +41,9 @@ import path from "node:path";
 import fs from "node:fs";
 import { pool } from "../db/pool.js";
 import { notifySubmitter } from "../lib/email.js";
-import { checkSlotAvailability, getServiceAvailability } from "../lib/reservation-availability.js";
+import { checkSlotAvailability, getServiceAvailability, getScheduleWindowStartMin } from "../lib/reservation-availability.js";
 import { createReservationBooking, upsertReservationCustomer, rowToReservationBookingDTO } from "../lib/reservation-booking.js";
-import { validateReservationContact, validateReservationServiceFields } from "../lib/booking-validation.js";
+import { validateReservationContact, validateReservationServiceFields, validateSlotAlignment } from "../lib/booking-validation.js";
 import {
   isValidReservationCustomerProfileToken,
   resolveReservationCustomerProfiles,
@@ -517,7 +517,7 @@ router.post(
 
       // Granularity alignment: when slot_duration_minutes is configured
       // AND granularity is hour / minute, requires startsAt (and endsAt)
-      // to fall exactly on a slot boundary relative to a sensible anchor.
+      // to fall exactly on a slot boundary relative to the schedule window.
       if (
         serviceRow.slot_duration_minutes !== null &&
         serviceRow.slot_duration_minutes !== undefined &&
@@ -527,25 +527,15 @@ router.post(
         if (slot > SLOT_GRID_MAX_MINUTES) {
           return res.status(500).json({ errorMessage: "Server misconfiguration" });
         }
-        const startDate = new Date(startsAtIso);
-        const startDayAnchor = Date.UTC(
-          startDate.getUTCFullYear(),
-          startDate.getUTCMonth(),
-          startDate.getUTCDate(),
-          0, 0, 0, 0,
+        const tz = reservation.timezone || "UTC";
+        const scheduleWindowStartMin = await getScheduleWindowStartMin(
+          reservationId, serviceId, startsAtIso, tz,
         );
-        const offsetMin = Math.round((startsMs - startDayAnchor) / 60000);
-        if (offsetMin < 0 || (offsetMin % slot) !== 0) {
-          return res.status(400).json({
-            errorMessage: `startsAt must align to ${slot}-minute slot boundary`,
-          });
-        }
-        const endDate = new Date(endsAtIso);
-        const endOffsetMin = Math.round((endDate.getTime() - startDayAnchor) / 60000);
-        if (endOffsetMin <= 0 || (endOffsetMin % slot) !== 0) {
-          return res.status(400).json({
-            errorMessage: `endsAt must align to ${slot}-minute slot boundary`,
-          });
+        const alignResult = validateSlotAlignment(
+          startsAtIso, endsAtIso, slot, tz, scheduleWindowStartMin,
+        );
+        if (!alignResult.ok) {
+          return res.status(400).json({ errorMessage: alignResult.error });
         }
       }
 
@@ -1260,25 +1250,15 @@ router.patch(
         serviceRow.granularity !== "day"
       ) {
         const slot = serviceRow.slot_duration_minutes;
-        const startDate = new Date(startsAtIso);
-        const startDayAnchor = Date.UTC(
-          startDate.getUTCFullYear(),
-          startDate.getUTCMonth(),
-          startDate.getUTCDate(),
-          0, 0, 0, 0,
+        const tz = reservation.timezone || "UTC";
+        const scheduleWindowStartMin = await getScheduleWindowStartMin(
+          Number(reservation.id), existing.service_id, startsAtIso, tz,
         );
-        const offsetMin = Math.round((startsMs - startDayAnchor) / 60000);
-        if (offsetMin < 0 || (offsetMin % slot) !== 0) {
-          return res.status(400).json({
-            errorMessage: `startsAt must align to ${slot}-minute slot boundary`,
-          });
-        }
-        const endDate = new Date(endsAtIso);
-        const endOffsetMin = Math.round((endDate.getTime() - startDayAnchor) / 60000);
-        if (endOffsetMin <= 0 || (endOffsetMin % slot) !== 0) {
-          return res.status(400).json({
-            errorMessage: `endsAt must align to ${slot}-minute slot boundary`,
-          });
+        const alignResult = validateSlotAlignment(
+          startsAtIso, endsAtIso, slot, tz, scheduleWindowStartMin,
+        );
+        if (!alignResult.ok) {
+          return res.status(400).json({ errorMessage: alignResult.error });
         }
       }
 
