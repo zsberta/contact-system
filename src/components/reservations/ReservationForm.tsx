@@ -72,6 +72,7 @@ interface ReservationFormValues {
   iframeHeight: string;
   privacyPolicyUrl: string;
   cookiePolicyUrl: string;
+  timezone: string;
 }
 
 interface ReservationFormProps {
@@ -141,6 +142,7 @@ const ReservationForm = ({
     iframeHeight: z.string(),
     privacyPolicyUrl: z.string(),
     cookiePolicyUrl: z.string(),
+    timezone: z.string(),
   });
 
   const form = useForm<ReservationFormValues, unknown, ReservationFormValues>({
@@ -157,6 +159,7 @@ const ReservationForm = ({
       iframeHeight: initialData?.iframeHeight ?? "760px",
       privacyPolicyUrl: initialData?.privacyPolicyUrl ?? "",
       cookiePolicyUrl: initialData?.cookiePolicyUrl ?? "",
+      timezone: initialData?.timezone ?? "UTC",
     },
   });
 
