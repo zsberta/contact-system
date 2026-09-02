@@ -619,6 +619,7 @@ export interface CalendarBookingSummary {
 }
 
 export interface CalendarSessionSummary {
+  workerUserId: number | null;
   workerFirstName: string | null;
   workerLastName: string | null;
   startTime: string;

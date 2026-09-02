@@ -468,7 +468,7 @@ function formatTimeInTz(date, timezone) {
   });
 }
 
-function generateServiceSlotsForDate({ service, schedules, timezone, dateStr, disabledRanges, enabledHolidays, bookingsForDate }) {
+function generateServiceSlotsForDate({ service, schedules, timezone, dateStr, disabledRanges, enabledHolidays, bookingsForDate, includePast = false }) {
   const date = new Date(`${dateStr}T00:00:00Z`);
   const windows = collectScheduleWindows(schedules, date);
   const slots = [];
@@ -504,12 +504,14 @@ function generateServiceSlotsForDate({ service, schedules, timezone, dateStr, di
       const startLabel = `${String(cursorHour).padStart(2, "0")}:${String(cursorMinute).padStart(2, "0")}`;
       if (formatTimeInTz(startUtc, timezone) !== startLabel) continue;
 
-      const now = new Date();
-      const leadTimeMs = Number(service.lead_time_minutes || 0) * 60000;
-      if (startUtc.getTime() < now.getTime() + leadTimeMs) continue;
-      if (service.max_advance_days) {
-        const maxAdvanceMs = Number(service.max_advance_days) * 24 * 60 * 60 * 1000;
-        if (startUtc.getTime() > now.getTime() + maxAdvanceMs) continue;
+      if (!includePast) {
+        const now = new Date();
+        const leadTimeMs = Number(service.lead_time_minutes || 0) * 60000;
+        if (startUtc.getTime() < now.getTime() + leadTimeMs) continue;
+        if (service.max_advance_days) {
+          const maxAdvanceMs = Number(service.max_advance_days) * 24 * 60 * 60 * 1000;
+          if (startUtc.getTime() > now.getTime() + maxAdvanceMs) continue;
+        }
       }
       if (overlapsDisabledRange(startUtc, endUtc, disabledRanges)) continue;
 
@@ -648,6 +650,7 @@ async function getCalendarMonthSlots({ reservationId, monthKey, db = pool }) {
         disabledRanges: serviceRanges,
         enabledHolidays: serviceHolidayKeys,
         bookingsForDate: aggregateActiveBookings(serviceBookings),
+        includePast: true,
       });
 
       for (const slot of generatedSlots) {
@@ -712,6 +715,7 @@ async function getCalendarDayDetails({ reservationId, dateStr, db = pool }) {
       const capacity = Number(service.capacity || 0);
 
       sessions.push({
+        workerUserId: booking.worker_user_id != null ? Number(booking.worker_user_id) : (service.worker_user_id != null ? Number(service.worker_user_id) : null),
         workerFirstName: booking.worker_first_name || service.worker_first_name || null,
         workerLastName: booking.worker_last_name || service.worker_last_name || null,
         startTime: formatTimeFromIso(startIso, reservationMeta.timezone),

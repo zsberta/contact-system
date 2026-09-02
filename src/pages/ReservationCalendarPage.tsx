@@ -663,7 +663,15 @@ export default function ReservationCalendarPage() {
       : ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
   const selectedDayDate = selectedDateStr ? new Date(`${selectedDateStr}T12:00:00Z`) : null;
-  const dayServices = dayQuery.data?.services ?? [];
+  const allDayServices = dayQuery.data?.services ?? [];
+  const dayServices = workerFilterId != null
+    ? allDayServices
+        .map((svc) => ({
+          ...svc,
+          sessions: svc.sessions.filter((s) => s.workerUserId === workerFilterId),
+        }))
+        .filter((svc) => svc.sessions.length > 0)
+    : allDayServices;
   const selectedServiceOptions = (servicesQuery.data ?? []).filter(
     (service) => service.status === "active",
   );
@@ -827,6 +835,21 @@ export default function ReservationCalendarPage() {
               {t("reservations:calendar_add_booking")}
             </Button>
           </DialogHeader>
+
+          <div className="flex items-center gap-2 px-1 pb-1 text-sm">
+            <select
+              value={workerFilterId ?? ""}
+              onChange={(e) => setWorkerFilterId(e.target.value ? Number(e.target.value) : null)}
+              className="rounded-md border bg-background px-2 py-1 text-sm"
+            >
+              <option value="">{t("reservations:calendar_all_workers", "Minden felelős")}</option>
+              {workers?.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.lastName} {w.firstName}
+                </option>
+              ))}
+            </select>
+          </div>
 
           <div className="overflow-y-auto flex-1 -mx-6 px-6 space-y-3">
             {showCreateForm && (
