@@ -2949,10 +2949,6 @@ router.patch("/:id/bookings/:bookingId", async (req, res, next) => {
       if (pre.rowCount === 0 || !req.user.projectIds?.includes(Number(pre.rows[0].project_id))) {
         return res.status(404).json({ errorMessage: "Booking not found" });
       }
-      // Endusers can only update bookings on their assigned services
-      if (booking.svc_worker_user_id && booking.svc_worker_user_id !== req.user.id) {
-        return res.status(403).json({ errorMessage: "Not authorized for this service" });
-      }
     }
 
     const sets = [`status = $1`];
