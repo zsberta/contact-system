@@ -663,14 +663,13 @@ router.post(
       }
 
       // Customer confirmation — project-branded booking email
-      // Footer "write to" = worker email, sign-off = worker name
+      // Footer "write to" = project contact email, sign-off = worker name
       notifySubmitter({
         kind: "reservation", projectId: reservation.project_id,
         formName: serviceRow.name || reservation.name, data: null,
         locale: locale || "hu", startsAt, endsAt,
         bookingId, serviceName: serviceRow.name,
         email: contactResult.value.email,
-        replyTo: workerEmail || undefined,
         signerName: workerName || undefined,
         bookingToken: booking.booking_token,
         secretToken,
@@ -690,6 +689,7 @@ router.post(
           customerEmail: contactResult.value.email,
           customerPhone: contactResult.value.phone,
           comment: contactResult.value.comment || null,
+          timezone: reservation.timezone || "UTC",
         }).catch(() => {});
       }
 

@@ -3191,14 +3191,13 @@ router.post("/:id/bookings", async (req, res, next) => {
       } catch { /* ignore */ }
     }
 
-    // Customer confirmation — footer "write to" = worker email, sign-off = worker name
+    // Customer confirmation — footer "write to" = project contact email, sign-off = worker name
     notifySubmitter({
       kind: "reservation", projectId: reservation.project_id,
       formName: serviceRow.name || "Reservation", data: null,
       locale: body.locale || "hu", startsAt: v.startsAtIso, endsAt: v.endsAtIso,
       bookingId: result.booking.id, serviceName: serviceRow.name,
       email: contactResult.value.email,
-      replyTo: workerEmail || undefined,
       signerName: workerName || undefined,
       bookingToken: result.booking.booking_token,
       secretToken: reservation.secret_token,
@@ -3218,6 +3217,7 @@ router.post("/:id/bookings", async (req, res, next) => {
         customerEmail: contactResult.value.email,
         customerPhone: contactResult.value.phone,
         comment: contactResult.value.comment || null,
+        timezone: reservation.timezone || "UTC",
       }).catch(() => {});
     }
 
