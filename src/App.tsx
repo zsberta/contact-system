@@ -1,8 +1,15 @@
+import { useEffect } from "react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
 import Index from "./pages/Index";
+
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+  return null;
+}
 import NotFound from "./pages/NotFound";
 import NoPermissionPage from "./pages/NoPermissionPage";
 import CrashPage from "./pages/CrashPage";
@@ -98,6 +105,7 @@ const App = () => (
     <TooltipProvider>
       <Sonner />
       <BrowserRouter>
+        <ScrollToTop />
         <ErrorBoundary>
           <AuthProvider>
             <Routes>

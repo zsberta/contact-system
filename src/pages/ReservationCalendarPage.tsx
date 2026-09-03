@@ -4,7 +4,7 @@
 // creation surfaced from the selected service session.
 // ----------------------------------------------------------------------------
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
@@ -97,6 +97,28 @@ function ymd(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Get Monday of the week containing the given date (UTC). */
+function getWeekStart(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getUTCDay();
+  const diff = (day + 6) % 7; // Mon=0 .. Sun=6
+  d.setUTCDate(d.getUTCDate() - diff);
+  return d;
+}
+
+/** Build 7-day array starting from a Monday. */
+function buildWeekDays(monday: Date): Date[] {
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setUTCDate(d.getUTCDate() + i);
+    return d;
+  });
+}
+
+/** Time-based grid constants */
+const TIME_GRID_START = 7; // 07:00
+const TIME_GRID_END = 21;  // 21:00
+
 function slotKey(slot: CalendarSlotSummary) {
   return `${slot.date}:${slot.serviceId}:${slot.startTime}`;
 }
@@ -109,7 +131,8 @@ function fmtTime(locale: string, iso: string) {
   });
 }
 
-function fmtPrice(price: number, currency: string | null | undefined, locale: string) {
+function fmtPrice(price: number | null | undefined, currency: string | null | undefined, locale: string) {
+  if (price == null || !Number.isFinite(price) || price < 0) return "—";
   try {
     return new Intl.NumberFormat(locale === "hu" ? "hu-HU" : "en-GB", {
       style: "currency",
@@ -140,16 +163,13 @@ function CalendarSlotChip({
   slot: CalendarSlotSummary;
   locale: string;
 }) {
-  const title = `${slot.serviceName}\n${slot.workerInitial ? `${slot.workerInitial} · ` : ""}${slot.seatsTaken}/${slot.capacity}\n${slot.startTime} – ${slot.endTime}`;
+  const title = `${slot.serviceName}\n${slot.seatsTaken}/${slot.capacity}\n${slot.startTime} – ${slot.endTime}`;
 
   return (
     <div
       className="text-[10px] leading-tight bg-primary/15 text-primary rounded px-1 py-0.5 truncate"
       title={title}
     >
-      {slot.workerInitial ? (
-        <span className="font-semibold">{slot.workerInitial}</span>
-      ) : null}{" "}
       {slot.seatsTaken}/{slot.capacity}{" "}
       {slot.startTime}–{slot.endTime}
     </div>
@@ -383,9 +403,25 @@ export default function ReservationCalendarPage() {
     moduleId: string;
   }>();
 
+  // ── localStorage helpers ─────────────────────────────────────────────────
+  // Use moduleIdParam (from URL, available on first render) not reservationId (async).
+  const calendarStorageKey = moduleIdParam ? `calendar-settings-${moduleIdParam}` : null;
+  const readCalendarSettings = () => {
+    if (!calendarStorageKey) return null;
+    try {
+      const raw = localStorage.getItem(calendarStorageKey);
+      return raw ? JSON.parse(raw) as { hideEmpty?: boolean; workerFilterId?: number | null; viewMode?: "month" | "week" | "day" } : null;
+    } catch {
+      return null;
+    }
+  };
+
   const today = new Date();
   const [year, setYear] = useState(today.getUTCFullYear());
   const [month, setMonth] = useState(today.getUTCMonth());
+  const [viewMode, setViewMode] = useState<"month" | "week" | "day">(() => readCalendarSettings()?.viewMode ?? "month");
+  const [weekStartDate, setWeekStartDate] = useState(() => getWeekStart(today));
+  const [dayDate, setDayDate] = useState(() => new Date(today));
 
   const [dayModalOpen, setDayModalOpen] = useState(false);
   const [selectedDateStr, setSelectedDateStr] = useState<string | null>(null);
@@ -397,8 +433,18 @@ export default function ReservationCalendarPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<ReservationCustomerDTO | null>(null);
 
   // Calendar filters
-  const [hideEmpty, setHideEmpty] = useState(false);
-  const [workerFilterId, setWorkerFilterId] = useState<number | null>(null);
+  const [hideEmpty, setHideEmpty] = useState(() => readCalendarSettings()?.hideEmpty ?? false);
+  const [workerFilterId, setWorkerFilterId] = useState<number | null>(() => readCalendarSettings()?.workerFilterId ?? null);
+
+  // Persist calendar settings to localStorage
+  useEffect(() => {
+    if (!calendarStorageKey) return;
+    try {
+      localStorage.setItem(calendarStorageKey, JSON.stringify({ hideEmpty, workerFilterId, viewMode }));
+    } catch {
+      // storage full or unavailable — silent
+    }
+  }, [calendarStorageKey, hideEmpty, workerFilterId, viewMode]);
 
   const monthQueryKey = `${String(year).padStart(4, "0")}-${String(month + 1).padStart(2, "0")}`;
   const monthQuery = useQuery({
@@ -485,7 +531,106 @@ export default function ReservationCalendarPage() {
     const now = new Date();
     setYear(now.getUTCFullYear());
     setMonth(now.getUTCMonth());
+    setWeekStartDate(getWeekStart(now));
+    setDayDate(new Date(now));
   }, []);
+
+  // ── week navigation ──────────────────────────────────────────────────────
+  const prevWeek = useCallback(() => {
+    setWeekStartDate((prev) => {
+      const d = new Date(prev);
+      d.setUTCDate(d.getUTCDate() - 7);
+      return d;
+    });
+  }, []);
+
+  const nextWeek = useCallback(() => {
+    setWeekStartDate((prev) => {
+      const d = new Date(prev);
+      d.setUTCDate(d.getUTCDate() + 7);
+      return d;
+    });
+  }, []);
+
+  // ── day navigation ──────────────────────────────────────────────────────
+  const prevDay = useCallback(() => {
+    setDayDate((prev) => {
+      const d = new Date(prev);
+      d.setUTCDate(d.getUTCDate() - 1);
+      return d;
+    });
+  }, []);
+
+  const nextDay = useCallback(() => {
+    setDayDate((prev) => {
+      const d = new Date(prev);
+      d.setUTCDate(d.getUTCDate() + 1);
+      return d;
+    });
+  }, []);
+
+  // ── week view data (reuse month API, filter to 7 days) ──────────────────
+  const weekDays = useMemo(() => buildWeekDays(weekStartDate), [weekStartDate]);
+
+  // Detect if the week spans two months — if so, fetch both.
+  const weekMonthKey1 = useMemo(() => {
+    const d = weekDays[0];
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  }, [weekDays]);
+  const weekMonthKey2 = useMemo(() => {
+    const d = weekDays[6];
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  }, [weekDays]);
+  const weekSpansTwoMonths = weekMonthKey1 !== weekMonthKey2;
+
+  const weekMonthQuery1 = useQuery({
+    queryKey: ["reservation-calendar-month", reservationId, weekMonthKey1, hideEmpty, workerFilterId],
+    queryFn: () => getReservationCalendarMonth(reservationId!, weekMonthKey1, { hideEmpty, workerId: workerFilterId }),
+    enabled: !!reservationId && viewMode === "week",
+  });
+  const weekMonthQuery2 = useQuery({
+    queryKey: ["reservation-calendar-month", reservationId, weekMonthKey2, hideEmpty, workerFilterId],
+    queryFn: () => getReservationCalendarMonth(reservationId!, weekMonthKey2, { hideEmpty, workerId: workerFilterId }),
+    enabled: !!reservationId && viewMode === "week" && weekSpansTwoMonths,
+  });
+
+  const weekMonthQueryLoading = weekMonthQuery1.isLoading || (weekSpansTwoMonths && weekMonthQuery2.isLoading);
+
+  const weekSlotsByDay = useMemo(() => {
+    const map: Record<string, CalendarSlotSummary[]> = {};
+    const weekDateStrs = new Set(weekDays.map(ymd));
+    const allSlots = [
+      ...(weekMonthQuery1.data?.slots ?? []),
+      ...(weekSpansTwoMonths ? (weekMonthQuery2.data?.slots ?? []) : []),
+    ];
+    for (const slot of allSlots) {
+      if (weekDateStrs.has(slot.date)) {
+        if (!map[slot.date]) map[slot.date] = [];
+        map[slot.date].push(slot);
+      }
+    }
+    return map;
+  }, [weekMonthQuery1.data, weekSpansTwoMonths, weekMonthQuery2.data, weekDays]);
+
+  // ── day view data (reuse day API) ──────────────────────────────────────
+  const dayDateStr = ymd(dayDate);
+  const dayViewQuery = useQuery({
+    queryKey: ["reservation-calendar-day", reservationId, dayDateStr],
+    queryFn: () => getReservationCalendarDay(reservationId!, dayDateStr),
+    enabled: !!reservationId && viewMode === "day",
+  });
+
+  // Filter day view by worker
+  const dayViewServices = useMemo(() => {
+    const all = dayViewQuery.data?.services ?? [];
+    if (workerFilterId == null) return all;
+    return all
+      .map((svc) => ({
+        ...svc,
+        sessions: svc.sessions.filter((s) => s.workerUserId === workerFilterId),
+      }))
+      .filter((svc) => svc.sessions.length > 0);
+  }, [dayViewQuery.data, workerFilterId]);
 
   const openDay = useCallback(
     (date: Date) => {
@@ -681,28 +826,61 @@ export default function ReservationCalendarPage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 w-full">
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
-            <div className="flex items-center gap-2">
-              <CalendarDays className="h-5 w-5 text-muted-foreground" />
-              <h2 className="text-lg font-bold">{t("reservations:calendar_title")}</h2>
+      <Card className="border-0 lg:border">
+        <CardContent className="p-0 lg:p-6 lg:pt-6">
+          <div className="flex flex-col gap-2 mb-4">
+            {/* Row 1: title + view toggle */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <CalendarDays className="h-5 w-5 text-muted-foreground" />
+                <h2 className="text-lg font-bold">{t("reservations:calendar_title")}</h2>
+              </div>
+              <div className="flex items-center border rounded-md overflow-hidden">
+                {(["month", "week", "day"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setViewMode(mode)}
+                    className={`px-2.5 py-1 text-xs font-medium transition-colors ${
+                      viewMode === mode
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-background hover:bg-accent text-muted-foreground"
+                    }`}
+                  >
+                    {t(`reservations:calendar_view_${mode}`)}
+                  </button>
+                ))}
+              </div>
             </div>
-
-            <div className="flex items-center gap-1 flex-wrap justify-center sm:justify-end">
-              <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={prevMonth}>
+            {/* Row 2: navigation arrows + date + today */}
+            <div className="flex items-center justify-center gap-1">
+              <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={viewMode === "month" ? prevMonth : viewMode === "week" ? prevWeek : prevDay}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <Button variant="outline" size="sm" className="h-8 px-3 font-semibold hidden sm:inline-flex" onClick={prevYear}>
-                {year - 1}
-              </Button>
-              <span className="text-sm font-semibold px-2">
-                {year}. {monthNames[month]}
-              </span>
-              <Button variant="outline" size="sm" className="h-8 px-3 font-semibold hidden sm:inline-flex" onClick={nextYear}>
-                {year + 1}
-              </Button>
-              <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={nextMonth}>
+              {viewMode === "month" && (
+                <>
+                  <Button variant="outline" size="sm" className="h-8 px-3 font-semibold hidden sm:inline-flex" onClick={prevYear}>
+                    {year - 1}
+                  </Button>
+                  <span className="text-sm font-semibold px-2">
+                    {year}. {monthNames[month]}
+                  </span>
+                  <Button variant="outline" size="sm" className="h-8 px-3 font-semibold hidden sm:inline-flex" onClick={nextYear}>
+                    {year + 1}
+                  </Button>
+                </>
+              )}
+              {viewMode === "week" && (
+                <span className="text-sm font-semibold px-2">
+                  {weekStartDate.toLocaleDateString(locale, { month: "short", day: "numeric" })} – {weekDays[6].toLocaleDateString(locale, { month: "short", day: "numeric", year: "numeric" })}
+                </span>
+              )}
+              {viewMode === "day" && (
+                <span className="text-sm font-semibold px-2">
+                  {dayDate.toLocaleDateString(locale, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                </span>
+              )}
+              <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={viewMode === "month" ? nextMonth : viewMode === "week" ? nextWeek : nextDay}>
                 <ChevronRight className="h-4 w-4" />
               </Button>
               <Button variant="ghost" size="sm" className="h-8 shrink-0" onClick={goToToday}>
@@ -737,65 +915,178 @@ export default function ReservationCalendarPage() {
             </select>
           </div>
 
-          <div className="grid grid-cols-7 border-b">
-            {dayNames.map((name) => (
-              <div key={name} className="text-center text-[10px] sm:text-xs font-medium text-muted-foreground py-1.5 sm:py-2">
-                {name}
+          {/* ═══════════════════ MONTH VIEW ═══════════════════ */}
+          {viewMode === "month" && (
+            <>
+              <div className="grid grid-cols-7 border-b">
+                {dayNames.map((name) => (
+                  <div key={name} className="text-center text-[10px] sm:text-xs font-medium text-muted-foreground py-1.5 sm:py-2">
+                    {name}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
 
-          {monthQuery.isLoading ? (
-            <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              {t("common:loading")}
-            </div>
-          ) : (
-            <div className="grid grid-cols-7">
-              {grid.map((row, ri) =>
-                row.map((date, ci) => {
-                  const dayStr = ymd(date);
-                  const isCurrentMonth = date.getUTCMonth() === month;
-                  const isToday = dayStr === todayStr;
-                  const daySlots = slotsByDay[dayStr] ?? [];
+              {monthQuery.isLoading ? (
+                <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  {t("common:loading")}
+                </div>
+              ) : (
+                <div className="grid grid-cols-7">
+                  {grid.map((row, ri) =>
+                    row.map((date, ci) => {
+                      const dayStr = ymd(date);
+                      const isCurrentMonth = date.getUTCMonth() === month;
+                      const isToday = dayStr === todayStr;
+                      const daySlots = slotsByDay[dayStr] ?? [];
 
-                  return (
-                    <button
-                      key={`${ri}-${ci}`}
-                      type="button"
-                      onClick={() => openDay(date)}
-                      className={`
-                        border-b border-r p-0.5 sm:p-1.5 text-left align-top transition-colors
-                        hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
-                        ${CELL_H}
-                        ${!isCurrentMonth ? "bg-muted/30 text-muted-foreground" : ""}
-                        ${isToday ? "ring-2 ring-primary ring-inset" : ""}
-                      `}
-                    >
-                      <span
-                        className={`
-                          inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 text-[10px] sm:text-xs font-medium rounded-full
-                          ${isToday ? "bg-primary text-primary-foreground" : ""}
-                        `}
-                      >
-                        {date.getUTCDate()}
-                      </span>
+                      return (
+                        <button
+                          key={`${ri}-${ci}`}
+                          type="button"
+                          onClick={() => openDay(date)}
+                          className={`
+                            border-b border-r p-0.5 sm:p-1.5 text-left align-top transition-colors
+                            hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
+                            ${CELL_H}
+                            ${!isCurrentMonth ? "bg-muted/30 text-muted-foreground" : ""}
+                            ${isToday ? "ring-2 ring-primary ring-inset" : ""}
+                          `}
+                        >
+                          <span
+                            className={`
+                              inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 text-[10px] sm:text-xs font-medium rounded-full
+                              ${isToday ? "bg-primary text-primary-foreground" : ""}
+                            `}
+                          >
+                            {date.getUTCDate()}
+                          </span>
 
-                      <div className="mt-0.5 space-y-0.5">
-                        {daySlots.slice(0, 2).map((slot) => (
-                          <CalendarSlotChip key={slotKey(slot)} slot={slot} locale={locale} />
-                        ))}
-                        {daySlots.length > 2 && (
-                          <div className="text-[9px] sm:text-[10px] text-muted-foreground">
-                            +{daySlots.length - 2}
+                          <div className="mt-0.5 space-y-0.5">
+                            {daySlots.slice(0, 2).map((slot) => (
+                              <CalendarSlotChip key={slotKey(slot)} slot={slot} locale={locale} />
+                            ))}
+                            {daySlots.length > 2 && (
+                              <div className="text-[9px] sm:text-[10px] text-muted-foreground">
+                                +{daySlots.length - 2}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    </button>
-                  );
-                }),
+                        </button>
+                      );
+                    }),
+                  )}
+                </div>
               )}
-            </div>
+            </>
+          )}
+
+          {/* ═══════════════════ WEEK VIEW ═══════════════════ */}
+          {viewMode === "week" && (
+            <>
+              {/* Day headers */}
+              <div className="grid grid-cols-[38px_repeat(7,minmax(0,1fr))] border-b">
+                <div /> {/* empty corner for time gutter */}
+                {weekDays.map((date) => {
+                  const dayStr = ymd(date);
+                  const isToday = dayStr === todayStr;
+                  return (
+                    <div key={dayStr} className="text-center px-0.5 py-1.5 min-w-0">
+                      <div className="text-[10px] sm:text-xs text-muted-foreground truncate">
+                        {date.toLocaleDateString(locale, { weekday: "short" })}
+                      </div>
+                      <div className={`inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 text-xs font-medium rounded-full ${isToday ? "bg-primary text-primary-foreground" : ""}`}>
+                        {date.getUTCDate()}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {weekMonthQueryLoading ? (
+                <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  {t("common:loading")}
+                </div>
+              ) : (
+                <div className="grid grid-cols-[38px_repeat(7,minmax(0,1fr))]">
+                  {Array.from({ length: TIME_GRID_END - TIME_GRID_START }, (_, i) => TIME_GRID_START + i).map((hour) => (
+                    <Fragment key={hour}>
+                      {/* Time label */}
+                      <div className="text-[10px] text-muted-foreground text-right pr-1.5 pt-0.5 border-r">
+                        {String(hour).padStart(2, "0")}:00
+                      </div>
+                      {/* Day cells */}
+                      {weekDays.map((date) => {
+                        const dayStr = ymd(date);
+                        const slots = (weekSlotsByDay[dayStr] ?? []).filter((s) => {
+                          const h = parseInt(s.startTime.split(":")[0], 10);
+                          return h === hour;
+                        });
+                        return (
+                          <div
+                            key={`${hour}-${dayStr}`}
+                            className="border-b border-r min-h-[2.5rem] p-0.5 min-w-0 overflow-hidden"
+                          >
+                            {slots.map((slot) => (
+                              <button
+                                key={slotKey(slot)}
+                                type="button"
+                                onClick={() => openDay(date)}
+                                className="w-full text-left rounded bg-primary/10 text-primary hover:bg-primary/20 px-1 py-0.5 mb-0.5 transition-colors"
+                                title={`${slot.serviceName}\n${slot.startTime}–${slot.endTime}\n${slot.seatsTaken}/${slot.capacity}`}
+                              >
+                                <div className="text-[10px] font-medium leading-tight break-words">
+                                  {slot.serviceName}
+                                </div>
+                                <div className="text-[9px] opacity-70 leading-tight whitespace-nowrap">
+                                  {slot.startTime}–{slot.endTime} {slot.seatsTaken}/{slot.capacity}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </Fragment>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ═══════════════════ DAY VIEW ═══════════════════ */}
+          {viewMode === "day" && (
+            <>
+              {dayViewQuery.isLoading ? (
+                <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  {t("common:loading")}
+                </div>
+              ) : dayViewServices.length === 0 ? (
+                <div className="py-12 text-center text-sm text-muted-foreground">
+                  {t("reservations:calendar_no_bookings_this_month")}
+                </div>
+              ) : (
+                <div className="space-y-2 py-2">
+                  {dayViewServices.flatMap((service) =>
+                    service.sessions.map((session, idx) => (
+                      <DaySession
+                        key={`${service.serviceId}-${session.startsAt}-${idx}`}
+                        session={session}
+                        locale={locale}
+                        t={t}
+                        onCancelBooking={handleCancelBooking}
+                        onCompleteBooking={handleCompleteBooking}
+                        onNoShowBooking={handleNoShowBooking}
+                        onModifyBooking={handleModifyBooking}
+                        serviceName={service.serviceName}
+                        service={service}
+                      />
+                    )),
+                  )}
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
