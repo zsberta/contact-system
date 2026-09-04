@@ -115,9 +115,11 @@ const Layout: React.FC = () => {
 
             <div className="flex-1" />
 
-            {/* Right side actions */}
+            {/* Notification bell — visible on all screen sizes */}
+            <NotificationBell />
+
+            {/* Right side actions — desktop only */}
             <div className="hidden md:flex items-center gap-2">
-              <NotificationBell />
               <LanguageSwitcher />
               <Button variant="outline" size="icon" onClick={handleLogout}>
                 <LogOut className="w-4 h-4" />

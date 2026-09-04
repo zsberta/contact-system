@@ -186,9 +186,9 @@ export const NotificationBell: React.FC = () => {
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[380px] p-0 mr-4 mt-2 border shadow-lg rounded-xl overflow-hidden"
-        align="end"
-        alignOffset={-16}
+        className="w-[85vw] max-w-[380px] p-0 mt-2 border shadow-lg rounded-xl overflow-hidden"
+        align="end" 
+
       >
         <div className="flex flex-col">
           {/* Header */}
