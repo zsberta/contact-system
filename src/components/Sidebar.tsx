@@ -176,6 +176,10 @@ const Sidebar = ({ onClose }: SidebarProps = {}) => {
             <Mail className="h-4 w-4" />
             <span>{t("navigation:bulk_email")}</span>
           </NavLink>
+          <NavLink to="/settings" onClick={() => onClose?.()} className={linkClass}>
+            <Settings className="h-4 w-4" />
+            <span>{t("navigation:settings")}</span>
+          </NavLink>
         </>
       )}
     </nav>

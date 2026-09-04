@@ -1,0 +1,11 @@
+{
+  "title": "Beállítások",
+  "description": "Rendszer szintű értesítési és e-mail beállítások.",
+  "worker_email_notifications": "Dolgozói e-mail értesítések",
+  "worker_email_notifications_desc": "E-mail értesítés küldése a dolgozóknak, ha új foglalás érkezik a hozzárendelt szolgáltatásukra. Nem befolyásolja az ügyféllel szembeni e-maileket.",
+  "worker_push_notifications": "Dolgozói push értesítések",
+  "worker_push_notifications_desc": "PWA push értesítés küldése a dolgozóknak, ha új foglalás érkezik a hozzárendelt szolgáltatásukra. A dolgozóknak engedélyezniük kell a push értesítéseket az eszközükön.",
+  "save": "Beállítások mentése",
+  "save_success": "Beállítások sikeresen elmentve.",
+  "save_error": "A beállítások mentése sikertelen."
+}

@@ -15,3 +15,13 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </HelmetProvider>,
 );
+
+// Register service worker for PWA push notifications
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").then(
+      (reg) => console.log("[sw] registered at scope:", reg.scope),
+      (err) => console.error("[sw] registration failed:", err),
+    );
+  });
+}

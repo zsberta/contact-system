@@ -1,0 +1,13 @@
+{
+  "title": "Értesítések",
+  "no_notifications": "Még nincsenek értesítések",
+  "mark_all_read": "Összes olvasottnak jelölése",
+  "enable_push": "Push értesítések engedélyezése",
+  "disable_push": "Letiltás ezen az eszközön",
+  "push_active": "Push aktív",
+  "push_blocked": "Az értesítések blokkolva vannak a böngésző beállításaiban.",
+  "push_not_supported": "A push értesítések nem támogatottak ezen az eszközön.",
+  "booking_created": "Új foglalás",
+  "booking_message": "{{customerName}} foglalt: {{serviceName}} — {{date}}",
+  "system": "Rendszer"
+}

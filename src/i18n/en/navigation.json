@@ -31,5 +31,6 @@
   "snippet": "Snippet",
   "chat_sessions": "Chat Sessions",
   "stats": "Stats",
-  "select_module": "Select module"
+  "select_module": "Select module",
+  "settings": "Settings"
 }

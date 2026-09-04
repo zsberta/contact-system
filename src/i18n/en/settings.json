@@ -1,0 +1,11 @@
+{
+  "title": "Settings",
+  "description": "System-wide notification and email settings.",
+  "worker_email_notifications": "Worker Email Notifications",
+  "worker_email_notifications_desc": "Send email notifications to workers when a new booking is created for their assigned service. Does not affect customer-facing emails.",
+  "worker_push_notifications": "Worker Push Notifications",
+  "worker_push_notifications_desc": "Send PWA push notifications to workers when a new booking is created for their assigned service. Workers must enable push on their device.",
+  "save": "Save Settings",
+  "save_success": "Settings saved successfully.",
+  "save_error": "Failed to save settings."
+}

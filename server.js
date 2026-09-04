@@ -36,6 +36,8 @@ import { router as aiConfigPresetsRouter } from "./routes/ai-config-presets.js";
 import { router as internalRouter } from "./routes/internal.js";
 import { router as bulkEmailRouter } from "./routes/bulk-email.js";
 import { router as projectModulesRouter } from "./routes/project-modules.js";
+import { router as notificationsRouter } from "./routes/notifications.js";
+import { router as settingsRouter } from "./routes/settings.js";
 import { pool } from "./db/pool.js";
 import { assertSafeStartup } from "./lib/startup-guard.js";
 import { stop as stopEmailQueue } from "./lib/email-queue.js";
@@ -173,6 +175,12 @@ app.use("/api/reservations", reservationsRouter);
 app.use("/api/imports", importsRouter);
 // Admin-only bulk email — send freeform messages to all customers of a project.
 app.use("/api/bulk-email", bulkEmailRouter);
+
+// Notifications — in-app notification center + push subscription management.
+app.use("/api/notifications", notificationsRouter);
+
+// System settings — admin-only notification preferences + VAPID key endpoint.
+app.use("/api/settings", settingsRouter);
 
 // Analytics module — same sibling pattern as Forms / Reservations. Admin
 // CRUD lives on /api/analytics (mounted below), the public script loader

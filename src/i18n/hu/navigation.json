@@ -31,5 +31,6 @@
   "snippet": "Kódrészlet",
   "chat_sessions": "Csevegési munkamenetek",
   "stats": "Statisztikák",
-  "select_module": "Modul kiválasztása"
+  "select_module": "Modul kiválasztása",
+  "settings": "Beállítások"
 }

@@ -1,0 +1,13 @@
+{
+  "title": "Notifications",
+  "no_notifications": "No notifications yet",
+  "mark_all_read": "Mark all read",
+  "enable_push": "Enable Push Notifications",
+  "disable_push": "Disable on this device",
+  "push_active": "Push active",
+  "push_blocked": "Notifications are blocked in your browser settings.",
+  "push_not_supported": "Push notifications are not supported on this device.",
+  "booking_created": "New Booking",
+  "booking_message": "{{customerName}} booked {{serviceName}} — {{date}}",
+  "system": "System"
+}

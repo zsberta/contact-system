@@ -39,6 +39,8 @@ import {
 } from "../lib/reservation-booking.js";
 import { getServiceAvailability } from "../lib/reservation-availability.js";
 import { notifySubmitter } from "../lib/email.js";
+import { createNotification, sendPushToUser } from "../lib/push.js";
+import { t, formatDate } from "../lib/notifications-i18n.js";
 import multer from "multer";
 import { fileTypeFromBuffer } from "file-type";
 import path from "node:path";
@@ -3212,8 +3214,21 @@ router.post("/:id/bookings", async (req, res, next) => {
       timezone: reservation.timezone || "UTC",
     }).catch(() => {});
 
+    // Fetch worker notification settings once (email + push + in-app)
+    let workerEmailEnabled = true;
+    let workerPushEnabled = true;
+    try {
+      const settingsRows = await pool.query(
+        "SELECT key, value FROM system_settings WHERE key IN ('worker_email_notifications', 'worker_push_notifications')"
+      );
+      for (const row of settingsRows.rows) {
+        if (row.key === "worker_email_notifications") workerEmailEnabled = row.value !== false;
+        if (row.key === "worker_push_notifications") workerPushEnabled = row.value !== false;
+      }
+    } catch { /* default both to enabled */ }
+
     // Worker notification — Nexus branding, customer details, no reply hint, no sign-off
-    if (workerEmail) {
+    if (workerEmail && workerEmailEnabled) {
       notifySubmitter({
         kind: "reservation", projectId: reservation.project_id,
         formName: serviceRow.name || "Reservation", data: null,
@@ -3227,6 +3242,39 @@ router.post("/:id/bookings", async (req, res, next) => {
         comment: contactResult.value.comment || null,
         timezone: reservation.timezone || "UTC",
       }).catch(() => {});
+    }
+
+    // In-app + push notification to worker
+    if (serviceRow.worker_user_id) {
+      const notifLocale = body.locale || "hu";
+      try {
+        await createNotification({
+          userId: serviceRow.worker_user_id,
+          type: "BOOKING_CREATED",
+          title: t(notifLocale, "new_booking"),
+          message: t(notifLocale, "booking_message", {
+            customerName,
+            serviceName: serviceRow.name,
+            date: formatDate(v.startsAtIso, notifLocale, reservation.timezone || "UTC"),
+          }),
+          entityType: "booking",
+          entityId: result.booking.id,
+          metadata: { serviceName: serviceRow.name, customerName, startsAt: v.startsAtIso, endsAt: v.endsAtIso, locale: notifLocale, timezone: reservation.timezone || "UTC" },
+        });
+
+        if (workerPushEnabled) {
+          await sendPushToUser(serviceRow.worker_user_id, {
+            title: t(notifLocale, "push_title", { customerName }),
+            body: t(notifLocale, "push_body", {
+              serviceName: serviceRow.name,
+              date: formatDate(v.startsAtIso, notifLocale, reservation.timezone || "UTC"),
+            }),
+            url: "/",
+          });
+        }
+      } catch (err) {
+        console.error("[notifications] worker push/in-app failed:", err.message);
+      }
     }
 
     return res.status(201).json(rowToReservationBookingDTO(result.booking));

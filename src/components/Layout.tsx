@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import Sidebar from "./Sidebar";
 import LanguageSwitcher from "./LanguageSwitcher";
+import { NotificationBell } from "./notifications/NotificationBell";
 import SEO from "./SEO";
 
 const Layout: React.FC = () => {
@@ -116,6 +117,7 @@ const Layout: React.FC = () => {
 
             {/* Right side actions */}
             <div className="hidden md:flex items-center gap-2">
+              <NotificationBell />
               <LanguageSwitcher />
               <Button variant="outline" size="icon" onClick={handleLogout}>
                 <LogOut className="w-4 h-4" />
