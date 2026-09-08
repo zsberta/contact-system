@@ -9,5 +9,7 @@
   "push_not_supported": "A push értesítések nem támogatottak ezen az eszközön.",
   "booking_created": "Új foglalás",
   "booking_message": "{{customerName}} foglalt: {{serviceName}} — {{date}}",
+  "booking_cancelled": "Foglalás lemondva",
+  "booking_cancelled_message": "{{customerName}} lemondta: {{serviceName}} — {{date}}",
   "system": "Rendszer"
 }

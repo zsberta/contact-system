@@ -42,6 +42,7 @@ import fs from "node:fs";
 import { pool } from "../db/pool.js";
 import { notifySubmitter } from "../lib/email.js";
 import { createNotification, sendPushToUser } from "../lib/push.js";
+import { notifyBookingCancelled } from "../lib/reservation-cancellation-notifications.js";
 import { t, formatDate } from "../lib/notifications-i18n.js";
 import { checkSlotAvailability, getServiceAvailability, getScheduleWindowStartMin } from "../lib/reservation-availability.js";
 import { createReservationBooking, upsertReservationCustomer, rowToReservationBookingDTO } from "../lib/reservation-booking.js";
@@ -1113,8 +1114,15 @@ router.delete(
         `SELECT rb.id, rb.starts_at, rb.ends_at, rb.locale, rb.status,
                 rb.service_name_snapshot, rb.email, rb.customer_id,
                 rb.service_id,
+                rs.worker_user_id,
+                rc.first_name AS customer_first_name,
+                rc.last_name AS customer_last_name,
+                worker.email AS worker_email,
                 COALESCE(rst.name, rb.service_name_snapshot) AS service_name
          FROM reservation_bookings rb
+         LEFT JOIN reservation_customers rc ON rc.id = rb.customer_id
+         LEFT JOIN reservation_services rs ON rs.id = rb.service_id
+         LEFT JOIN users worker ON worker.id = rs.worker_user_id
          LEFT JOIN reservation_service_translations rst
            ON rst.service_id = rb.service_id
            AND rst.locale = (SELECT default_locale FROM reservations WHERE id = rb.reservation_id)
@@ -1154,28 +1162,14 @@ router.delete(
         `UPDATE reservation_bookings
          SET status = 'cancelled',
              cancelled_at = NOW(),
-             cancellation_reason = $3
+             cancellation_reason = $3,
+             reminder_sent_at = NULL
          WHERE reservation_id = $1
            AND booking_token = $2`,
         [Number(reservation.id), bookingToken, cancelReason],
       );
 
-      // Send deletion notification email (fire-and-forget)
-      if (booking.email) {
-        notifySubmitter({
-          kind: "reservation_deleted",
-          projectId: reservation.project_id,
-          formName: booking.service_name || "Reservation",
-          data: null,
-          locale: booking.locale || "hu",
-          startsAt: booking.starts_at,
-          endsAt: booking.ends_at,
-          bookingId: booking.id,
-          serviceName: booking.service_name,
-          email: booking.email,
-          timezone: reservation.timezone || "UTC",
-        }).catch(() => {});
-      }
+      await notifyBookingCancelled({ reservation, booking });
 
       return res.json({ success: true });
     } catch (err) {
@@ -1315,7 +1309,8 @@ router.patch(
         `UPDATE reservation_bookings
          SET status = 'cancelled',
              cancelled_at = NOW(),
-             cancellation_reason = 'Rescheduled by customer'
+             cancellation_reason = 'Rescheduled by customer',
+             reminder_sent_at = NULL
          WHERE id = $1`,
         [existing.id],
       );
@@ -1332,7 +1327,8 @@ router.patch(
         // Restore old booking before returning error
         await client.query(
           `UPDATE reservation_bookings
-           SET status = 'confirmed', cancelled_at = NULL, cancellation_reason = NULL
+           SET status = 'confirmed', cancelled_at = NULL, cancellation_reason = NULL,
+               reminder_sent_at = NULL
            WHERE id = $1`,
           [existing.id],
         );
@@ -1354,7 +1350,8 @@ router.patch(
         // Restore old booking
         await client.query(
           `UPDATE reservation_bookings
-           SET status = 'confirmed', cancelled_at = NULL, cancellation_reason = NULL
+           SET status = 'confirmed', cancelled_at = NULL, cancellation_reason = NULL,
+               reminder_sent_at = NULL
            WHERE id = $1`,
           [existing.id],
         );
@@ -1387,7 +1384,8 @@ router.patch(
         // Restore old booking
         await client.query(
           `UPDATE reservation_bookings
-           SET status = 'confirmed', cancelled_at = NULL, cancellation_reason = NULL
+           SET status = 'confirmed', cancelled_at = NULL, cancellation_reason = NULL,
+               reminder_sent_at = NULL
            WHERE id = $1`,
           [existing.id],
         );
@@ -1396,22 +1394,7 @@ router.patch(
 
       const newBooking = result.booking;
 
-      // Send cancellation email for old booking (fire-and-forget)
-      if (existing.email) {
-        notifySubmitter({
-          kind: "reservation_deleted",
-          projectId: reservation.project_id,
-          formName: existing.service_name || "Reservation",
-          data: null,
-          locale: existing.locale || "hu",
-          startsAt: existing.starts_at,
-          endsAt: existing.ends_at,
-          bookingId: existing.id,
-          serviceName: existing.service_name,
-          email: existing.email,
-          timezone: reservation.timezone || "UTC",
-        }).catch(() => {});
-      }
+      await notifyBookingCancelled({ reservation, booking: existing });
 
       // Send confirmation email for new booking (fire-and-forget)
       if (existing.email) {

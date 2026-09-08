@@ -41,6 +41,7 @@ import { router as settingsRouter } from "./routes/settings.js";
 import { pool } from "./db/pool.js";
 import { assertSafeStartup } from "./lib/startup-guard.js";
 import { stop as stopEmailQueue } from "./lib/email-queue.js";
+import { startReminders } from "./lib/reservation-reminders.js";
 
 dotenv.config();
 
@@ -366,6 +367,7 @@ app.use((err, req, res, _next) => {
 
 const server = app.listen(PORT, () => {
   console.log(`[server] listening on :${PORT} (NODE_ENV=${process.env.NODE_ENV || "development"})`);
+  startReminders();
 });
 
 // Graceful shutdown. docker stop sends SIGTERM and waits

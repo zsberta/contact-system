@@ -191,7 +191,7 @@ export const ReservationServiceForm: React.FC<ReservationServiceFormProps> = ({
 
           {/* Scheduling config — separate from duration/capacity above */}
           <Separator />
-          <p className="text-sm font-medium text-muted-foreground">Scheduling</p>
+          <p className="text-sm font-medium text-muted-foreground">{t("reservations:scheduling")}</p>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label>{t("reservations:slot_duration_minutes")}</Label>

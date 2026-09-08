@@ -18,10 +18,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Loader2, Plus, Trash2, Ban } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Ban } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
 import { useModuleResolution } from "@/hooks/useModuleResolution";
-import { buildWorkspaceModuleChildPath } from "@/lib/workspace-navigation";
+import { buildWorkspaceModuleChildPath, buildWorkspaceModulePath } from "@/lib/workspace-navigation";
 import { getDisableSettings, deleteDisabledRange } from "@/lib/reservations";
 import type { ReservationDisabledRangeDTO } from "@/types/reservation";
 
@@ -85,10 +85,20 @@ export default function ReservationDisabledRangesPage() {
     );
   }
 
+  const detailsPath = buildWorkspaceModulePath(projectId, "reservation", moduleId, "details");
+
   return (
     <div className="max-w-3xl mx-auto space-y-6 w-full">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">{t("reservations:disabled_ranges_section")}</h2>
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" asChild>
+            <Link to={detailsPath}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              {t("common:back")}
+            </Link>
+          </Button>
+          <h2 className="text-lg font-semibold">{t("reservations:disabled_ranges_section")}</h2>
+        </div>
         <Button asChild size="sm">
           <Link to={buildWorkspaceModuleChildPath(projectId, "reservation", moduleId, "blocked", "new")}>
             <Plus className="mr-1 h-4 w-4" />

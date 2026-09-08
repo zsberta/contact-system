@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, CalendarOff } from "lucide-react";
+import { ArrowLeft, Loader2, CalendarOff } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
 import { useModuleResolution } from "@/hooks/useModuleResolution";
 import { buildWorkspaceModuleChildPath } from "@/lib/workspace-navigation";
@@ -107,6 +107,10 @@ export default function ReservationDisabledRangeCreatePage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 w-full">
+      <Button variant="ghost" size="sm" onClick={goBack}>
+        <ArrowLeft className="mr-2 h-4 w-4" />
+        {t("common:back")}
+      </Button>
       {/* Service selector */}
       <Card>
         <CardHeader>

@@ -87,6 +87,7 @@
   "granularity_hour": "Óra",
   "granularity_minute": "Perc",
   "granularity_help": "A legkisebb foglalható egység: nap, óra vagy perc.",
+  "scheduling": "Időbeosztás",
   "slot_duration_minutes": "Slot hossza (perc)",
   "slot_duration_minutes_placeholder": "pl. 30",
   "slot_duration_help": "Milyen gyakran jelennek meg új időpontok. Hagyd üresen a szolgáltatás időtartamához.",
@@ -346,5 +347,8 @@
   "booking_action_no_show_success": "Státusz frissítve: Nem jelent meg",
   "booking_action_modify_success": "Foglalás módosítva",
   "booking_action_modify_hint": "Válasszon új időpontot a foglalás módosításához.",
-  "booking_action_disabled": "Lemondott foglalás"
+  "booking_action_disabled": "Lemondott foglalás",
+  "reminder_hours_before": "Emlékeztető (órával előtte)",
+  "reminder_hours_before_help": "Emlékeztető e-mail küldése az ügyfeleknek a foglalás kezdete előtt ennyi órával. Üresen hagyva vagy 0 értékkel letiltva.",
+  "reminder_hours_before_placeholder": "pl. 2"
 }

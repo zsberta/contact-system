@@ -143,6 +143,7 @@ const ReservationForm = ({
     privacyPolicyUrl: z.string(),
     cookiePolicyUrl: z.string(),
     timezone: z.string(),
+    reminderHoursBefore: z.number().nullable(),
   });
 
   const form = useForm<ReservationFormValues, unknown, ReservationFormValues>({
@@ -160,6 +161,7 @@ const ReservationForm = ({
       privacyPolicyUrl: initialData?.privacyPolicyUrl ?? "",
       cookiePolicyUrl: initialData?.cookiePolicyUrl ?? "",
       timezone: initialData?.timezone ?? "UTC",
+      reminderHoursBefore: initialData?.reminderHoursBefore ?? null,
     },
   });
 
@@ -189,6 +191,7 @@ const ReservationForm = ({
         privacyPolicyUrl: values.privacyPolicyUrl || null,
         cookiePolicyUrl: values.cookiePolicyUrl || null,
         timezone: values.timezone,
+        reminderHoursBefore: values.reminderHoursBefore,
       };
       onSubmit(payload);
     } else {
@@ -204,6 +207,7 @@ const ReservationForm = ({
         privacyPolicyUrl: values.privacyPolicyUrl || null,
         cookiePolicyUrl: values.cookiePolicyUrl || null,
         timezone: values.timezone,
+        reminderHoursBefore: values.reminderHoursBefore,
       };
       onSubmit(payload);
     }
@@ -493,6 +497,38 @@ const ReservationForm = ({
                 </FormItem>
               )}
             />
+            {/* Booking reminder hours */}
+            <FormField
+              control={form.control}
+              name="reminderHoursBefore"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center gap-2">
+                    <Clock className="h-4 w-4" />
+                    {t("reservations:reminder_hours_before")}
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={168}
+                      step={1}
+                      placeholder={t("reservations:reminder_hours_before_placeholder")}
+                      value={field.value ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        field.onChange(v === "" || v === null ? null : parseInt(v, 10));
+                      }}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t("reservations:reminder_hours_before_help")}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
             {/* Embed widget settings */}
             <div className="grid grid-cols-3 gap-4">
               <FormField

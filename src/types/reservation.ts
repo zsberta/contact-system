@@ -39,6 +39,8 @@ export interface ReservationDTO {
   // Booking catalog config
   defaultLocale: string;
   timezone: string;
+  // Booking reminder
+  reminderHoursBefore: number | null;
   // Audit
   createdAt: string;
   updatedAt: string;
@@ -60,9 +62,10 @@ export interface ReservationCreateDTO {
   cookiePolicyUrl?: string | null;
   defaultLocale?: string;
   timezone?: string;
+  reminderHoursBefore?: number | null;
 }
 
-// PUT /api/reservations/:id body. `projectId` and `secretToken` are
+// PUT /api/reservations/:id body. `projectId` and `secret_token` are
 // immutable post-create; the BE rejects any payload containing them (see
 // routes/reservations.js). `slug` is editable — collision → 409.
 export interface ReservationUpdateDTO {
@@ -78,6 +81,7 @@ export interface ReservationUpdateDTO {
   cookiePolicyUrl?: string | null;
   defaultLocale?: string;
   timezone?: string;
+  reminderHoursBefore?: number | null;
 }
 
 // Snippet response from GET /api/reservations/:id/snippet.

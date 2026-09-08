@@ -6,7 +6,7 @@
 
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useModuleResolution } from "@/hooks/useModuleResolution";
 import { showError, showSuccess } from "@/utils/toast";
 import type {
@@ -14,14 +14,20 @@ import type {
   ReservationUpdateDTO,
 } from "@/types/reservation";
 import { getReservationById, updateReservation } from "@/lib/reservations";
-import { resolveModulePath } from "@/lib/workspace-navigation";
+import { buildWorkspaceModulePath, resolveModulePath } from "@/lib/workspace-navigation";
+import { ArrowLeft } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import ReservationForm from "@/components/reservations/ReservationForm";
 
 const ReservationEditPage: React.FC = () => {
   const { t } = useTranslation(["reservations", "common"]);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { id } = useParams<{ id: string }>();
+  const { id, projectId: projectIdParam, moduleId: moduleIdParam } = useParams<{
+    id: string;
+    projectId: string;
+    moduleId: string;
+  }>();
   const { resourceId } = useModuleResolution();
 
   // Support both legacy (id param) and workspace (resourceId from module resolution)
@@ -69,13 +75,26 @@ const ReservationEditPage: React.FC = () => {
     );
   }
 
+  const detailsPath = projectIdParam && moduleIdParam
+    ? buildWorkspaceModulePath(Number(projectIdParam), "reservation", Number(moduleIdParam), "details")
+    : undefined;
+
   return (
-    <ReservationForm
-      mode="edit"
-      initialData={initialData}
-      isSubmitting={updateMutation.isPending}
-      onSubmit={(data: ReservationUpdateDTO) => updateMutation.mutate(data)}
-    />
+    <div className="max-w-2xl mx-auto space-y-4 w-full">
+      {detailsPath && (
+        <Button variant="ghost" size="sm" asChild>
+          <Link to={detailsPath}>
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+        </Button>
+      )}
+      <ReservationForm
+        mode="edit"
+        initialData={initialData}
+        isSubmitting={updateMutation.isPending}
+        onSubmit={(data: ReservationUpdateDTO) => updateMutation.mutate(data)}
+      />
+    </div>
   );
 };
 

@@ -87,6 +87,7 @@
   "granularity_hour": "Hour",
   "granularity_minute": "Minute",
   "granularity_help": "Smallest bookable unit: day, hour, or minute.",
+  "scheduling": "Scheduling",
   "slot_duration_minutes": "Slot duration (minutes)",
   "slot_duration_minutes_placeholder": "e.g. 30",
   "slot_duration_help": "How often new slots appear. Leave empty to match the service duration.",
@@ -346,5 +347,8 @@
   "booking_action_no_show_success": "Status updated: No-show",
   "booking_action_modify_success": "Booking modified",
   "booking_action_modify_hint": "Select a new time slot to modify the booking.",
-  "booking_action_disabled": "Cancelled booking"
+  "booking_action_disabled": "Cancelled booking",
+  "reminder_hours_before": "Reminder (hours before)",
+  "reminder_hours_before_help": "Send a reminder email to customers this many hours before the booking starts. Set to empty or 0 to disable.",
+  "reminder_hours_before_placeholder": "e.g. 2"
 }

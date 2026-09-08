@@ -12,7 +12,7 @@ import {
 } from "@/lib/reservations";
 import type { ReservationServiceUpdateDTO } from "@/types/reservation";
 import { buildWorkspaceModulePath, buildWorkspaceModuleChildPath } from "@/lib/workspace-navigation";
-import { CalendarClock } from "lucide-react";
+import { ArrowLeft, CalendarClock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function ReservationServiceEditPage() {
@@ -54,14 +54,27 @@ export default function ReservationServiceEditPage() {
   if (isLoading) return <p className="text-muted-foreground">{t("common:loading")}</p>;
   if (!service) return <p>{t("reservations:service_not_found")}</p>;
 
+  const servicesPath = projectIdParam && moduleIdParam
+    ? buildWorkspaceModulePath(Number(projectIdParam), "reservation", Number(moduleIdParam), "services")
+    : undefined;
   const schedulesPath = projectIdParam && moduleIdParam
     ? buildWorkspaceModuleChildPath(Number(projectIdParam), "reservation", Number(moduleIdParam), "services", `${serviceId}/schedules`)
     : undefined;
 
   return (
     <div className="max-w-2xl">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold">{t("reservations:edit_service")}</h1>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <div className="flex flex-wrap items-center gap-2">
+          {servicesPath && (
+            <Button variant="ghost" size="sm" asChild>
+              <Link to={servicesPath}>
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                {t("common:back")}
+              </Link>
+            </Button>
+          )}
+          <h1 className="text-xl font-semibold">{t("reservations:edit_service")}</h1>
+        </div>
         <Button variant="outline" size="sm" asChild>
           <Link to={schedulesPath}>
             <CalendarClock className="mr-2 h-4 w-4" />

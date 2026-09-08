@@ -63,6 +63,7 @@ import type {
 interface Props {
   reservationId: number;
   serviceId?: number;
+  header?: React.ReactNode;
 }
 
 const FREQUENCY_OPTIONS: AvailabilityScheduleFrequency[] = [
@@ -95,7 +96,7 @@ const DAY_OF_WEEK_LABELS_EN: Record<number, string> = {
 // Display order: Monday first, Sunday last (Hungarian convention).
 const WEEKDAY_DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
-export function AvailabilityScheduleTab({ reservationId, serviceId }: Props) {
+export function AvailabilityScheduleTab({ reservationId, serviceId, header }: Props) {
   const { t, i18n } = useTranslation(["reservations", "common"]);
   const queryClient = useQueryClient();
   const isHu = i18n.language?.startsWith("hu");
@@ -317,8 +318,9 @@ export function AvailabilityScheduleTab({ reservationId, serviceId }: Props) {
   return (
     <>
       <div className="space-y-4">
-        {/* Add button */}
-        <div className="flex justify-end">
+        {/* Header row */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {header}
           <Button
             variant="outline"
             size="sm"

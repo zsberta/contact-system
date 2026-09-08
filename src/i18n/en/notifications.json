@@ -9,5 +9,7 @@
   "push_not_supported": "Push notifications are not supported on this device.",
   "booking_created": "New Booking",
   "booking_message": "{{customerName}} booked {{serviceName}} — {{date}}",
+  "booking_cancelled": "Booking Cancelled",
+  "booking_cancelled_message": "{{customerName}} cancelled {{serviceName}} — {{date}}",
   "system": "System"
 }

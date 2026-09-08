@@ -99,6 +99,24 @@ export const NotificationBell: React.FC = () => {
   useEffect(() => {
     fetchInitial();
   }, [fetchInitial]);
+  // Keep the notification list current while the app remains open.
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      fetchInitial();
+    }, 30_000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchInitial();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fetchInitial]);
 
   // ── Check push support ───────────────────────────────────────────────────
   useEffect(() => {
@@ -223,7 +241,9 @@ export const NotificationBell: React.FC = () => {
                 {notifications.map((n) => {
                   const titleKey = n.type === "BOOKING_CREATED"
                     ? "notifications:booking_created"
-                    : "notifications:system";
+                    : n.type === "BOOKING_CANCELLED"
+                      ? "notifications:booking_cancelled"
+                      : "notifications:system";
                   let displayMessage = n.message;
                   if (n.metadata?.customerName && n.metadata?.serviceName) {
                     const notifLocale = (n.metadata.locale as string) || "hu";
@@ -239,7 +259,10 @@ export const NotificationBell: React.FC = () => {
                           hour12: false,
                         }).format(new Date(n.metadata.startsAt as string))
                       : "";
-                    displayMessage = t("notifications:booking_message", {
+                    const msgKey = n.type === "BOOKING_CANCELLED"
+                      ? "notifications:booking_cancelled_message"
+                      : "notifications:booking_message";
+                    displayMessage = t(msgKey, {
                       customerName: n.metadata.customerName as string,
                       serviceName: n.metadata.serviceName as string,
                       date: dateStr,

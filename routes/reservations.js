@@ -40,6 +40,7 @@ import {
 import { getServiceAvailability } from "../lib/reservation-availability.js";
 import { notifySubmitter } from "../lib/email.js";
 import { createNotification, sendPushToUser } from "../lib/push.js";
+import { notifyBookingCancelled } from "../lib/reservation-cancellation-notifications.js";
 import { t, formatDate } from "../lib/notifications-i18n.js";
 import multer from "multer";
 import { fileTypeFromBuffer } from "file-type";
@@ -153,6 +154,7 @@ const rowToReservationDTO = (row) => {
     privacyPolicyUrl: row.privacy_policy_url ?? null,
     cookiePolicyUrl: row.cookie_policy_url ?? null,
     timezone: row.timezone ?? "UTC",
+    reminderHoursBefore: row.reminder_hours_before ?? null,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
@@ -980,6 +982,24 @@ function validateReservationBody(body, { partial = false } = {}) {
   } else if (!partial) {
     out.timezone = "UTC";
   }
+
+  // reminderHoursBefore — integer 1..168, or null/0 to disable.
+  if (body.reminderHoursBefore !== undefined) {
+    const raw = body.reminderHoursBefore;
+    if (raw === null || raw === "" || raw === 0) {
+      out.reminder_hours_before = null;
+    } else {
+      const n = typeof raw === "number" ? raw : parseInt(String(raw), 10);
+      if (!Number.isFinite(n) || n < 1 || n > 168 || n !== Math.floor(n)) {
+        errors.push("reminderHoursBefore must be an integer between 1 and 168, or null to disable");
+      } else {
+        out.reminder_hours_before = n;
+      }
+    }
+  } else if (!partial) {
+    out.reminder_hours_before = null;
+  }
+
   if (errors.length > 0) {
     return { ok: false, error: errors.join("; ") };
   }
@@ -1055,7 +1075,7 @@ router.get("/", async (req, res) => {
                                   r.status, r.granularity, r.slot_duration_minutes,
                                   r.lead_time_minutes, r.max_advance_days,
                                   r.extra_fields_enabled, r.disable_hungarian_holidays,
-                                  r.embed_title, r.created_at, r.updated_at
+                                  r.embed_title, r.reminder_hours_before, r.created_at, r.updated_at
                            FROM reservations r
                            JOIN projects p ON p.id = r.project_id
                            ${whereSql}
@@ -2102,6 +2122,7 @@ router.get("/:id", async (req, res) => {
               r.embed_title, r.brand_color, r.iframe_width, r.iframe_height,
               r.privacy_policy_url, r.cookie_policy_url,
               r.timezone,
+              r.reminder_hours_before,
               r.created_at, r.updated_at
        FROM reservations r
        JOIN projects p ON p.id = r.project_id
@@ -2170,8 +2191,9 @@ router.post("/", async (req, res) => {
         (project_id, module_id, name, slug, secret_token, allowed_origins, status,
          extra_fields_enabled, embed_title,
          brand_color, iframe_width, iframe_height,
-         privacy_policy_url, cookie_policy_url, timezone)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+         privacy_policy_url, cookie_policy_url, timezone,
+         reminder_hours_before)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        RETURNING id`,
       [
         v.project_id,
@@ -2189,6 +2211,7 @@ router.post("/", async (req, res) => {
         v.privacy_policy_url || null,
         v.cookie_policy_url || null,
         v.timezone || "UTC",
+        v.reminder_hours_before ?? null,
       ],
     );
     const newId = Number(insertResult.rows[0].id);
@@ -2202,6 +2225,7 @@ router.post("/", async (req, res) => {
               r.embed_title, r.brand_color, r.iframe_width, r.iframe_height,
               r.privacy_policy_url, r.cookie_policy_url,
               r.timezone,
+              r.reminder_hours_before,
               r.created_at, r.updated_at
        FROM reservations r
        JOIN projects p ON p.id = r.project_id
@@ -2276,6 +2300,7 @@ router.put("/:id", async (req, res) => {
               r.embed_title, r.brand_color, r.iframe_width, r.iframe_height,
               r.privacy_policy_url, r.cookie_policy_url,
               r.timezone,
+              r.reminder_hours_before,
               r.created_at, r.updated_at
        FROM reservations r
        JOIN projects p ON p.id = r.project_id
@@ -2936,11 +2961,22 @@ router.patch("/:id/bookings/:bookingId", async (req, res, next) => {
       return res.status(400).json({ errorMessage: "Invalid status" });
     }
 
-    // Load booking
+    // Load booking with customer + service info (needed for cancellation email)
     const bookingResult = await pool.query(
-      `SELECT rb.*, rs.worker_user_id AS svc_worker_user_id
+      `SELECT rb.*, r.project_id AS project_id, rs.worker_user_id AS svc_worker_user_id,
+              worker.email AS worker_email,
+              rc.email AS customer_email,
+              rc.first_name AS customer_first_name,
+              rc.last_name AS customer_last_name,
+              COALESCE(rst.name, rb.service_name_snapshot) AS service_name
        FROM reservation_bookings rb
+       JOIN reservations r ON r.id = rb.reservation_id
        LEFT JOIN reservation_services rs ON rs.id = rb.service_id
+       LEFT JOIN users worker ON worker.id = rs.worker_user_id
+       LEFT JOIN reservation_customers rc ON rc.id = rb.customer_id
+       LEFT JOIN reservation_service_translations rst
+         ON rst.service_id = rb.service_id
+         AND rst.locale = rb.locale
        WHERE rb.reservation_id = $1 AND rb.id = $2`,
       [reservationId, bookingId],
     );
@@ -2969,8 +3005,14 @@ router.patch("/:id/bookings/:bookingId", async (req, res, next) => {
         params.push(body.cancellationReason);
       }
     }
+    // Clear reminder_sent_at on any status change so a subsequent
+    // flip back to 'confirmed' re-arms the reminder scheduler.
+    sets.push(`reminder_sent_at = NULL`);
     params.push(bookingId);
     await pool.query(`UPDATE reservation_bookings SET ${sets.join(", ")} WHERE id = $${pi}`, params);
+    if (body.status === "cancelled") {
+      await notifyBookingCancelled({ reservation: booking, booking });
+    }
 
     const updated = await pool.query(
       `SELECT * FROM reservation_bookings WHERE id = $1`, [bookingId]);
@@ -3015,13 +3057,15 @@ router.delete("/:id/bookings/:bookingId", async (req, res, next) => {
 
     // Load pre-delete snapshot for customer email (service name, customer, dates)
     const snapshotResult = await pool.query(
-      `SELECT b.id, b.starts_at, b.ends_at, b.locale,
+      `SELECT b.id, b.starts_at, b.ends_at, b.locale, b.timezone,
               b.service_name_snapshot,
               COALESCE(rst.name, b.service_name_snapshot) AS service_name,
               rc.first_name AS customer_first_name, rc.last_name AS customer_last_name,
               rc.email AS customer_email, rc.phone AS customer_phone,
+              rs.worker_user_id,
               b.customer_id, b.service_id
        FROM reservation_bookings b
+       LEFT JOIN reservation_services rs ON rs.id = b.service_id
        LEFT JOIN reservation_service_translations rst ON rst.service_id = b.service_id AND rst.locale = 'hu'
        LEFT JOIN reservation_customers rc ON rc.id = b.customer_id
        WHERE b.reservation_id = $1 AND b.id = $2`,
@@ -3029,30 +3073,16 @@ router.delete("/:id/bookings/:bookingId", async (req, res, next) => {
     );
     const snapshot = snapshotResult.rows[0];
 
-    // Delete the booking
+    await notifyBookingCancelled({
+      reservation: { project_id: booking.project_id, timezone: snapshot?.timezone },
+      booking: snapshot,
+    });
+
+    // Delete the booking after notification data has been captured.
     await pool.query(
       `DELETE FROM reservation_bookings WHERE reservation_id = $1 AND id = $2`,
       [reservationId, bookingId],
     );
-
-    // Send deletion notification email to customer (fire-and-forget).
-    // Reuses notifySubmitter so project resolution, branding, and
-    // fromName handling match the booking-creation email path exactly.
-    if (snapshot && snapshot.customer_email) {
-      notifySubmitter({
-        kind: "reservation_deleted",
-        projectId: booking.project_id,
-        formName: snapshot.service_name || "Reservation",
-        data: null,
-        locale: snapshot.locale || "hu",
-        startsAt: snapshot.starts_at,
-        endsAt: snapshot.ends_at,
-        bookingId: snapshot.id,
-        serviceName: snapshot.service_name,
-        email: snapshot.customer_email,
-        timezone: snapshot.timezone || "UTC",
-      }).catch(() => {});
-    }
 
     return res.json({ success: true });
   } catch (err) {
