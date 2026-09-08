@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -18,10 +18,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, Loader2, Plus, Trash2, Ban } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Loader2, Plus, Trash2, Ban, MoreVertical, Pencil } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
 import { useModuleResolution } from "@/hooks/useModuleResolution";
-import { buildWorkspaceModuleChildPath, buildWorkspaceModulePath } from "@/lib/workspace-navigation";
+import { buildWorkspaceModuleChildPath } from "@/lib/workspace-navigation";
 import { getDisableSettings, deleteDisabledRange } from "@/lib/reservations";
 import type { ReservationDisabledRangeDTO } from "@/types/reservation";
 
@@ -34,6 +41,9 @@ export default function ReservationDisabledRangesPage() {
   }>();
   const projectId = Number(projectIdParam);
   const moduleId = Number(moduleIdParam);
+  const navigate = useNavigate();
+  const editPath = (rangeId: number) =>
+    buildWorkspaceModuleChildPath(projectId, "reservation", moduleId, "blocked", `edit/${rangeId}`);
   const queryClient = useQueryClient();
 
   const { data: settings, isLoading } = useQuery({
@@ -57,21 +67,26 @@ export default function ReservationDisabledRangesPage() {
     onError: (err: Error) => showError(err.message),
   });
 
-  const locale = navigator.language || "en";
+  // Forced Hungarian date/time display — the app is Hungarian-only
+  // (i18n pins `hu`), so rendered dates never follow the browser locale.
+  const locale = "hu";
+  const dateOpts = { year: "numeric", month: "2-digit", day: "2-digit" } as const;
+  const timeOpts = { hour: "2-digit", minute: "2-digit", hour12: false } as const;
+
+  const isMidnight = (d: Date) => d.getHours() === 0 && d.getMinutes() === 0;
+  const isEndOfDay = (d: Date) => (d.getHours() === 23 && d.getMinutes() === 59) || isMidnight(d);
 
   const formatRange = (range: ReservationDisabledRangeDTO) => {
     const start = new Date(range.startsAt);
     const end = new Date(range.endsAt);
-    const startLocal = start.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false });
-    const endLocal = end.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false });
-    const isFullDayStart = startLocal === "00:00";
-    const isFullDayEnd = endLocal === "23:59" || endLocal === "00:00";
+    const startTime = start.toLocaleTimeString(locale, timeOpts);
+    const endTime = end.toLocaleTimeString(locale, timeOpts);
     const sameDay = start.toDateString() === end.toDateString();
-    const dateStr = start.toLocaleDateString(locale, { year: "numeric", month: "2-digit", day: "2-digit" });
-    const endDateStr = end.toLocaleDateString(locale, { year: "numeric", month: "2-digit", day: "2-digit" });
-    if (isFullDayStart && isFullDayEnd) return `${dateStr} – ${endDateStr}`;
-    if (sameDay) return `${dateStr} ${isFullDayStart ? "00:00" : startLocal} – ${isFullDayEnd ? "23:59" : endLocal}`;
-    return `${dateStr} ${isFullDayStart ? "" : startLocal} – ${endDateStr} ${isFullDayEnd ? "" : endLocal}`;
+    const dateStr = start.toLocaleDateString(locale, dateOpts);
+    const endDateStr = end.toLocaleDateString(locale, dateOpts);
+    if (isMidnight(start) && isEndOfDay(end)) return `${dateStr} – ${endDateStr}`;
+    if (sameDay) return `${dateStr} ${isMidnight(start) ? "00:00" : startTime} – ${isEndOfDay(end) ? "23:59" : endTime}`;
+    return `${dateStr} ${isMidnight(start) ? "" : startTime} – ${endDateStr} ${isEndOfDay(end) ? "" : endTime}`;
   };
 
   if (isLoading) {
@@ -85,20 +100,10 @@ export default function ReservationDisabledRangesPage() {
     );
   }
 
-  const detailsPath = buildWorkspaceModulePath(projectId, "reservation", moduleId, "details");
-
   return (
     <div className="max-w-3xl mx-auto space-y-6 w-full">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" asChild>
-            <Link to={detailsPath}>
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              {t("common:back")}
-            </Link>
-          </Button>
-          <h2 className="text-lg font-semibold">{t("reservations:disabled_ranges_section")}</h2>
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold break-words">{t("reservations:disabled_ranges_section")}</h2>
         <Button asChild size="sm">
           <Link to={buildWorkspaceModuleChildPath(projectId, "reservation", moduleId, "blocked", "new")}>
             <Plus className="mr-1 h-4 w-4" />
@@ -117,7 +122,9 @@ export default function ReservationDisabledRangesPage() {
           {manualRanges.map((range) => (
             <div
               key={range.id}
-              className="flex items-center justify-between gap-3 p-3 border rounded-md hover:bg-accent/30 transition-colors"
+              className="flex flex-wrap items-center justify-between gap-3 p-3 border rounded-md hover:bg-accent/30 transition-colors cursor-pointer"
+              onDoubleClick={() => navigate(editPath(range.id))}
+              title={t("common:edit")}
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
@@ -129,19 +136,32 @@ export default function ReservationDisabledRangesPage() {
                 )}
                 {range.serviceIds.length > 0 && (
                   <p className="text-xs text-muted-foreground mt-0.5 ml-6">
-                    {range.serviceIds.map((id) => services.find((s) => s.id === id)?.name ?? `#${id}`).join(", ")}
+                    {range.serviceIds.map((id) => services.find((s) => s.id === Number(id))?.name ?? `#${id}`).join(", ")}
                   </p>
                 )}
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setDeleteTarget(range)}
-                aria-label={t("reservations:disabled_range_delete")}
-                title={t("reservations:disabled_range_delete")}
-              >
-                <Trash2 className="h-4 w-4 text-destructive" />
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="h-8 w-8 p-0 shrink-0">
+                    <span className="sr-only">{t("common:actions")}</span>
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>{t("common:actions")}</DropdownMenuLabel>
+                  <DropdownMenuItem onSelect={() => navigate(editPath(range.id))}>
+                    <Pencil className="mr-2 h-4 w-4" />
+                    {t("common:edit")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => setDeleteTarget(range)}
+                    className="text-red-600 focus:text-red-600"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    {t("common:delete")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           ))}
         </div>

@@ -254,6 +254,11 @@ export interface ReservationHolidayRuleDTO {
   key: string;
   enabled: boolean;
 }
+export interface ReservationHolidayDateDTO {
+  key: string;
+  month: number;
+  day: number;
+}
 
 export interface ReservationServiceDisablePolicyDTO {
   id: number;

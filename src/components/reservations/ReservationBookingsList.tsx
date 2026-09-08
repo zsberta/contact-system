@@ -1,11 +1,12 @@
 // ----------------------------------------------------------------------------
 // ReservationBookingsList — paged DataTable of received reservation bookings.
-// Shows service, customer, schedule, status, and worker info. Opens a
-// centered Dialog on the "View details" action.
+// Shows service, customer, schedule, status, and worker info. Row
+// double-click and the actions menu navigate to the booking view page.
 // ----------------------------------------------------------------------------
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,16 +21,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { DataTable } from "@/components/DataTable";
-import { Eye, Trash2 } from "lucide-react";
+import { Eye, MoreVertical, Trash2 } from "lucide-react";
 import {
   getReservationBookings,
   deleteReservationBooking,
   type BookingsQueryParams,
 } from "@/lib/reservations";
+import { buildWorkspaceModuleChildPath } from "@/lib/workspace-navigation";
 import { showError, showSuccess } from "@/utils/toast";
 import type { ReservationBookingDTO } from "@/types/reservation";
-import { ReservationBookingDetailModal } from "@/components/reservations/ReservationBookingDetailModal";
 import { useDataTableQuery } from "@/hooks/useDataTableQuery";
 
 interface Props {
@@ -45,13 +53,27 @@ const isSameDay = (a: string, b: string) => {
 export function ReservationBookingsList({ reservationId }: Props) {
   const { t, i18n } = useTranslation(["reservations", "common"]);
   const locale = i18n.language?.startsWith("hu") ? "hu" : "en";
+  const navigate = useNavigate();
+  const { projectId: projectIdParam, moduleId: moduleIdParam } = useParams<{
+    projectId: string;
+    moduleId: string;
+  }>();
   const fmtDate = (iso: string, tz?: string) => new Date(iso).toLocaleDateString(locale, { year: "numeric", month: "numeric", day: "numeric", ...(tz ? { timeZone: tz } : {}) });
   const fmtTime = (iso: string, tz?: string) => new Date(iso).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false, ...(tz ? { timeZone: tz } : {}) });
   const queryClient = useQueryClient();
-  const [selectedBookingId, setSelectedBookingId] = useState<number | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
 
+  const bookingPath = (bookingId: number) => {
+    const projectId = Number(projectIdParam);
+    const moduleId = Number(moduleIdParam);
+    if (!projectIdParam || !moduleIdParam || Number.isNaN(projectId) || Number.isNaN(moduleId)) return null;
+    return buildWorkspaceModuleChildPath(projectId, "reservation", moduleId, "bookings", String(bookingId));
+  };
+
+  const openDetails = (id: number) => {
+    const path = bookingPath(id);
+    if (path) navigate(path);
+  };
   const deleteMutation = useMutation({
     mutationFn: (bookingId: number) =>
       deleteReservationBooking(reservationId, bookingId),
@@ -81,14 +103,6 @@ export function ReservationBookingsList({ reservationId }: Props) {
         sortField: query.sortField as BookingsQueryParams["sortField"],
       }),
   });
-
-  const openDetails = (id: number) => {
-    setSelectedBookingId(id);
-    setDialogOpen(true);
-  };
-
-  const handleRowDoubleClick = (row: ReservationBookingDTO) =>
-    openDetails(row.id);
 
   const columns = [
     {
@@ -145,31 +159,33 @@ export function ReservationBookingsList({ reservationId }: Props) {
       accessorKey: "actions",
       header: t("common:actions"),
       cell: (row: ReservationBookingDTO) => (
-        <div className="flex items-center gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => openDetails(row.id)}
-            aria-label={t("reservations:booking_details")}
-            title={t("reservations:booking_details")}
-          >
-            <Eye className="h-4 w-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              setDeleteTargetId(row.id);
-            }}
-            aria-label={t("reservations:booking_delete")}
-            title={t("reservations:booking_delete")}
-          >
-            <Trash2 className="h-4 w-4 text-destructive" />
-          </Button>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-8 w-8 p-0"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <span className="sr-only">{t("common:actions")}</span>
+              <MoreVertical className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>{t("common:actions")}</DropdownMenuLabel>
+            <DropdownMenuItem onSelect={() => openDetails(row.id)}>
+              <Eye className="mr-2 h-4 w-4" />
+              {t("common:view")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => setDeleteTargetId(row.id)}
+              className="text-red-600 focus:text-red-600"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              {t("common:delete")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       ),
     },
   ];
@@ -199,21 +215,11 @@ export function ReservationBookingsList({ reservationId }: Props) {
             onSortChange={handlers.onSortChange}
             currentSortField={query.sortField}
             currentSortOrder={query.sortOrder}
-            onRowDoubleClick={handleRowDoubleClick}
+            onRowDoubleClick={(row: ReservationBookingDTO) => openDetails(row.id)}
             emptyMessage={t("reservations:no_bookings_yet")}
           />
         </CardContent>
       </Card>
-
-      <ReservationBookingDetailModal
-        reservationId={reservationId}
-        bookingId={selectedBookingId}
-        open={dialogOpen}
-        onClose={() => {
-          setDialogOpen(false);
-          setSelectedBookingId(null);
-        }}
-      />
 
       <AlertDialog
         open={deleteTargetId !== null}

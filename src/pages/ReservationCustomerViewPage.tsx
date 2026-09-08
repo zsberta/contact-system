@@ -8,6 +8,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ArrowLeft, Save, Trash2 } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
 import {
@@ -81,6 +91,7 @@ export default function ReservationCustomerViewPage() {
 
   const [editMode, setEditMode] = useState(false);
   const [form, setForm] = useState({ firstName: "", lastName: "", email: "", phone: "" });
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
   const updateMutation = useMutation({
     mutationFn: () => updateReservationCustomer(id, form),
@@ -108,46 +119,45 @@ export default function ReservationCustomerViewPage() {
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
-      <Button variant="ghost" onClick={backToList}>
-        <ArrowLeft className="mr-2 h-4 w-4" />{t("common:back")}
-      </Button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          <Button variant="ghost" size="sm" onClick={backToList}>
+            <ArrowLeft className="mr-2 h-4 w-4" />{t("common:back")}
+          </Button>
+          <h2 className="text-lg font-semibold break-words">{customer.lastName} {customer.firstName}</h2>
+        </div>
+        {!editMode && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => {
+              setForm({ firstName: customer.firstName, lastName: customer.lastName, email: customer.email, phone: customer.phone });
+              setEditMode(true);
+            }}>{t("common:edit")}</Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setIsDeleteDialogOpen(true)}
+              disabled={deleteMutation.isPending}
+            >
+              <Trash2 className="mr-1 h-3 w-3" />{t("common:delete")}
+            </Button>
+          </div>
+        )}
+      </div>
 
       <Card className="w-full">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>{customer.lastName} {customer.firstName}</CardTitle>
-          <div className="flex gap-2">
-            {!editMode && (
-              <>
-                <Button variant="outline" size="sm" onClick={() => {
-                  setForm({ firstName: customer.firstName, lastName: customer.lastName, email: customer.email, phone: customer.phone });
-                  setEditMode(true);
-                }}>{t("common:edit")}</Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => {
-                    if (window.confirm(t("reservations:delete_customer_confirm"))) {
-                      deleteMutation.mutate();
-                    }
-                  }}
-                  disabled={deleteMutation.isPending}
-                >
-                  <Trash2 className="mr-1 h-3 w-3" />{t("common:delete")}
-                </Button>
-              </>
-            )}
-          </div>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+          <CardTitle className="break-words">{customer.lastName} {customer.firstName}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {editMode ? (
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div><Label>{t("reservations:first_name")}</Label><Input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} /></div>
                 <div><Label>{t("reservations:last_name")}</Label><Input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} /></div>
                 <div><Label>{t("reservations:email")}</Label><Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
                 <div><Label>{t("reservations:phone")}</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button variant="outline" size="sm" onClick={() => setEditMode(false)}>{t("common:cancel")}</Button>
                 <Button size="sm" onClick={() => updateMutation.mutate()} disabled={updateMutation.isPending}>
                   <Save className="mr-2 h-4 w-4" />{t("common:save")}
@@ -155,7 +165,7 @@ export default function ReservationCustomerViewPage() {
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
               <div><span className="text-muted-foreground">{t("reservations:email")}:</span> {customer.email}</div>
               <div><span className="text-muted-foreground">{t("reservations:phone")}:</span> {customer.phone}</div>
             </div>
@@ -194,6 +204,25 @@ export default function ReservationCustomerViewPage() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("reservations:delete_customer_title")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("reservations:delete_customer_confirm")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>{t("common:cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteMutation.mutate()}
+              disabled={deleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteMutation.isPending ? t("common:deleting") : t("common:delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

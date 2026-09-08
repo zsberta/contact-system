@@ -22,7 +22,7 @@ import { requireAuth } from "../middleware/jwtAuth.js";
 import { getScopedProjectIds, appendProjectScope } from "../lib/scope.js";
 // generateHolidayRows removed: holiday rules are now per-service in
 // reservation_service_holiday_rules. Holidays are checked dynamically.
-import { isHungarianHoliday } from "../lib/hungarian-holidays.js";
+import { isHungarianHoliday, getHolidaysForYear, isRestDay, getRestDaysForYear, REST_DAY_KEY } from "../lib/hungarian-holidays.js";
 import { checkSlotAvailability, getScheduleWindowStartMin } from "../lib/reservation-availability.js";
 import {
   parseStrictIso,
@@ -445,10 +445,11 @@ async function loadServiceHolidayRules(reservationId, db = pool) {
 }
 
 function filterManualRangesForService(ranges, serviceId) {
+  const target = Number(serviceId);
   return ranges.filter(range => {
     const ids = range.service_ids || [];
     if (ids.length === 0) return true; // orphan = applies to all
-    return ids.includes(serviceId);
+    return ids.some((id) => Number(id) === target);
   });
 }
 
@@ -481,7 +482,8 @@ function generateServiceSlotsForDate({ service, schedules, timezone, dateStr, di
 
   // Check if this date is a holiday with an enabled rule
   const [yearRaw, monthRaw, dayRaw] = dateStr.split("-").map(Number);
-  const holidayKey = isHungarianHoliday(yearRaw, monthRaw, dayRaw);
+  const holidayKey = isHungarianHoliday(yearRaw, monthRaw, dayRaw)
+    ?? (isRestDay(yearRaw, monthRaw, dayRaw) ? REST_DAY_KEY : null);
   const isHolidayBlocked = holidayKey && enabledHolidays && enabledHolidays.has(holidayKey);
   if (isHolidayBlocked) return []; // entire day blocked
 
@@ -1304,6 +1306,18 @@ router.post("/:reservationId/services", async (req, res, next) => {
       }
     }
 
+    // Seed per-service holiday rules (all disabled by default).
+    // Without rows the disable-settings endpoint returns an empty
+    // holidayRules list and the UI cannot render the holiday toggles.
+    await pool.query(
+      `INSERT INTO reservation_service_holiday_rules (service_id, holiday_key, enabled)
+       SELECT $1, unnest($2::text[]), false
+       ON CONFLICT (service_id, holiday_key) DO NOTHING`,
+      [service.id, ["new_year", "revolution_day", "good_friday", "easter_monday",
+        "labour_day", "whit_monday", "state_foundation_day", "october_23",
+        "all_saints", "christmas_1", "christmas_2", "rest_day"]],
+    );
+
     return res.status(201).json(rowToServiceDTO(service));
   } catch (err) {
     console.error("[reservations/services/create]", err.code, err.message);
@@ -2026,11 +2040,49 @@ router.get("/:id/disable-settings", async (req, res, next) => {
       source: row.source ?? "manual",
       enabled: row.enabled !== false,
       createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
-      serviceIds: row.service_ids || [],
+      serviceIds: (row.service_ids || []).map((id) => Number(id)),
     }));
     return res.json({ services, disabledRanges });
   } catch (err) {
     console.error("[reservations/disable-settings/get]", err.code, err.message);
+    next(err);
+  }
+});
+// ---- GET /api/reservations/:id/holidays?year=YYYY ----
+// Hungarian public holidays with calendar dates for one year. Powers the
+// admin holiday toggles (base keys match reservation_service_holiday_rules).
+router.get("/:id/holidays", async (req, res, next) => {
+  try {
+    const reservationId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(reservationId) || reservationId <= 0) {
+      return res.status(400).json({ errorMessage: "Invalid reservation id" });
+    }
+    const year = parseInt(typeof req.query.year === "string" ? req.query.year : "", 10);
+    if (!Number.isFinite(year) || year < 2000 || year > 2100) {
+      return res.status(400).json({ errorMessage: "year must be YYYY between 2000 and 2100" });
+    }
+    const reservationCheck = await pool.query(
+      "SELECT id, project_id FROM reservations WHERE id = $1", [reservationId]);
+    if (reservationCheck.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "Reservation not found" });
+    }
+    if (isEnduser(req)) {
+      const allowed = Array.isArray(req.user.projectIds)
+        ? req.user.projectIds.includes(Number(reservationCheck.rows[0].project_id)) : false;
+      if (!allowed) return res.status(404).json({ errorMessage: "Reservation not found" });
+    }
+    const suffix = `_${year}`;
+    const holidays = getHolidaysForYear(year)
+      .map((h) => ({
+        key: h.key.endsWith(suffix) ? h.key.slice(0, -suffix.length) : h.key,
+        month: Number(h.startsAt.slice(5, 7)),
+        day: Number(h.startsAt.slice(8, 10)),
+      }))
+      .concat(getRestDaysForYear(year).map((d) => ({ key: REST_DAY_KEY, month: d.month, day: d.day })))
+      .sort((a, b) => a.month - b.month || a.day - b.day);
+    return res.json({ year, holidays });
+  } catch (err) {
+    console.error("[reservations/holidays/get]", err.code, err.message);
     next(err);
   }
 });
@@ -3341,7 +3393,7 @@ const rowToDisabledRangeDTO = (row) => ({
   createdAt: row.created_at instanceof Date
     ? row.created_at.toISOString()
     : row.created_at,
-  serviceIds: row.service_ids || [],
+  serviceIds: (row.service_ids || []).map((id) => Number(id)),
 });
 
 // ---- GET /api/reservations/:id/disabled-ranges ----
@@ -3438,25 +3490,11 @@ router.post("/:id/disabled-ranges", async (req, res, next) => {
       if (trimmed.length > 0) reason = trimmed;
     }
 
-    // Check per-service overlap if serviceIds provided
+    // Overlapping manual ranges are allowed: availability treats the union
+    // of all ranges as blocked, so overlaps simply merge.
     const incomingServiceIds = Array.isArray(body.serviceIds)
       ? [...new Set(body.serviceIds.filter(id => Number.isFinite(id) && id > 0))].sort((a, b) => a - b)
       : null;
-    if (incomingServiceIds && incomingServiceIds.length > 0) {
-      const overlapCheck = await pool.query(
-        `SELECT drs.service_id
-         FROM reservation_disabled_ranges dr
-         JOIN reservation_disabled_range_services drs ON drs.disabled_range_id = dr.id
-         WHERE dr.reservation_id = $1
-           AND dr.enabled = true
-           AND drs.service_id = ANY($2::bigint[])
-           AND tstzrange(dr.starts_at, dr.ends_at, '[)') && tstzrange($3, $4, '[)')
-         LIMIT 1`,
-        [reservationId, incomingServiceIds, startsAt.toISOString(), endsAt.toISOString()]);
-      if (overlapCheck.rowCount > 0) {
-        return res.status(409).json({ errorMessage: "This range overlaps with an existing disabled range for one or more selected services" });
-      }
-    }
 
     const insertResult = await pool.query(
       `INSERT INTO reservation_disabled_ranges
@@ -3494,6 +3532,140 @@ router.post("/:id/disabled-ranges", async (req, res, next) => {
       return res.status(400).json({ errorMessage: "Invalid date range" });
     }
     console.error("[reservations/disabled-ranges/create]", err.code, err.message);
+    next(err);
+  }
+});
+// ---- POST /api/reservations/:id/day-toggle ----
+// Flip one hardcoded calendar day (e.g. a 2026 public holiday) on/off for a
+// set of services. ON creates/links an exact full-day manual range;
+// OFF unlinks the services and deletes ranges left without services.
+// Day bounds use the reservation timezone. Only exact-bound ranges are
+// touched — partial user-made ranges are left alone.
+router.post("/:id/day-toggle", async (req, res, next) => {
+  try {
+    const reservationId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(reservationId) || reservationId <= 0) {
+      return res.status(400).json({ errorMessage: "Invalid reservation id" });
+    }
+    const body = req.body ?? {};
+    const dateStr = typeof body.date === "string" ? body.date : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return res.status(400).json({ errorMessage: "date must be YYYY-MM-DD" });
+    }
+    const serviceIds = Array.isArray(body.serviceIds)
+      ? [...new Set(body.serviceIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))].sort((a, b) => a - b)
+      : [];
+    if (serviceIds.length === 0) {
+      return res.status(400).json({ errorMessage: "serviceIds must be a non-empty array" });
+    }
+    let reason = null;
+    if (body.reason !== undefined && body.reason !== null) {
+      if (typeof body.reason !== "string") {
+        return res.status(400).json({ errorMessage: "reason must be a string" });
+      }
+      const trimmed = body.reason.trim().slice(0, 500);
+      if (trimmed.length > 0) reason = trimmed;
+    }
+    const enabled = body.enabled === true;
+
+    const reservationCheck = await pool.query(
+      "SELECT id, project_id, timezone FROM reservations WHERE id = $1",
+      [reservationId],
+    );
+    if (reservationCheck.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "Reservation not found" });
+    }
+    if (isEnduser(req)) {
+      const allowed = Array.isArray(req.user.projectIds)
+        ? req.user.projectIds.includes(Number(reservationCheck.rows[0].project_id))
+        : false;
+      if (!allowed) {
+        return res.status(404).json({ errorMessage: "Reservation not found" });
+      }
+    }
+    const tz = reservationCheck.rows[0].timezone || "Europe/Budapest";
+
+    // Day bounds: [midnight, next midnight) in wall time → UTC instants.
+    const wallToUtc = (day, time) => {
+      const guess = new Date(`${day}T${time}:00Z`);
+      const fmt = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz, hour12: false,
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+      });
+      const parts = Object.fromEntries(
+        fmt.formatToParts(guess).filter((p) => p.type !== "literal").map((p) => [p.type, p.value]),
+      );
+      const asUtc = Date.UTC(
+        Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+        Number(parts.hour) === 24 ? 0 : Number(parts.hour), Number(parts.minute), Number(parts.second),
+      );
+      return new Date(guess.getTime() - (asUtc - guess.getTime()));
+    };
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const probe = new Date(Date.UTC(y, m - 1, d));
+    if (probe.getUTCFullYear() !== y || probe.getUTCMonth() !== m - 1 || probe.getUTCDate() !== d) {
+      return res.status(400).json({ errorMessage: "date must be a real calendar day" });
+    }
+    const next = new Date(Date.UTC(y, m - 1, d + 1));
+    const nextStr = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-${String(next.getUTCDate()).padStart(2, "0")}`;
+    const startIso = wallToUtc(dateStr, "00:00").toISOString();
+    const endIso = wallToUtc(nextStr, "00:00").toISOString();
+
+    const existing = await pool.query(
+      `SELECT id FROM reservation_disabled_ranges
+       WHERE reservation_id = $1 AND source = 'manual'
+         AND starts_at = $2::timestamptz AND ends_at = $3::timestamptz`,
+      [reservationId, startIso, endIso],
+    );
+    if (enabled) {
+      let rangeId;
+      if (existing.rowCount > 0) {
+        rangeId = Number(existing.rows[0].id);
+        const values = serviceIds.map((sid, i) => `($1, $${i + 2})`).join(", ");
+        await pool.query(
+          `INSERT INTO reservation_disabled_range_services (disabled_range_id, service_id)
+           VALUES ${values} ON CONFLICT (disabled_range_id, service_id) DO NOTHING`,
+          [rangeId, ...serviceIds],
+        );
+      } else {
+        const insertResult = await pool.query(
+          `INSERT INTO reservation_disabled_ranges
+             (reservation_id, starts_at, ends_at, reason)
+           VALUES ($1, $2::timestamptz, $3::timestamptz, $4)
+           RETURNING id`,
+          [reservationId, startIso, endIso, reason],
+        );
+        rangeId = Number(insertResult.rows[0].id);
+        const values = serviceIds.map((sid, i) => `($1, $${i + 2})`).join(", ");
+        await pool.query(
+          `INSERT INTO reservation_disabled_range_services (disabled_range_id, service_id) VALUES ${values}`,
+          [rangeId, ...serviceIds],
+        );
+      }
+      return res.json({ enabled: true, date: dateStr, rangeId });
+    }
+    // enabled === false: unlink services from exact-bound ranges, drop orphans.
+    const ids = existing.rows.map((r) => Number(r.id));
+    if (ids.length > 0) {
+      await pool.query(
+        `DELETE FROM reservation_disabled_range_services
+         WHERE disabled_range_id = ANY($1::bigint[]) AND service_id = ANY($2::bigint[])`,
+        [ids, serviceIds],
+      );
+      await pool.query(
+        `DELETE FROM reservation_disabled_ranges dr
+         WHERE dr.id = ANY($1::bigint[])
+           AND NOT EXISTS (
+             SELECT 1 FROM reservation_disabled_range_services drs
+             WHERE drs.disabled_range_id = dr.id
+           )`,
+        [ids],
+      );
+    }
+    return res.json({ enabled: false, date: dateStr, rangeIds: ids });
+  } catch (err) {
+    console.error("[reservations/day-toggle]", err.code, err.message);
     next(err);
   }
 });
@@ -3606,26 +3778,11 @@ router.put("/:id/disabled-ranges/:rangeId", async (req, res, next) => {
       if (trimmed.length > 0) reason = trimmed;
     }
 
-    // Check per-service overlap (excluding current range)
+    // Overlapping manual ranges are allowed (see POST): availability treats
+    // the union of all ranges as blocked, so overlaps simply merge.
     const incomingServiceIds = Array.isArray(body.serviceIds)
       ? [...new Set(body.serviceIds.filter(id => Number.isFinite(id) && id > 0))].sort((a, b) => a - b)
       : null;
-    if (incomingServiceIds && incomingServiceIds.length > 0) {
-      const overlapCheck = await pool.query(
-        `SELECT drs.service_id
-         FROM reservation_disabled_ranges dr
-         JOIN reservation_disabled_range_services drs ON drs.disabled_range_id = dr.id
-         WHERE dr.reservation_id = $1
-           AND dr.id != $2
-           AND dr.enabled = true
-           AND drs.service_id = ANY($3::bigint[])
-           AND tstzrange(dr.starts_at, dr.ends_at, '[)') && tstzrange($4, $5, '[)')
-         LIMIT 1`,
-        [reservationId, rangeId, incomingServiceIds, startsAt.toISOString(), endsAt.toISOString()]);
-      if (overlapCheck.rowCount > 0) {
-        return res.status(409).json({ errorMessage: "This range overlaps with an existing disabled range for one or more selected services" });
-      }
-    }
 
     const updateResult = await pool.query(
       `UPDATE reservation_disabled_ranges

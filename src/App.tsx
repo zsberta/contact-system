@@ -47,6 +47,7 @@ import ReservationsPage from "./pages/ReservationsPage";
 import ReservationCreatePage from "./pages/ReservationCreatePage";
 import ReservationEditPage from "./pages/ReservationEditPage";
 import ReservationViewPage from "./pages/ReservationViewPage";
+import ReservationBookingViewPage from "./pages/ReservationBookingViewPage";
 import ReservationBookingsPage from "./pages/ReservationBookingsPage";
 import ReservationCalendarPage from "./pages/ReservationCalendarPage";
 import ReservationDisabledRangesPage from "./pages/ReservationDisabledRangesPage";
@@ -173,8 +174,10 @@ const App = () => (
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/services/edit/:serviceId" element={<ReservationServiceEditPage />} />
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/services/:serviceId/schedules" element={<ReservationServiceSchedulesPage />} />
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/services" element={<ReservationServicesPage />} />
+                  <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/bookings/:bookingId" element={<ReservationBookingViewPage />} />
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/bookings" element={<ReservationBookingsPage />} />
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/calendar" element={<ReservationCalendarPage />} />
+                  <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/blocked/edit/:rangeId" element={<ReservationDisabledRangeCreatePage />} />
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/blocked/new" element={<ReservationDisabledRangeCreatePage />} />
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/blocked" element={<ReservationDisabledRangesPage />} />
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/customers" element={<ReservationCustomersPage />} />

@@ -1,29 +1,51 @@
 // ----------------------------------------------------------------------------
 // ReservationCustomersPage — project-scoped, paged DataTable of customers.
-// Shows name, email, and phone. Links to the customer detail page.
+// Shows name, email, and phone. Row double-click and the actions menu open
+// the customer view page; deletion uses a confirmation dialog.
 // ----------------------------------------------------------------------------
 
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ExternalLink } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Eye, MoreVertical, Trash2 } from "lucide-react";
 import { DataTable } from "@/components/DataTable";
-import { getReservationCustomers } from "@/lib/reservations";
+import { deleteReservationCustomer, getReservationCustomers } from "@/lib/reservations";
+import { showError, showSuccess } from "@/utils/toast";
 import { useDataTableQuery } from "@/hooks/useDataTableQuery";
 import type { ReservationCustomerDTO } from "@/types/reservation";
 
 export default function ReservationCustomersPage() {
   const { t } = useTranslation(["reservations", "common"]);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { projectId: projectIdParam, moduleId: moduleIdParam } = useParams<{
     projectId: string;
     moduleId: string;
   }>();
 
   const projectId = projectIdParam ? Number(projectIdParam) : undefined;
+  const [deleteTarget, setDeleteTarget] = useState<ReservationCustomerDTO | null>(null);
 
   const { query, handlers } = useDataTableQuery({ defaultSize: 10 });
-
   const { data, isLoading } = useQuery({
     queryKey: ["reservation-customers", query, projectId],
     queryFn: () =>
@@ -37,6 +59,16 @@ export default function ReservationCustomersPage() {
       }),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (customerId: number) => deleteReservationCustomer(customerId),
+    onSuccess: () => {
+      showSuccess(t("reservations:customer_deleted"));
+      queryClient.invalidateQueries({ queryKey: ["reservation-customers"] });
+      setDeleteTarget(null);
+    },
+    onError: (err: Error) => showError(err.message),
+  });
+
   // Build the detail link for each customer — workspace route when available,
   // legacy admin route otherwise.
   const detailPath = (customerId: number) => {
@@ -45,7 +77,6 @@ export default function ReservationCustomersPage() {
     }
     return `/reservations/customers/${customerId}`;
   };
-
   const columns = [
     {
       accessorKey: "lastName",
@@ -67,18 +98,42 @@ export default function ReservationCustomersPage() {
       accessorKey: "actions",
       header: t("common:actions"),
       cell: (row: ReservationCustomerDTO) => (
-        <Button variant="ghost" size="icon" asChild>
-          <Link to={detailPath(row.id)}>
-            <ExternalLink className="h-4 w-4" />
-          </Link>
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-8 w-8 p-0"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <span className="sr-only">{t("common:actions")}</span>
+              <MoreVertical className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>{t("common:actions")}</DropdownMenuLabel>
+            <DropdownMenuItem onSelect={() => navigate(detailPath(row.id))}>
+              <Eye className="mr-2 h-4 w-4" />
+              {t("common:view")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => setDeleteTarget(row)}
+              className="text-red-600 focus:text-red-600"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              {t("common:delete")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       ),
     },
   ];
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold">{t("reservations:customers")}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold break-words">{t("reservations:customers")}</h2>
+      </div>
 
       <DataTable
         columns={columns}
@@ -95,8 +150,28 @@ export default function ReservationCustomersPage() {
         onSortChange={handlers.onSortChange}
         currentSortField={query.sortField}
         currentSortOrder={query.sortOrder}
+        onRowDoubleClick={(row: ReservationCustomerDTO) => navigate(detailPath(row.id))}
         emptyMessage={t("reservations:no_customers")}
       />
+
+      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("reservations:delete_customer_title")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("reservations:delete_customer_confirm")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>{t("common:cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { if (deleteTarget) deleteMutation.mutate(deleteTarget.id); }}
+              disabled={deleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteMutation.isPending ? t("common:deleting") : t("common:delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

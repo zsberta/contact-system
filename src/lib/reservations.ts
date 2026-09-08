@@ -22,6 +22,7 @@ import type {
   ReservationDisableSettingsResponse,
   ReservationDisabledRangeCreateDTO,
   ReservationDisabledRangeDTO,
+  ReservationHolidayDateDTO,
   ReservationDTO,
   ReservationPublicBookingRequest,
   ReservationServiceAvailabilityDTO,
@@ -296,6 +297,35 @@ export async function getDisableSettings(
 ): Promise<ReservationDisableSettingsResponse> {
   return apiFetch<ReservationDisableSettingsResponse>(
     `/reservations/${reservationId}/disable-settings`,
+  );
+}
+export interface ReservationHolidaysResponse {
+  year: number;
+  holidays: ReservationHolidayDateDTO[];
+}
+
+export async function getReservationHolidays(
+  reservationId: number,
+  year: number,
+): Promise<ReservationHolidaysResponse> {
+  return apiFetch<ReservationHolidaysResponse>(
+    `/reservations/${reservationId}/holidays?year=${year}`,
+  );
+}
+export interface DisabledDateToggleDTO {
+  date: string;
+  serviceIds: number[];
+  enabled: boolean;
+  reason?: string | null;
+}
+
+export async function toggleDisabledDate(
+  reservationId: number,
+  data: DisabledDateToggleDTO,
+): Promise<{ enabled: boolean; date: string; rangeId?: number; rangeIds?: number[] }> {
+  return apiFetch(
+    `/reservations/${reservationId}/day-toggle`,
+    { method: "POST", body: JSON.stringify(data) },
   );
 }
 
