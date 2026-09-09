@@ -346,9 +346,14 @@ router.post("/:secret_token/chat", burstLimiter, sustainedLimiter, async (req, r
         const ragTimeout = setTimeout(() => ragController.abort(), 10_000);
         let embedRes;
         try {
-          embedRes = await fetch(`${embBaseUrl}/embeddings`, {
+          embedRes = await fetch(`${embBaseUrl.replace(/\/+$/, "")}/embeddings`, {
             method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${embApiKey}` },
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${embApiKey}`,
+              "User-Agent": "contact-system-ai-assistant/1.0",
+              ...(externalSessionId ? { "x-opencode-session": String(externalSessionId) } : {}),
+            },
             body: JSON.stringify({ model: embModel, input: message }),
             signal: ragController.signal,
           });
@@ -409,6 +414,9 @@ router.post("/:secret_token/chat", burstLimiter, sustainedLimiter, async (req, r
       model: config.model,
       messages: llmMessages,
       timeoutMs: 30_000,
+      // OpenCode Go requires a stable per-conversation session id for
+      // routing/caching; the widget chat session id is exactly that.
+      sessionId: externalSessionId,
       onChunk: (text) => {
         fullText += text;
         res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
