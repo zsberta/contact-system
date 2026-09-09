@@ -549,7 +549,7 @@ export default function ReservationEmbedPage() {
   })() : null;
 
   return (
-    <div className="min-h-screen p-4 md:p-6">
+    <div className="min-h-screen">
       {/* Header */}
       {catalog && (
         <div className="max-w-5xl mx-auto mb-6">
