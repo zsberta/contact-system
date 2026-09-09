@@ -34,6 +34,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import type { PaymentDTO } from "@/types/payment";
+import { MarkPaidDialog } from "@/components/payments/MarkPaidDialog";
 import { deletePayment, updatePayment } from "@/lib/api";
 import { showError, showSuccess } from "@/utils/toast";
 
@@ -47,6 +48,7 @@ const PaymentActions = ({ payment, projectId }: PaymentActionsProps) => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isMarkPaidOpen, setIsMarkPaidOpen] = useState(false);
 
   const isPaid = payment.status === "paid";
   const isCancelled = payment.status === "cancelled";
@@ -71,9 +73,11 @@ const PaymentActions = ({ payment, projectId }: PaymentActionsProps) => {
   });
 
   const markPaidMutation = useMutation({
-    mutationFn: () => updatePayment(payment.id, { status: "paid" }),
+    mutationFn: (paidAtIso: string) =>
+      updatePayment(payment.id, { status: "paid", paidAt: paidAtIso }),
     onSuccess: () => {
       showSuccess(t("payments:payment_marked_paid"));
+      setIsMarkPaidOpen(false);
       invalidatePayments();
     },
     onError: (err: Error) => {
@@ -97,8 +101,8 @@ const PaymentActions = ({ payment, projectId }: PaymentActionsProps) => {
     setIsDeleteDialogOpen(false);
   };
 
-  const handleMarkPaid = () => {
-    markPaidMutation.mutate();
+  const handleMarkPaidConfirm = (paidAtIso: string) => {
+    markPaidMutation.mutate(paidAtIso);
   };
 
   const handleCancel = () => {
@@ -143,7 +147,7 @@ const PaymentActions = ({ payment, projectId }: PaymentActionsProps) => {
           <DropdownMenuLabel>{t("common:actions")}</DropdownMenuLabel>
           {!isPaid && (
             <DropdownMenuItem
-              onSelect={handleMarkPaid}
+              onSelect={() => setIsMarkPaidOpen(true)}
               disabled={markPaidMutation.isPending}
             >
               <CheckCircle2 className="mr-2 h-4 w-4" />
@@ -219,6 +223,12 @@ const PaymentActions = ({ payment, projectId }: PaymentActionsProps) => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <MarkPaidDialog
+        open={isMarkPaidOpen}
+        onOpenChange={setIsMarkPaidOpen}
+        isPending={markPaidMutation.isPending}
+        onConfirm={handleMarkPaidConfirm}
+      />
     </>
   );
 };

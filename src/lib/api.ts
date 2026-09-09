@@ -737,15 +737,6 @@ export const deletePayment = (id: number): Promise<void> => {
     method: "DELETE",
   });
 };
-
-export const generateProjectPayment = (
-  projectId: number,
-): Promise<PaymentDTO> => {
-  return apiFetch<PaymentDTO>(`/projects/${projectId}/payments/generate`, {
-    method: "POST",
-  });
-};
-
 // --- Payment attachments ---
 
 export const getPaymentAttachments = (

@@ -125,8 +125,11 @@ const ServiceEditPage: React.FC = () => {
   return (
     <div className="container mx-auto p-4 max-w-5xl space-y-6">
       <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" onClick={() => {
-          navigate(`/services/view/${itemId}`);
+        <Button variant="outline" size="sm" onClick={async () => {
+          if (item?.projectId) {
+            const path = await resolveModulePath(item.projectId, "service", "items");
+            if (path) navigate(`${path}/view/${itemId}`);
+          }
         }}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           {t("common:back")}
@@ -248,8 +251,11 @@ const ServiceEditPage: React.FC = () => {
 
             {/* Submit */}
             <div className="flex justify-end gap-2 pt-4">
-              <Button type="button" variant="outline" onClick={() => {
-                navigate(`/services/view/${itemId}`);
+              <Button type="button" variant="outline" onClick={async () => {
+                if (item?.projectId) {
+                  const path = await resolveModulePath(item.projectId, "service", "items");
+                  if (path) navigate(`${path}/view/${itemId}`);
+                }
               }}>
                 {t("common:cancel")}
               </Button>

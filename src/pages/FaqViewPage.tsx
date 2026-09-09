@@ -129,8 +129,8 @@ const FaqViewPage: React.FC = () => {
             <Button
               onClick={async () => {
                 if (item?.projectId) {
-                  const path = await resolveModulePath(item.projectId, "faq", "edit");
-                  if (path) navigate(path);
+                  const path = await resolveModulePath(item.projectId, "faq", "items");
+                  if (path) navigate(`${path}/edit/${itemId}`);
                 }
               }}
               className="w-full sm:w-auto"

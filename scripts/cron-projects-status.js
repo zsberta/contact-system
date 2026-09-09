@@ -1,5 +1,5 @@
 import { pool } from "../db/pool.js";
-import { computeNextDue, dateToYMD } from "../lib/billing-dates.js";
+import { computeNextDue } from "../lib/billing-dates.js";
 
 const TERMINAL_STATUSES = ["paid", "cancelled", "completed", "customer_paid"];
 
@@ -55,7 +55,7 @@ export async function runProjectStatusCron() {
        WHERE fordulonap IS NOT NULL AND billing_period IS NOT NULL`,
     );
 
-    const transitions = []; // { id, from, to, _billingPeriod, _fordulonap }
+    const transitions = []; // { id, from, to }
     for (const r of rows) {
       if (TERMINAL_STATUSES.includes(r.status)) continue;
       const next = computeNextDue(r.billing_period, r.fordulonap, today);
@@ -63,15 +63,7 @@ export async function runProjectStatusCron() {
       const diff = daysBetween(today, next); // positive = future, 0 = today, negative = overdue
       const to = decideTransition(r.status, diff);
       if (to && to !== r.status) {
-        // Stash period + fordulonap so the payment-creation step below can
-        // recompute the same next-due date without re-reading the project row.
-        transitions.push({
-          id: r.id,
-          from: r.status,
-          to,
-          _billingPeriod: r.billing_period,
-          _fordulonap: r.fordulonap,
-        });
+        transitions.push({ id: r.id, from: r.status, to });
       }
     }
 
@@ -97,41 +89,10 @@ export async function runProjectStatusCron() {
       }
     }
 
-    // -- Payment side-effects --
-    // 1. For each project that just transitioned into 'waiting_for_payment',
-    //    create an auto-pending payment for the next due date. We re-check
-    //    status via WHERE status = $3 in the UPDATE above so a manual change
-    //    that happened concurrently would have made our update no-op (and
-    //    we'd not see it in transitions anyway). The auto-create uses an
-    //    ON CONFLICT DO NOTHING for the second-layer race safety.
-    let paymentsCreated = 0;
-    for (const t of transitions) {
-      if (t.to !== "waiting_for_payment") continue;
-      try {
-        const projRes = await pool.query(
-          `SELECT id, price FROM projects WHERE id = $1`,
-          [t.id],
-        );
-        if (projRes.rowCount === 0) continue;
-        const project = projRes.rows[0];
-        const next = computeNextDue(t._billingPeriod, t._fordulonap, today);
-        if (!next) continue;
-        const result = await findOrCreateAutoPayment(project, next, t._billingPeriod);
-        if (result.created) {
-          paymentsCreated += 1;
-          log(`#${t.id}: created payment (id=${result.id})`);
-        }
-      } catch (e) {
-        console.error(
-          "[cron projects] payment create failed for project",
-          t.id,
-          e.code ?? "",
-          e.message,
-        );
-      }
-    }
+    // -- Payment side-effect --
+    // Invoices are created manually; the cron only maintains statuses.
 
-    // 2. Mark pending payments whose due_date has passed as 'overdue'.
+    // Mark pending payments whose due_date has passed as 'overdue'.
     let paymentsOverdue = 0;
     try {
       paymentsOverdue = await markOverduePayments();
@@ -148,12 +109,11 @@ export async function runProjectStatusCron() {
 
     log(
       `processed ${rows.length} projects, ${transitions.length} transitions, ` +
-        `${paymentsCreated} payments created, ${paymentsOverdue} payments overdue`,
+        `${paymentsOverdue} payments overdue`,
     );
     return {
       processed: rows.length,
       transitions: transitions.length,
-      paymentsCreated,
       paymentsOverdue,
     };
   } catch (e) {
@@ -162,56 +122,6 @@ export async function runProjectStatusCron() {
   }
 }
 
-/**
- * Create (or find) the pending payment row for one auto-billing event.
- *
- * Returns { id, created }. `created` is true only when this call actually
- * inserted a new row; `id` may be null if the row was neither pre-existing
- * nor insertable (e.g. race lost on the ON CONFLICT branch).
- *
- * Skips when:
- *   - no next-due date
- *   - no price (or non-positive price)
- *   - the project row vanished between SELECT and here
- */
-export async function findOrCreateAutoPayment(project, nextDue, billingPeriod) {
-  if (!nextDue || !project.price || project.price <= 0) {
-    return { id: null, created: false };
-  }
-
-  const dueDateStr = dateToYMD(nextDue);
-
-  // Cheap pre-check: avoid the INSERT round-trip if there's already an active
-  // payment for this (project_id, due_date).
-  const existing = await pool.query(
-    `SELECT id FROM payments
-     WHERE project_id = $1 AND due_date = $2
-       AND status IN ('pending', 'paid', 'overdue')
-     LIMIT 1`,
-    [project.id, dueDateStr],
-  );
-  if (existing.rowCount > 0) {
-    return { id: Number(existing.rows[0].id), created: false };
-  }
-
-  // Race-safe insert. The partial unique index
-  // uq_payments_project_due_active has the same predicate as our pre-check,
-  // so the WHERE clause on the ON CONFLICT matches the index expression.
-  const { rows } = await pool.query(
-    `INSERT INTO payments (project_id, amount, status, due_date, period, created_by)
-     VALUES ($1, $2, 'pending', $3, $4, 'auto')
-     ON CONFLICT (project_id, due_date) WHERE status IN ('pending', 'paid', 'overdue')
-     DO NOTHING
-     RETURNING id`,
-    [project.id, project.price, dueDateStr, billingPeriod],
-  );
-  if (rows.length === 0) {
-    // Lost the race — another cron instance inserted between our pre-check
-    // and now. That's fine, the existing payment covers this due date.
-    return { id: null, created: false };
-  }
-  return { id: Number(rows[0].id), created: true };
-}
 
 /**
  * Flip all `pending` payments whose due_date is in the past to `overdue`.

@@ -24,6 +24,7 @@ import ProjectsPage from "./pages/ProjectsPage";
 import ProjectCreatePage from "./pages/ProjectCreatePage";
 import ProjectEditPage from "./pages/ProjectEditPage";
 import ProjectViewPage from "./pages/ProjectViewPage";
+import PaymentCreatePage from "./pages/PaymentCreatePage";
 import PaymentEditPage from "./pages/PaymentEditPage";
 import PaymentViewPage from "./pages/PaymentViewPage";
 import FormsPage from "./pages/FormsPage";
@@ -136,6 +137,7 @@ const App = () => (
                     <Route path="/projects/create" element={<ProjectCreatePage />} />
                     <Route path="/projects/view/:id" element={<ProjectViewPage />} />
                     <Route path="/projects/edit/:id" element={<ProjectEditPage />} />
+                    <Route path="/projects/:id/payments/create" element={<PaymentCreatePage />} />
                     <Route path="/projects/:id/payments/:paymentId/edit" element={<PaymentEditPage />} />
                     <Route path="/projects/:id/payments/:paymentId/view" element={<PaymentViewPage />} />
                     <Route path="/forms" element={<FormsPage />} />
@@ -186,17 +188,20 @@ const App = () => (
                   {/* Form module — one per project */}
                   <Route path="/workspace/projects/:projectId/modules/form/:moduleId/details" element={<FormViewPage />} />
                   <Route path="/workspace/projects/:projectId/modules/form/:moduleId/submissions" element={<FormSubmissionsPage />} />
+                  <Route path="/workspace/projects/:projectId/modules/form/:moduleId/edit" element={<FormEditPage />} />
 
                   {/* Analytics module */}
                   <Route path="/workspace/projects/:projectId/modules/analytics/:moduleId/details" element={<AnalyticsViewPage />} />
                   <Route path="/workspace/projects/:projectId/modules/analytics/:moduleId/stats" element={<AnalyticsStatsPage />} />
                   <Route path="/workspace/projects/:projectId/modules/analytics/:moduleId/snippet" element={<AnalyticsSnippetPage />} />
+                  <Route path="/workspace/projects/:projectId/modules/analytics/:moduleId/edit" element={<AnalyticsEditPage />} />
 
                   {/* AI Assistant module */}
                   <Route path="/workspace/projects/:projectId/modules/ai-assistant/:moduleId/details" element={<AiAssistantViewPage />} />
                   <Route path="/workspace/projects/:projectId/modules/ai-assistant/:moduleId/knowledge" element={<AiAssistantKnowledgePage />} />
                   <Route path="/workspace/projects/:projectId/modules/ai-assistant/:moduleId/snippet" element={<AiAssistantSnippetPage />} />
                   <Route path="/workspace/projects/:projectId/modules/ai-assistant/:moduleId/sessions" element={<AiAssistantSessionsPage />} />
+                  <Route path="/workspace/projects/:projectId/modules/ai-assistant/:moduleId/edit" element={<AiAssistantEditPage />} />
 
                   {/* Blog module */}
                   <Route path="/workspace/projects/:projectId/modules/blog/:moduleId/posts" element={<BlogPage />} />

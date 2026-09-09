@@ -13,7 +13,6 @@ import { router as dashboardRouter } from "./routes/dashboard.js";
 import { router as projectsRouter } from "./routes/projects.js";
 import { router as paymentsRouter } from "./routes/payments.js";
 import { router as paymentAttachmentsRouter } from "./routes/payment-attachments.js";
-import { router as projectPaymentGeneratorRouter } from "./routes/project-payment-generator.js";
 import { router as usersRouter } from "./routes/users.js";
 import { router as formsRouter } from "./routes/forms.js";
 import { router as formEmbedRouter } from "./routes/form-embed.js";
@@ -166,7 +165,6 @@ app.use("/api/users", usersRouter);
 app.use("/api/projects", projectsRouter);
 app.use("/api/payments", paymentsRouter);
 app.use("/api/payments", paymentAttachmentsRouter);
-app.use("/api/projects", projectPaymentGeneratorRouter);
 app.use("/api/forms", formsRouter);
 // Reservations sibling module — same scoping/capability/allowlist/security
 // patterns as Forms. See routes/reservations.js and routes/reservation-embed.js.

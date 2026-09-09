@@ -1,7 +1,5 @@
 export type PaymentStatus = "pending" | "paid" | "overdue" | "cancelled";
 
-export type PaymentPeriod = "monthly" | "yearly" | "one_off" | null;
-
 export type PaymentOrigin = "auto" | "manual";
 
 export interface PaymentDTO {
@@ -10,7 +8,6 @@ export interface PaymentDTO {
   amount: number | null;
   status: PaymentStatus;
   dueDate: string;
-  period: PaymentPeriod;
   createdBy: PaymentOrigin;
   paidAt: string | null;
   note: string | null;
@@ -23,7 +20,6 @@ export interface PaymentCreateUpdateDTO {
   amount: number;
   dueDate: string;
   status?: PaymentStatus;
-  period?: PaymentPeriod | null;
   createdBy?: PaymentOrigin;
   note?: string | null;
   paidAt?: string | null;

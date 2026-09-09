@@ -167,8 +167,8 @@ const BlogViewPage: React.FC = () => {
             <Button
               onClick={async () => {
                 if (post?.projectId) {
-                  const path = await resolveModulePath(post.projectId, "blog", "edit");
-                  if (path) navigate(path);
+                  const path = await resolveModulePath(post.projectId, "blog", "posts");
+                  if (path) navigate(`${path}/edit/${postId}`);
                 }
               }}
               className="w-full sm:w-auto"

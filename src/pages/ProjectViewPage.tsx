@@ -197,7 +197,7 @@ const ProjectViewPage: React.FC = () => {
 
       <ProjectAiAssistant projectId={project.id} />
 
-      <ProjectPayments projectId={project.id} projectPrice={project.price} />
+      <ProjectPayments projectId={project.id} />
 
       <AlertDialog
         open={isDeleteDialogOpen}

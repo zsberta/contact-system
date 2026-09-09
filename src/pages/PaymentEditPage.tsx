@@ -19,6 +19,11 @@ const formatHuf = (amount: number | null): string => {
     maximumFractionDigits: 0,
   }).format(amount);
 };
+// Forced Hungarian display — never follows the browser locale.
+const formatYmdHu = (ymd: string): string => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  return m ? `${m[1]}.${m[2]}.${m[3]}` : ymd;
+};
 
 const statusBadgeVariant = (
   status: PaymentDTO["status"],
@@ -116,7 +121,7 @@ const PaymentEditPage: React.FC = () => {
               </div>
               <div>
                 <p className="text-muted-foreground">{t("payments:due_date")}</p>
-                <p className="font-semibold">{initialData.dueDate}</p>
+                <p className="font-semibold">{formatYmdHu(initialData.dueDate)}</p>
               </div>
             </div>
           </CardContent>
@@ -124,6 +129,8 @@ const PaymentEditPage: React.FC = () => {
       </div>
 
       <PaymentForm
+        // Remount per invoice so edit A → B reseeds every field together.
+        key={numericPaymentId}
         mode="edit"
         initialData={initialData}
         projectId={projectId}

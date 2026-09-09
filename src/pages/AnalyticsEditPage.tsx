@@ -7,7 +7,7 @@
 
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { showError, showSuccess } from "@/utils/toast";
 import type {
   AnalyticsConfigDTO,
@@ -19,13 +19,15 @@ import {
 } from "@/lib/analytics";
 import AnalyticsConfigForm from "@/components/analytics/AnalyticsConfigForm";
 import { resolveModulePath } from "@/lib/workspace-navigation";
+import { useModuleResolution } from "@/hooks/useModuleResolution";
 
 const AnalyticsEditPage: React.FC = () => {
   const { t } = useTranslation(["analytics", "common"]);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { id } = useParams<{ id: string }>();
-  const configId = id ? Number.parseInt(id) : null;
+  // Workspace :moduleId is a project_modules row — the config id comes from
+  // its resourceId (same hook the details page uses). Legacy :id is direct.
+  const { resourceId: configId, isLoading: isResolving } = useModuleResolution();
 
   const { data: initialData, isLoading, error } = useQuery<
     AnalyticsConfigDTO,
@@ -60,10 +62,10 @@ const AnalyticsEditPage: React.FC = () => {
   if (error) {
     showError(t("common:operation_failed", { error: error.message }));
   }
-  if (!configId) {
+  if (!configId && !isResolving) {
     return <div className="text-center p-8">{t("common:invalid_id")}</div>;
   }
-  if (isLoading) {
+  if (isLoading || isResolving) {
     return <div className="text-center p-8">{t("common:loading")}</div>;
   }
   if (!initialData) {

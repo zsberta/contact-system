@@ -15,7 +15,6 @@ const forbidEnduserMutation = (req, res) => {
 };
 
 const STATUS_VALUES = new Set(["pending", "paid", "overdue", "cancelled"]);
-const PERIOD_VALUES = new Set(["monthly", "yearly", "one_off"]);
 const ORIGIN_VALUES = new Set(["auto", "manual"]);
 
 // Snake_case DB column -> camelCase API field. We serialise due_date as a
@@ -33,7 +32,6 @@ function rowToPaymentDTO(row) {
     amount: row.amount == null ? null : Number(row.amount),
     status: row.status,
     dueDate,
-    period: row.period,
     createdBy: row.created_by,
     paidAt: row.paid_at ? new Date(row.paid_at).toISOString() : null,
     note: row.note,
@@ -131,18 +129,6 @@ function validatePaymentBody(body, { partial = false } = {}) {
     out.status = "pending";
   }
 
-  // period — optional.
-  if (body.period !== undefined) {
-    const v = emptyToNull(body.period);
-    if (v === null) {
-      out.period = null;
-    } else if (typeof v !== "string" || !PERIOD_VALUES.has(v)) {
-      errors.push(`period must be one of ${[...PERIOD_VALUES].join(", ")} or null`);
-    } else {
-      out.period = v;
-    }
-  }
-
   // createdBy — defaults to 'manual' on POST.
   if (body.createdBy !== undefined || body.created_by !== undefined) {
     const v = body.createdBy ?? body.created_by;
@@ -229,7 +215,7 @@ router.get("/", requireAuth, async (req, res) => {
     const countResult = await pool.query(countSql, params);
     const totalElements = countResult.rows[0].total;
 
-    const dataSql = `SELECT id, project_id, amount, status, due_date, period,
+    const dataSql = `SELECT id, project_id, amount, status, due_date,
                             created_by, paid_at, note, created_at, updated_at
                      FROM payments
                      ${whereSql}
@@ -274,7 +260,7 @@ router.get("/:id", requireAuth, async (req, res) => {
   }
   try {
     const { rows } = await pool.query(
-      `SELECT id, project_id, amount, status, due_date, period,
+      `SELECT id, project_id, amount, status, due_date,
               created_by, paid_at, note, created_at, updated_at
        FROM payments WHERE id = $1`,
       [paymentId],
@@ -327,16 +313,15 @@ router.post("/", requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `INSERT INTO payments
-        (project_id, amount, status, due_date, period, created_by, paid_at, note)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, project_id, amount, status, due_date, period,
+        (project_id, amount, status, due_date, created_by, paid_at, note)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, project_id, amount, status, due_date,
                  created_by, paid_at, note, created_at, updated_at`,
       [
         v.project_id,
         v.amount,
         v.status,
         v.due_date,
-        v.period ?? null,
         v.created_by,
         v.paid_at ?? null,
         v.note ?? null,
@@ -405,7 +390,7 @@ router.put("/:id", requireAuth, async (req, res) => {
     const sql = `UPDATE payments
                  SET ${setClauses.join(", ")}
                  WHERE id = $1
-                 RETURNING id, project_id, amount, status, due_date, period,
+                 RETURNING id, project_id, amount, status, due_date,
                            created_by, paid_at, note, created_at, updated_at`;
     const { rows, rowCount } = await pool.query(sql, params);
     if (rowCount === 0) {

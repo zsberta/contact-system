@@ -5,19 +5,21 @@
 
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { showError, showSuccess } from "@/utils/toast";
 import type { FormDTO, FormUpdateDTO } from "@/types/form";
 import { getFormById, updateForm } from "@/lib/forms";
 import FormForm from "@/components/forms/FormForm";
 import { resolveModulePath } from "@/lib/workspace-navigation";
+import { useModuleResolution } from "@/hooks/useModuleResolution";
 
 const FormEditPage: React.FC = () => {
   const { t } = useTranslation(["forms", "common"]);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { id } = useParams<{ id: string }>();
-  const formId = id ? Number.parseInt(id) : null;
+  // Workspace :moduleId is a project_modules row — the form id comes from
+  // its resourceId (same hook the details page uses). Legacy :id is direct.
+  const { resourceId: formId, isLoading: isResolving } = useModuleResolution();
 
   const { data: initialData, isLoading, error } = useQuery<FormDTO, Error>({
     queryKey: ["forms", formId],
@@ -47,10 +49,10 @@ const FormEditPage: React.FC = () => {
     showError(t("common:operation_failed", { error: error.message }));
   }
 
-  if (!formId) {
+  if (!formId && !isResolving) {
     return <div className="text-center p-8">{t("common:invalid_id")}</div>;
   }
-  if (isLoading) {
+  if (isLoading || isResolving) {
     return <div className="text-center p-8">{t("common:loading")}</div>;
   }
   if (!initialData) {
