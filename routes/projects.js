@@ -8,6 +8,7 @@ import fsp from "node:fs/promises";
 import { pool } from "../db/pool.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
 import { getScopedProjectIds, appendProjectScope } from "../lib/scope.js";
+import { logActivity, diffObjects } from "../lib/activity-log.js";
 
 export const router = express.Router();
 
@@ -678,7 +679,20 @@ router.post("/", requireAuth, async (req, res) => {
         v.brand_color ?? null,
       ],
     );
-    return res.status(201).json(rowToProjectDTO(rows[0]));
+    const created = rowToProjectDTO(rows[0]);
+    logActivity({
+      req,
+      action: "project.create",
+      actionType: "CREATE",
+      entityType: "project",
+      entityId: created.id,
+      entityLabel: created.name,
+      projectId: created.id,
+      statusCode: 201,
+      ok: true,
+      metadata: { created: { id: created.id, name: created.name, status: created.status } },
+    });
+    return res.status(201).json(created);
   } catch (err) {
     // 22P02 = invalid_text_representation (e.g. enum mismatch).
     if (err.code === "22P02") {
@@ -710,8 +724,15 @@ router.put("/:id", requireAuth, async (req, res) => {
   // being changed in the same payload — keep this simple and predictable.
   const bumpLastStatus = v.status !== undefined;
 
+  let projectBefore = null;
   try {
-    // Dynamic SET — only update fields the caller actually provided.
+    const { rows: beforeRows } = await pool.query(`SELECT * FROM projects WHERE id = $1`, [projectId]);
+    projectBefore = beforeRows[0] ?? null;
+  } catch {
+    projectBefore = null;
+  }
+
+  try {
     const setClauses = [];
     const params = [projectId];
     let p = 2;
@@ -741,7 +762,22 @@ router.put("/:id", requireAuth, async (req, res) => {
     if (rowCount === 0) {
       return res.status(404).json({ errorMessage: "Project not found" });
     }
-    return res.json(rowToProjectDTO(rows[0]));
+    const updated = rowToProjectDTO(rows[0]);
+    logActivity({
+      req,
+      action: "project.update",
+      actionType: "UPDATE",
+      entityType: "project",
+      entityId: updated.id,
+      entityLabel: updated.name,
+      projectId: updated.id,
+      statusCode: 200,
+      ok: true,
+      metadata: projectBefore
+        ? { diff: diffObjects(projectBefore, rows[0]) }
+        : { note: "no-before-row" },
+    });
+    return res.json(updated);
   } catch (err) {
     if (err.code === "22P02") {
       return res.status(400).json({ errorMessage: "Invalid enum value" });
@@ -760,6 +796,13 @@ router.delete("/:id", requireAuth, async (req, res) => {
     return res.status(400).json({ errorMessage: "Invalid id" });
   }
   try {
+    let projectLabel = null;
+    try {
+      const { rows: beforeRows } = await pool.query(`SELECT name FROM projects WHERE id = $1`, [projectId]);
+      projectLabel = beforeRows[0]?.name ?? null;
+    } catch {
+      projectLabel = null;
+    }
     const { rowCount } = await pool.query(`DELETE FROM projects WHERE id = $1`, [projectId]);
     if (rowCount === 0) {
       return res.status(404).json({ errorMessage: "Project not found" });
@@ -779,6 +822,18 @@ router.delete("/:id", requireAuth, async (req, res) => {
         fsErr.message,
       );
     }
+    logActivity({
+      req,
+      action: "project.delete",
+      actionType: "DELETE",
+      entityType: "project",
+      entityId: projectId,
+      entityLabel: projectLabel,
+      projectId,
+      statusCode: 204,
+      ok: true,
+      metadata: { deleted: { id: projectId, label: projectLabel } },
+    });
     return res.status(204).send();
   } catch (err) {
     console.error("[projects/delete]", err.code, err.message);
@@ -899,7 +954,20 @@ router.post(
           req.file.size,
         ],
       );
-      return res.status(201).json(rowToAttachmentDTO(rows[0]));
+      const uploaded = rowToAttachmentDTO(rows[0]);
+      logActivity({
+        req,
+        action: "project.attachment_upload",
+        actionType: "CREATE",
+        entityType: "project",
+        entityId: uploaded.id,
+        entityLabel: uploaded.originalFilename,
+        projectId,
+        statusCode: 201,
+        ok: true,
+        metadata: { created: { id: uploaded.id, filename: uploaded.originalFilename, mimeType: uploaded.mimeType, sizeBytes: uploaded.sizeBytes } },
+      });
+      return res.status(201).json(uploaded);
     } catch (err) {
       // Roll back the disk write if the DB insert fails so we don't leak orphans.
       try {
@@ -991,7 +1059,7 @@ router.delete("/:id/attachments/:attId", requireAuth, async (req, res) => {
     const { rows, rowCount } = await pool.query(
       `DELETE FROM project_attachments
        WHERE id = $1 AND project_id = $2
-       RETURNING stored_filename`,
+       RETURNING id, original_filename, stored_filename`,
       [attId, projectId],
     );
     if (rowCount === 0) {
@@ -1008,6 +1076,18 @@ router.delete("/:id/attachments/:attId", requireAuth, async (req, res) => {
         fsErr.message,
       );
     }
+    logActivity({
+      req,
+      action: "project.attachment_delete",
+      actionType: "DELETE",
+      entityType: "project",
+      entityId: attId,
+      entityLabel: rows[0]?.original_filename ?? null,
+      projectId,
+      statusCode: 204,
+      ok: true,
+      metadata: { deleted: { id: attId, label: rows[0]?.original_filename ?? null } },
+    });
     return res.status(204).send();
   } catch (err) {
     console.error("[projects/attachments/delete]", err.code, err.message);

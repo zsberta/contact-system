@@ -9,6 +9,7 @@
 
 import express from "express";
 import { pool } from "../db/pool.js";
+import { logActivity } from "../lib/activity-log.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
 import { getScopedProjectIds, appendProjectScope } from "../lib/scope.js";
 import { checkSlotAvailability, getScheduleWindowStartMin } from "../lib/reservation-availability.js";
@@ -600,7 +601,7 @@ router.post("/bookings", async (req, res, next) => {
 
     // Verify reservation exists and load config.
     const reservationResult = await pool.query(
-      `SELECT id, status, granularity, slot_duration_minutes,
+      `SELECT id, project_id, status, granularity, slot_duration_minutes,
               disable_hungarian_holidays
        FROM reservations WHERE id = $1`,
       [reservationId],
@@ -653,11 +654,34 @@ router.post("/bookings", async (req, res, next) => {
       }
     }
 
+    // Resolve service: explicit serviceId or default active service (mirrors
+    // POST /api/reservations/:id/bookings). service_id is NOT NULL since
+    // 20250712100030000 — the legacy service-less INSERT 500s on every call.
+    let serviceId = parseInt(body.serviceId, 10);
+    if (serviceId && Number.isFinite(serviceId)) {
+      const svcCheck = await pool.query(
+        `SELECT id FROM reservation_services WHERE id = $1 AND reservation_id = $2 AND status = 'active'`,
+        [serviceId, reservationId],
+      );
+      if (svcCheck.rowCount === 0) {
+        return res.status(400).json({ errorMessage: "Invalid or inactive service" });
+      }
+    } else {
+      const defaultSvc = await pool.query(
+        `SELECT id FROM reservation_services
+         WHERE reservation_id = $1 AND status = 'active' ORDER BY sort_order, id LIMIT 1`,
+        [reservationId],
+      );
+      if (defaultSvc.rowCount === 0) {
+        return res.status(400).json({ errorMessage: "No active service found for this reservation" });
+      }
+      serviceId = defaultSvc.rows[0].id;
+    }
+
     // Server-side availability check: disabled ranges + schedules.
-    // Legacy endpoint: serviceId is null (uses reservation-level schedules).
     const avail = await checkSlotAvailability(
       reservationId,
-      null,
+      serviceId,
       startsAtIso,
       endsAtIso,
     );
@@ -673,11 +697,12 @@ router.post("/bookings", async (req, res, next) => {
     }
     const insertResult = await pool.query(
       `INSERT INTO reservation_bookings
-         (reservation_id, starts_at, ends_at, ip_address, user_agent, referer, locale, data)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+         (reservation_id, service_id, starts_at, ends_at, ip_address, user_agent, referer, locale, data)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
        RETURNING id, starts_at, ends_at, booked_at`,
       [
         reservationId,
+        serviceId,
         startsAtIso,
         endsAtIso,
         null,
@@ -697,6 +722,21 @@ router.post("/bookings", async (req, res, next) => {
       bookedAt: row.booked_at instanceof Date ? row.booked_at.toISOString() : row.booked_at,
     };
 
+    logActivity({
+      req,
+      action: "booking.create_manual",
+      actionType: "CREATE",
+      entityType: "booking",
+      entityId: Number(row.id),
+      entityLabel: `booking #${row.id}`,
+      projectId: reservation.project_id ? Number(reservation.project_id) : null,
+      statusCode: 201,
+      ok: true,
+      metadata: {
+        created: { id: Number(row.id), reservationId, startsAt: result.startsAt, endsAt: result.endsAt },
+        source: "portal",
+      },
+    });
     return res.status(201).json(result);
   } catch (err) {
     if (err.code === "23P01") {

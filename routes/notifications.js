@@ -1,5 +1,6 @@
 import express from "express";
 import { pool } from "../db/pool.js";
+import { logActivity } from "../lib/activity-log.js";
 
 export const router = express.Router();
 
@@ -146,6 +147,18 @@ router.post("/subscribe", async (req, res) => {
       [userId, endpoint, keys.p256dh, keys.auth, deviceName || "Unknown Device"],
     );
 
+    logActivity({
+      req,
+      action: "push.subscribe",
+      actionType: "CREATE",
+      entityType: "push_subscription",
+      entityId: null,
+      entityLabel: deviceName || "Unknown Device",
+      projectId: null,
+      statusCode: 201,
+      ok: true,
+      metadata: { created: { deviceName: deviceName || "Unknown Device" } },
+    });
     res.status(201).json({ status: "subscribed" });
   } catch (err) {
     console.error("[notifications/subscribe]", err.message);
@@ -171,6 +184,18 @@ router.post("/unsubscribe", async (req, res) => {
       [endpoint, userId],
     );
 
+    logActivity({
+      req,
+      action: "push.unsubscribe",
+      actionType: "DELETE",
+      entityType: "push_subscription",
+      entityId: null,
+      entityLabel: "push subscription",
+      projectId: null,
+      statusCode: 200,
+      ok: true,
+      metadata: { deleted: { id: null, label: "push subscription" } },
+    });
     res.json({ status: "unsubscribed" });
   } catch (err) {
     console.error("[notifications/unsubscribe]", err.message);

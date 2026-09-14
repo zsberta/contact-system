@@ -20,6 +20,7 @@ import enService from "./i18n/en/service.json";
 import enAiAssistant from "./i18n/en/ai-assistant.json";
 import enImports from "./i18n/en/imports.json";
 import enBulkEmail from "./i18n/en/bulk-email.json";
+import enLogs from "./i18n/en/logs.json";
 import enNotifications from "./i18n/en/notifications.json";
 import enSettings from "./i18n/en/settings.json";
 
@@ -42,6 +43,7 @@ import huService from "./i18n/hu/service.json";
 import huAiAssistant from "./i18n/hu/ai-assistant.json";
 import huImports from "./i18n/hu/imports.json";
 import huBulkEmail from "./i18n/hu/bulk-email.json";
+import huLogs from "./i18n/hu/logs.json";
 import huNotifications from "./i18n/hu/notifications.json";
 import huSettings from "./i18n/hu/settings.json";
 
@@ -66,6 +68,7 @@ const resources = {
     "ai-assistant": enAiAssistant,
     imports: enImports,
     "bulk-email": enBulkEmail,
+    logs: enLogs,
     notifications: enNotifications,
     settings: enSettings,
   },
@@ -89,6 +92,7 @@ const resources = {
     "ai-assistant": huAiAssistant,
     imports: huImports,
     "bulk-email": huBulkEmail,
+    logs: huLogs,
     notifications: huNotifications,
     settings: huSettings,
   },
@@ -119,6 +123,7 @@ i18n.use(initReactI18next).init({
     "service",
     "ai-assistant",
     "bulk-email",
+    "logs",
     "notifications",
     "settings",
   ],

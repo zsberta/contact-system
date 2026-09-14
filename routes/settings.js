@@ -1,5 +1,6 @@
 import express from "express";
 import { pool } from "../db/pool.js";
+import { logActivity, diffObjects } from "../lib/activity-log.js";
 
 export const router = express.Router();
 
@@ -39,6 +40,11 @@ router.put("/", async (req, res) => {
     if (!settings || typeof settings !== "object") {
       return res.status(400).json({ errorMessage: "Missing settings object" });
     }
+    const { rows: beforeRows } = await pool.query("SELECT key, value FROM system_settings");
+    const beforeSettings = {};
+    for (const row of beforeRows) {
+      beforeSettings[row.key] = row.value;
+    }
 
     for (const [key, value] of Object.entries(settings)) {
       await pool.query(
@@ -50,6 +56,23 @@ router.put("/", async (req, res) => {
       );
     }
 
+    const { rows: afterRows } = await pool.query("SELECT key, value FROM system_settings");
+    const afterSettings = {};
+    for (const row of afterRows) {
+      afterSettings[row.key] = row.value;
+    }
+    logActivity({
+      req,
+      action: "settings.update",
+      actionType: "UPDATE",
+      entityType: "settings",
+      entityId: null,
+      entityLabel: "system settings",
+      projectId: null,
+      statusCode: 200,
+      ok: true,
+      metadata: { diff: diffObjects(beforeSettings, afterSettings) },
+    });
     res.json({ success: true });
   } catch (err) {
     console.error("[settings/update]", err.message);

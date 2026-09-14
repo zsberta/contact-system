@@ -4,6 +4,7 @@
 import express from "express";
 import { pool } from "../db/pool.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
+import { logActivity } from "../lib/activity-log.js";
 
 export const router = express.Router();
 router.use(requireAuth);
@@ -92,6 +93,18 @@ router.post("/", async (req, res) => {
         basePrompt || "You are a helpful assistant.",
       ],
     );
+    const created = result.rows[0];
+    logActivity({
+      req,
+      action: "preset.create",
+      actionType: "CREATE",
+      entityType: "preset",
+      entityId: created.id,
+      entityLabel: created.name || `#${created.id}`,
+      statusCode: 201,
+      ok: true,
+      metadata: { created: { name: created.name, model: created.model } },
+    });
     res.status(201).json(rowToPresetDTO(result.rows[0]));
   } catch (err) {
     console.error("[ai-config-presets] create error:", err.message);
@@ -118,6 +131,7 @@ router.put("/:id", async (req, res) => {
     if (basePrompt !== undefined) { sets.push(`base_prompt = $${idx++}`); params.push(String(basePrompt)); }
 
     if (sets.length === 0) return res.status(400).json({ errorMessage: "No fields to update" });
+    const updatedFields = sets.map((s) => s.split(" = ")[0]);
 
     params.push(id, req.user.id);
     const result = await pool.query(
@@ -125,7 +139,19 @@ router.put("/:id", async (req, res) => {
       params,
     );
     if (result.rowCount === 0) return res.status(404).json({ errorMessage: "Not found" });
-    res.json(rowToPresetDTO(result.rows[0]));
+    const updated = result.rows[0];
+    logActivity({
+      req,
+      action: "preset.update",
+      actionType: "UPDATE",
+      entityType: "preset",
+      entityId: id,
+      entityLabel: updated.name || `#${id}`,
+      statusCode: 200,
+      ok: true,
+      metadata: { note: "no-before-row", fields: updatedFields },
+    });
+    res.json(rowToPresetDTO(updated));
   } catch (err) {
     console.error("[ai-config-presets] update error:", err.message);
     res.status(500).json({ errorMessage: "Internal server error" });
@@ -138,11 +164,24 @@ router.delete("/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (!Number.isFinite(id) || id <= 0) return res.status(404).json({ errorMessage: "Not found" });
-    const result = await pool.query(
-      `DELETE FROM ai_config_presets WHERE id = $1 AND user_id = $2`,
+    const { rows: before } = await pool.query(
+      `SELECT id, name FROM ai_config_presets WHERE id = $1 AND user_id = $2`,
       [id, req.user.id],
     );
-    if (result.rowCount === 0) return res.status(404).json({ errorMessage: "Not found" });
+    if (before.length === 0) return res.status(404).json({ errorMessage: "Not found" });
+    await pool.query(`DELETE FROM ai_config_presets WHERE id = $1 AND user_id = $2`, [id, req.user.id]);
+    const label = before[0].name || `#${id}`;
+    logActivity({
+      req,
+      action: "preset.delete",
+      actionType: "DELETE",
+      entityType: "preset",
+      entityId: id,
+      entityLabel: label,
+      statusCode: 204,
+      ok: true,
+      metadata: { deleted: { id, label } },
+    });
     res.status(204).end();
   } catch (err) {
     console.error("[ai-config-presets] delete error:", err.message);

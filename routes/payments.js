@@ -2,6 +2,7 @@ import express from "express";
 import { pool } from "../db/pool.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
 import { getScopedProjectIds } from "../lib/scope.js";
+import { logActivity, diffObjects } from "../lib/activity-log.js";
 
 export const router = express.Router();
 router.use(requireAuth);
@@ -327,7 +328,20 @@ router.post("/", requireAuth, async (req, res) => {
         v.note ?? null,
       ],
     );
-    return res.status(201).json(rowToPaymentDTO(rows[0]));
+    const createdPayment = rowToPaymentDTO(rows[0]);
+    logActivity({
+      req,
+      action: "payment.create",
+      actionType: "CREATE",
+      entityType: "payment",
+      entityId: createdPayment.id,
+      entityLabel: `payment #${createdPayment.id}`,
+      projectId: createdPayment.projectId,
+      statusCode: 201,
+      ok: true,
+      metadata: { created: { id: createdPayment.id, projectId: createdPayment.projectId, amount: createdPayment.amount, status: createdPayment.status, dueDate: createdPayment.dueDate } },
+    });
+    return res.status(201).json(createdPayment);
   } catch (err) {
     // 23505 = unique_violation on uq_payments_project_due_active.
     if (err.code === "23505") {
@@ -374,6 +388,14 @@ router.put("/:id", requireAuth, async (req, res) => {
     }
   }
 
+  let paymentBefore = null;
+  try {
+    const { rows: beforeRows } = await pool.query(`SELECT * FROM payments WHERE id = $1`, [paymentId]);
+    paymentBefore = beforeRows[0] ?? null;
+  } catch {
+    paymentBefore = null;
+  }
+
   try {
     const setClauses = [];
     const params = [paymentId];
@@ -396,7 +418,22 @@ router.put("/:id", requireAuth, async (req, res) => {
     if (rowCount === 0) {
       return res.status(404).json({ errorMessage: "Payment not found" });
     }
-    return res.json(rowToPaymentDTO(rows[0]));
+    const updatedPayment = rowToPaymentDTO(rows[0]);
+    logActivity({
+      req,
+      action: "payment.update",
+      actionType: "UPDATE",
+      entityType: "payment",
+      entityId: updatedPayment.id,
+      entityLabel: `payment #${updatedPayment.id}`,
+      projectId: updatedPayment.projectId,
+      statusCode: 200,
+      ok: true,
+      metadata: paymentBefore
+        ? { diff: diffObjects(paymentBefore, rows[0]) }
+        : { note: "no-before-row" },
+    });
+    return res.json(updatedPayment);
   } catch (err) {
     if (err.code === "23505") {
       return res
@@ -425,7 +462,7 @@ router.delete("/:id", requireAuth, async (req, res) => {
     // a doomed DELETE. Using RETURNING + checking rowCount would still work,
     // but it leaves the caller wondering why the row vanished.
     const { rows } = await pool.query(
-      `SELECT status FROM payments WHERE id = $1`,
+      `SELECT status, project_id FROM payments WHERE id = $1`,
       [paymentId],
     );
     if (rows.length === 0) {
@@ -438,6 +475,18 @@ router.delete("/:id", requireAuth, async (req, res) => {
     }
 
     await pool.query(`DELETE FROM payments WHERE id = $1`, [paymentId]);
+    logActivity({
+      req,
+      action: "payment.delete",
+      actionType: "DELETE",
+      entityType: "payment",
+      entityId: paymentId,
+      entityLabel: `payment #${paymentId}`,
+      projectId: rows[0]?.project_id ?? null,
+      statusCode: 204,
+      ok: true,
+      metadata: { deleted: { id: paymentId, label: `payment #${paymentId}` } },
+    });
     return res.status(204).send();
   } catch (err) {
     console.error("[payments/delete]", err.code, err.message);

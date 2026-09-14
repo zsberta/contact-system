@@ -7,6 +7,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import { pool } from "../db/pool.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
+import { logActivity } from "../lib/activity-log.js";
 
 export const router = express.Router();
 router.use(requireAuth);
@@ -183,7 +184,27 @@ router.post(
           req.file.size,
         ],
       );
-      return res.status(201).json(rowToAttachmentDTO(rows[0]));
+      const uploaded = rowToAttachmentDTO(rows[0]);
+      let attachmentProjectId = null;
+      try {
+        const { rows: payRows } = await pool.query(`SELECT project_id FROM payments WHERE id = $1`, [paymentId]);
+        attachmentProjectId = payRows[0]?.project_id ?? null;
+      } catch {
+        attachmentProjectId = null;
+      }
+      logActivity({
+        req,
+        action: "payment.attachment_upload",
+        actionType: "CREATE",
+        entityType: "payment",
+        entityId: uploaded.id,
+        entityLabel: uploaded.originalFilename,
+        projectId: attachmentProjectId,
+        statusCode: 201,
+        ok: true,
+        metadata: { created: { id: uploaded.id, paymentId, filename: uploaded.originalFilename, mimeType: uploaded.mimeType, sizeBytes: uploaded.sizeBytes } },
+      });
+      return res.status(201).json(uploaded);
     } catch (err) {
       // Roll back the disk write if the DB insert fails so we don't leak orphans.
       try {
@@ -284,7 +305,7 @@ router.delete("/:paymentId/attachments/:attId", async (req, res) => {
     const { rows, rowCount } = await pool.query(
       `DELETE FROM payment_attachments
        WHERE id = $1 AND payment_id = $2
-       RETURNING stored_filename`,
+       RETURNING id, original_filename, stored_filename`,
       [attId, paymentId],
     );
     if (rowCount === 0) {
@@ -301,6 +322,25 @@ router.delete("/:paymentId/attachments/:attId", async (req, res) => {
         fsErr.message,
       );
     }
+    let deleteProjectId = null;
+    try {
+      const { rows: payRows } = await pool.query(`SELECT project_id FROM payments WHERE id = $1`, [paymentId]);
+      deleteProjectId = payRows[0]?.project_id ?? null;
+    } catch {
+      deleteProjectId = null;
+    }
+    logActivity({
+      req,
+      action: "payment.attachment_delete",
+      actionType: "DELETE",
+      entityType: "payment",
+      entityId: attId,
+      entityLabel: rows[0]?.original_filename ?? null,
+      projectId: deleteProjectId,
+      statusCode: 204,
+      ok: true,
+      metadata: { deleted: { id: attId, label: rows[0]?.original_filename ?? null } },
+    });
     return res.status(204).send();
   } catch (err) {
     console.error("[payments/attachments/delete]", err.code, err.message);

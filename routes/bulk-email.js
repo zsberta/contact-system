@@ -7,6 +7,7 @@
 
 import express from "express";
 import { pool } from "../db/pool.js";
+import { logActivity } from "../lib/activity-log.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
 import { enqueueMail } from "../lib/email-queue.js";
 import { renderBulkEmail } from "../lib/email-templates.js";
@@ -72,10 +73,13 @@ router.post("/", async (req, res) => {
       });
     }
 
-    // --- render + enqueue for each customer ---
+    // Audit sidecar: runJob logs one email.send SEND row per delivery
+    // (kind=bulk). Actor is the sending admin (ids only — never bodies).
+    const auditActor = req.user
+      ? { actor_type: req.user.role, actor_user_id: Number(req.user.id), actor_email: req.user.email, actor_role: req.user.role }
+      : { actor_type: "system" };
     let queued = 0;
     let skipped = 0;
-
     for (const customer of customers) {
       const customerEmail = customer.email;
       if (!customerEmail || typeof customerEmail !== "string" || customerEmail.trim().length === 0) {
@@ -98,6 +102,7 @@ router.post("/", async (req, res) => {
         text: rendered.text,
         html: rendered.html,
         fromName: project.name || "Nexus",
+        audit: { kind: "bulk", entityType: "bulk_email", projectId: Number(project.id), actor: auditActor },
       });
 
       if (result.status === "queued") {
@@ -111,6 +116,18 @@ router.post("/", async (req, res) => {
       `[bulk-email] projectId=${project.id} project="${project.name}" customers=${customers.length} queued=${queued} skipped=${skipped}`,
     );
 
+    logActivity({
+      req,
+      action: "bulk_email.send",
+      actionType: "CREATE",
+      entityType: "bulk_email",
+      entityId: null,
+      entityLabel: subject.trim().slice(0, 200),
+      projectId: Number(project.id),
+      statusCode: 200,
+      ok: true,
+      metadata: { count: queued, subject: subject.trim().slice(0, 500) },
+    });
     return res.json({
       success: true,
       emailsQueued: queued,

@@ -3,6 +3,7 @@ import { pool } from "../db/pool.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
 import { getScopedProjectIds } from "../lib/scope.js";
 import { invalidateFaqCache } from "./faq-public.js";
+import { logActivity, diffObjects } from "../lib/activity-log.js";
 
 // CRUD for the FAQ (GYIK) module.
 // Pattern mirrors routes/blog.js — same auth/RBAC/scope contract.
@@ -356,6 +357,18 @@ router.post("/", async (req, res) => {
       [out.project_id, moduleId, out.question_hu, out.answer_hu, out.question_en, out.answer_en, out.sort_order, out.status, req.user?.id || null],
     );
     invalidateFaqCache(out.project_id);
+    logActivity({
+      req,
+      action: "faq.create",
+      actionType: "CREATE",
+      entityType: "faq",
+      entityId: rows[0].id,
+      entityLabel: rows[0].question_hu || rows[0].question_en || `#${rows[0].id}`,
+      projectId: out.project_id,
+      statusCode: 201,
+      ok: true,
+      metadata: { created: { status: rows[0].status, sort_order: rows[0].sort_order } },
+    });
     return res.status(201).json(rowToFaqItemDTO(rows[0]));
   } catch (err) {
     console.error("[faq/create]", err.code, err.message);
@@ -377,7 +390,7 @@ router.put("/:id", async (req, res) => {
     if (Object.keys(out).length === 0) {
       return res.status(400).json({ errorMessage: "No valid fields to update" });
     }
-    const existing = await pool.query(`SELECT project_id FROM faq_items WHERE id = $1`, [id]);
+    const existing = await pool.query(`SELECT * FROM faq_items WHERE id = $1`, [id]);
     if (existing.rows.length === 0) {
       return res.status(404).json({ errorMessage: "FAQ item not found" });
     }
@@ -398,6 +411,18 @@ router.put("/:id", async (req, res) => {
       setParams,
     );
     invalidateFaqCache(existing.rows[0].project_id);
+    logActivity({
+      req,
+      action: "faq.update",
+      actionType: "UPDATE",
+      entityType: "faq",
+      entityId: id,
+      entityLabel: rows[0].question_hu || rows[0].question_en || `#${id}`,
+      projectId: existing.rows[0].project_id,
+      statusCode: 200,
+      ok: true,
+      metadata: { diff: diffObjects(existing.rows[0], rows[0]) },
+    });
     return res.json(rowToFaqItemDTO(rows[0]));
   } catch (err) {
     console.error("[faq/update]", err.code, err.message);
@@ -412,7 +437,7 @@ router.delete("/:id", async (req, res) => {
     if (!Number.isFinite(id) || id <= 0) {
       return res.status(400).json({ errorMessage: "Invalid id" });
     }
-    const existing = await pool.query(`SELECT project_id FROM faq_items WHERE id = $1`, [id]);
+    const existing = await pool.query(`SELECT * FROM faq_items WHERE id = $1`, [id]);
     if (existing.rows.length === 0) {
       return res.status(404).json({ errorMessage: "FAQ item not found" });
     }
@@ -434,6 +459,19 @@ router.delete("/:id", async (req, res) => {
       }
     }
     invalidateFaqCache(existing.rows[0].project_id);
+    const label = existing.rows[0].question_hu || existing.rows[0].question_en || `#${id}`;
+    logActivity({
+      req,
+      action: "faq.delete",
+      actionType: "DELETE",
+      entityType: "faq",
+      entityId: id,
+      entityLabel: label,
+      projectId: existing.rows[0].project_id,
+      statusCode: 204,
+      ok: true,
+      metadata: { deleted: { id, label } },
+    });
     return res.status(204).end();
   } catch (err) {
     console.error("[faq/delete]", err.code, err.message);
@@ -448,7 +486,7 @@ router.post("/:id/publish", async (req, res) => {
     if (!Number.isFinite(id) || id <= 0) {
       return res.status(400).json({ errorMessage: "Invalid id" });
     }
-    const existing = await pool.query(`SELECT project_id FROM faq_items WHERE id = $1`, [id]);
+    const existing = await pool.query(`SELECT * FROM faq_items WHERE id = $1`, [id]);
     if (existing.rows.length === 0) {
       return res.status(404).json({ errorMessage: "FAQ item not found" });
     }
@@ -459,6 +497,18 @@ router.post("/:id/publish", async (req, res) => {
       [id],
     );
     invalidateFaqCache(existing.rows[0].project_id);
+    logActivity({
+      req,
+      action: "faq.publish",
+      actionType: "UPDATE",
+      entityType: "faq",
+      entityId: id,
+      entityLabel: rows[0].question_hu || rows[0].question_en || `#${id}`,
+      projectId: existing.rows[0].project_id,
+      statusCode: 200,
+      ok: true,
+      metadata: { diff: diffObjects(existing.rows[0], rows[0]) },
+    });
     return res.json(rowToFaqItemDTO(rows[0]));
   } catch (err) {
     console.error("[faq/publish]", err.code, err.message);
@@ -473,7 +523,7 @@ router.post("/:id/unpublish", async (req, res) => {
     if (!Number.isFinite(id) || id <= 0) {
       return res.status(400).json({ errorMessage: "Invalid id" });
     }
-    const existing = await pool.query(`SELECT project_id FROM faq_items WHERE id = $1`, [id]);
+    const existing = await pool.query(`SELECT * FROM faq_items WHERE id = $1`, [id]);
     if (existing.rows.length === 0) {
       return res.status(404).json({ errorMessage: "FAQ item not found" });
     }
@@ -484,6 +534,18 @@ router.post("/:id/unpublish", async (req, res) => {
       [id],
     );
     invalidateFaqCache(existing.rows[0].project_id);
+    logActivity({
+      req,
+      action: "faq.unpublish",
+      actionType: "UPDATE",
+      entityType: "faq",
+      entityId: id,
+      entityLabel: rows[0].question_hu || rows[0].question_en || `#${id}`,
+      projectId: existing.rows[0].project_id,
+      statusCode: 200,
+      ok: true,
+      metadata: { diff: diffObjects(existing.rows[0], rows[0]) },
+    });
     return res.json(rowToFaqItemDTO(rows[0]));
   } catch (err) {
     console.error("[faq/unpublish]", err.code, err.message);

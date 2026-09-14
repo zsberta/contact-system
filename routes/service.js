@@ -3,6 +3,7 @@ import { pool } from "../db/pool.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
 import { getScopedProjectIds } from "../lib/scope.js";
 import { invalidateServiceCache } from "./service-public.js";
+import { logActivity, diffObjects } from "../lib/activity-log.js";
 
 // CRUD for the Service (Szolgaltatasok) module.
 // Pattern mirrors routes/faq.js — same auth/RBAC/scope contract.
@@ -377,6 +378,18 @@ router.post("/", async (req, res) => {
       [out.project_id, moduleId, out.title_hu, out.title_en, out.description_hu, out.description_en, out.price_hu, out.price_en, out.sort_order, out.status, req.user?.id || null],
     );
     invalidateServiceCache(out.project_id);
+    logActivity({
+      req,
+      action: "service.create",
+      actionType: "CREATE",
+      entityType: "service",
+      entityId: rows[0].id,
+      entityLabel: rows[0].title_hu || rows[0].title_en || `#${rows[0].id}`,
+      projectId: out.project_id,
+      statusCode: 201,
+      ok: true,
+      metadata: { created: { status: rows[0].status, sort_order: rows[0].sort_order } },
+    });
     return res.status(201).json(rowToServiceItemDTO(rows[0]));
   } catch (err) {
     console.error("[service/create]", err.code, err.message);
@@ -398,7 +411,7 @@ router.put("/:id", async (req, res) => {
     if (Object.keys(out).length === 0) {
       return res.status(400).json({ errorMessage: "No valid fields to update" });
     }
-    const existing = await pool.query(`SELECT project_id FROM service_items WHERE id = $1`, [id]);
+    const existing = await pool.query(`SELECT * FROM service_items WHERE id = $1`, [id]);
     if (existing.rows.length === 0) {
       return res.status(404).json({ errorMessage: "Service item not found" });
     }
@@ -419,6 +432,18 @@ router.put("/:id", async (req, res) => {
       setParams,
     );
     invalidateServiceCache(existing.rows[0].project_id);
+    logActivity({
+      req,
+      action: "service.update",
+      actionType: "UPDATE",
+      entityType: "service",
+      entityId: id,
+      entityLabel: rows[0].title_hu || rows[0].title_en || `#${id}`,
+      projectId: existing.rows[0].project_id,
+      statusCode: 200,
+      ok: true,
+      metadata: { diff: diffObjects(existing.rows[0], rows[0]) },
+    });
     return res.json(rowToServiceItemDTO(rows[0]));
   } catch (err) {
     console.error("[service/update]", err.code, err.message);
@@ -433,7 +458,7 @@ router.delete("/:id", async (req, res) => {
     if (!Number.isFinite(id) || id <= 0) {
       return res.status(400).json({ errorMessage: "Invalid id" });
     }
-    const existing = await pool.query(`SELECT project_id FROM service_items WHERE id = $1`, [id]);
+    const existing = await pool.query(`SELECT * FROM service_items WHERE id = $1`, [id]);
     if (existing.rows.length === 0) {
       return res.status(404).json({ errorMessage: "Service item not found" });
     }
@@ -455,6 +480,19 @@ router.delete("/:id", async (req, res) => {
       }
     }
     invalidateServiceCache(existing.rows[0].project_id);
+    const label = existing.rows[0].title_hu || existing.rows[0].title_en || `#${id}`;
+    logActivity({
+      req,
+      action: "service.delete",
+      actionType: "DELETE",
+      entityType: "service",
+      entityId: id,
+      entityLabel: label,
+      projectId: existing.rows[0].project_id,
+      statusCode: 204,
+      ok: true,
+      metadata: { deleted: { id, label } },
+    });
     return res.status(204).end();
   } catch (err) {
     console.error("[service/delete]", err.code, err.message);
@@ -469,7 +507,7 @@ router.post("/:id/publish", async (req, res) => {
     if (!Number.isFinite(id) || id <= 0) {
       return res.status(400).json({ errorMessage: "Invalid id" });
     }
-    const existing = await pool.query(`SELECT project_id FROM service_items WHERE id = $1`, [id]);
+    const existing = await pool.query(`SELECT * FROM service_items WHERE id = $1`, [id]);
     if (existing.rows.length === 0) {
       return res.status(404).json({ errorMessage: "Service item not found" });
     }
@@ -480,6 +518,18 @@ router.post("/:id/publish", async (req, res) => {
       [id],
     );
     invalidateServiceCache(existing.rows[0].project_id);
+    logActivity({
+      req,
+      action: "service.publish",
+      actionType: "UPDATE",
+      entityType: "service",
+      entityId: id,
+      entityLabel: rows[0].title_hu || rows[0].title_en || `#${id}`,
+      projectId: existing.rows[0].project_id,
+      statusCode: 200,
+      ok: true,
+      metadata: { diff: diffObjects(existing.rows[0], rows[0]) },
+    });
     return res.json(rowToServiceItemDTO(rows[0]));
   } catch (err) {
     console.error("[service/publish]", err.code, err.message);
@@ -494,7 +544,7 @@ router.post("/:id/unpublish", async (req, res) => {
     if (!Number.isFinite(id) || id <= 0) {
       return res.status(400).json({ errorMessage: "Invalid id" });
     }
-    const existing = await pool.query(`SELECT project_id FROM service_items WHERE id = $1`, [id]);
+    const existing = await pool.query(`SELECT * FROM service_items WHERE id = $1`, [id]);
     if (existing.rows.length === 0) {
       return res.status(404).json({ errorMessage: "Service item not found" });
     }
@@ -505,6 +555,18 @@ router.post("/:id/unpublish", async (req, res) => {
       [id],
     );
     invalidateServiceCache(existing.rows[0].project_id);
+    logActivity({
+      req,
+      action: "service.unpublish",
+      actionType: "UPDATE",
+      entityType: "service",
+      entityId: id,
+      entityLabel: rows[0].title_hu || rows[0].title_en || `#${id}`,
+      projectId: existing.rows[0].project_id,
+      statusCode: 200,
+      ok: true,
+      metadata: { diff: diffObjects(existing.rows[0], rows[0]) },
+    });
     return res.json(rowToServiceItemDTO(rows[0]));
   } catch (err) {
     console.error("[service/unpublish]", err.code, err.message);

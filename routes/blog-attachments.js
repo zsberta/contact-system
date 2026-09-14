@@ -7,6 +7,7 @@ import fsp from "node:fs/promises";
 import { pool } from "../db/pool.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
 import { resolvePublicUrl } from "../lib/email.js";
+import { logActivity } from "../lib/activity-log.js";
 
 // Admin upload endpoint for blog post images. Two purposes:
 //   - "cover": the post's hero/cover image (single per post).
@@ -234,6 +235,26 @@ router.post(
       // operator can retry the post save. Don't roll back here.
     }
 
+    let coverProjectId = null;
+    try {
+      const { rows: projRows } = await pool.query(
+        `SELECT project_id FROM blog_posts WHERE id = $1`,
+        [postId],
+      );
+      if (projRows.length > 0) coverProjectId = projRows[0].project_id;
+    } catch { /* best-effort */ }
+    logActivity({
+      req,
+      action: "blog.cover_upload",
+      actionType: "CREATE",
+      entityType: "blog",
+      entityId: postId,
+      entityLabel: `blog #${postId}`,
+      projectId: coverProjectId,
+      statusCode: 201,
+      ok: true,
+      metadata: { created: { id: Number(inserted.id), postId, mimeType: inserted.mime_type } },
+    });
     return res.status(201).json({
       ...rowToAttachmentDTO(inserted),
       url,
@@ -252,6 +273,11 @@ router.delete("/:id/cover", async (req, res) => {
   }
 
   try {
+    const { rows: projRows } = await pool.query(
+      `SELECT project_id FROM blog_posts WHERE id = $1`,
+      [postId],
+    );
+    var coverDelProjectId = projRows.length > 0 ? projRows[0].project_id : null;
     const { rows } = await pool.query(
       `SELECT stored_filename FROM blog_attachments
        WHERE post_id = $1 AND purpose = 'cover'`,
@@ -269,6 +295,18 @@ router.delete("/:id/cover", async (req, res) => {
       `UPDATE blog_posts SET cover_image_url = NULL WHERE id = $1`,
       [postId],
     );
+    logActivity({
+      req,
+      action: "blog.cover_delete",
+      actionType: "DELETE",
+      entityType: "blog",
+      entityId: postId,
+      entityLabel: `blog #${postId}`,
+      projectId: coverDelProjectId,
+      statusCode: 204,
+      ok: true,
+      metadata: { deleted: { id: postId, label: `blog #${postId}` } },
+    });
     return res.status(204).end();
   } catch (err) {
     console.error("[blog/cover delete]:", err.code, err.message);

@@ -4,6 +4,7 @@ import { requireAuth } from "../middleware/jwtAuth.js";
 import { getScopedProjectIds, appendProjectScope } from "../lib/scope.js";
 import { sanitizeBlogBody } from "../lib/sanitize.js";
 import { writeLandingRebuildFlag } from "../lib/landing-rebuild.js";
+import { logActivity, diffObjects } from "../lib/activity-log.js";
 
 // CRUD for the Blog module. Authoritative source for the schema
 // per the migration 0017 (Blog module — headless CMS surface for landing
@@ -726,7 +727,20 @@ router.post("/", async (req, res) => {
        WHERE b.id = $1`,
       [rows[0].id],
     );
-    return res.status(201).json(rowToBlogPostDTO(joined[0]));
+    const dto = rowToBlogPostDTO(joined[0]);
+    logActivity({
+      req,
+      action: "blog.create",
+      actionType: "CREATE",
+      entityType: "blog",
+      entityId: dto.id,
+      entityLabel: dto.title || `#${dto.id}`,
+      projectId: dto.projectId,
+      statusCode: 201,
+      ok: true,
+      metadata: { created: { id: dto.id, slug: dto.slug, title: dto.title, status: dto.status, locale: dto.locale } },
+    });
+    return res.status(201).json(dto);
   } catch (err) {
     if (err.code === "23505") {
       return res.status(409).json({
@@ -750,7 +764,7 @@ router.put("/:id", async (req, res) => {
   let postRow;
   try {
     const { rows } = await pool.query(
-      `SELECT project_id FROM blog_posts WHERE id = $1`,
+      `SELECT * FROM blog_posts WHERE id = $1`,
       [postId],
     );
     if (rows.length === 0) {
@@ -817,17 +831,19 @@ router.put("/:id", async (req, res) => {
   setParams.push(postId);
   const wherePh = `$${i++}`;
 
+  let updatedPost;
   try {
-    const { rows } = await pool.query(
+    const { rows: updatedRows } = await pool.query(
       `UPDATE blog_posts
        SET ${setClauses.join(", ")}
        WHERE id = ${wherePh}
-       RETURNING id`,
+       RETURNING *`,
       setParams,
     );
-    if (rows.length === 0) {
+    if (updatedRows.length === 0) {
       return res.status(404).json({ errorMessage: "Blog post not found" });
     }
+    updatedPost = updatedRows[0];
   } catch (err) {
     if (err.code === "23505") {
       return res.status(409).json({
@@ -854,7 +870,20 @@ router.put("/:id", async (req, res) => {
        WHERE b.id = $1`,
       [postId],
     );
-    return res.json(rowToBlogPostDTO(joined[0]));
+    const dto = rowToBlogPostDTO(joined[0]);
+    logActivity({
+      req,
+      action: "blog.update",
+      actionType: "UPDATE",
+      entityType: "blog",
+      entityId: postId,
+      entityLabel: dto.title || `#${postId}`,
+      projectId: dto.projectId,
+      statusCode: 200,
+      ok: true,
+      metadata: { diff: diffObjects(postRow, updatedPost) },
+    });
+    return res.json(dto);
   } catch (err) {
     console.error("[blog/update re-read]", err.code, err.message);
     return res.status(500).json({ errorMessage: "Internal server error" });
@@ -876,7 +905,7 @@ router.post("/:id/publish", async (req, res) => {
   let postRow;
   try {
     const { rows } = await pool.query(
-      `SELECT project_id FROM blog_posts WHERE id = $1`,
+      `SELECT * FROM blog_posts WHERE id = $1`,
       [postId],
     );
     if (rows.length === 0) {
@@ -943,7 +972,20 @@ router.post("/:id/publish", async (req, res) => {
        WHERE b.id = $1`,
       [postId],
     );
-    return res.json(rowToBlogPostDTO(joined[0]));
+    const dto = rowToBlogPostDTO(joined[0]);
+    logActivity({
+      req,
+      action: "blog.publish",
+      actionType: "UPDATE",
+      entityType: "blog",
+      entityId: postId,
+      entityLabel: dto.title || `#${postId}`,
+      projectId: dto.projectId,
+      statusCode: 200,
+      ok: true,
+      metadata: { diff: diffObjects({ status: postRow.status }, { status: joined[0].status }) },
+    });
+    return res.json(dto);
   } catch (err) {
     console.error("[blog/publish re-read]", err.code, err.message);
     return res.status(500).json({ errorMessage: "Internal server error" });
@@ -964,7 +1006,7 @@ router.post("/:id/unpublish", async (req, res) => {
   let postRow;
   try {
     const { rows } = await pool.query(
-      `SELECT project_id FROM blog_posts WHERE id = $1`,
+      `SELECT * FROM blog_posts WHERE id = $1`,
       [postId],
     );
     if (rows.length === 0) {
@@ -1031,7 +1073,20 @@ router.post("/:id/unpublish", async (req, res) => {
        WHERE b.id = $1`,
       [postId],
     );
-    return res.json(rowToBlogPostDTO(joined[0]));
+    const dto = rowToBlogPostDTO(joined[0]);
+    logActivity({
+      req,
+      action: "blog.unpublish",
+      actionType: "UPDATE",
+      entityType: "blog",
+      entityId: postId,
+      entityLabel: dto.title || `#${postId}`,
+      projectId: dto.projectId,
+      statusCode: 200,
+      ok: true,
+      metadata: { diff: diffObjects({ status: postRow.status }, { status: joined[0].status }) },
+    });
+    return res.json(dto);
   } catch (err) {
     console.error("[blog/unpublish re-read]", err.code, err.message);
     return res.status(500).json({ errorMessage: "Internal server error" });
@@ -1063,7 +1118,7 @@ router.delete("/:id", async (req, res) => {
   let meta;
   try {
     const { rows } = await pool.query(
-      `SELECT b.project_id, p.domain_address, p.landing_enabled,
+      `SELECT b.project_id, b.title, p.domain_address, p.landing_enabled,
               p.landing_repo_dir, p.landing_build_command, b.slug
        FROM blog_posts b
        JOIN projects p ON p.id = b.project_id
@@ -1115,6 +1170,18 @@ router.delete("/:id", async (req, res) => {
       console.error("[blog/delete] rebuild flag failed:", err.message);
     });
   }
-
+  const delLabel = meta.title || `#${postId}`;
+  logActivity({
+    req,
+    action: "blog.delete",
+    actionType: "DELETE",
+    entityType: "blog",
+    entityId: postId,
+    entityLabel: delLabel,
+    projectId: meta.project_id,
+    statusCode: 204,
+    ok: true,
+    metadata: { deleted: { id: postId, label: delLabel } },
+  });
   return res.status(204).end();
 });

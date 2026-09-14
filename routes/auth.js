@@ -24,6 +24,7 @@ import { pool } from "../db/pool.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
 import { sendMail, resolvePublicUrl } from "../lib/email.js";
 import { renderForgotPassword } from "../lib/email-templates.js";
+import { logActivity } from "../lib/activity-log.js";
 
 export const router = express.Router();
 
@@ -243,6 +244,20 @@ router.post("/signin", signinLimiter, async (req, res) => {
       return res.status(401).json({ errorMessage: "Invalid credentials" });
     }
     await setAuthCookies(res, ctx);
+    logActivity({
+      req,
+      action: "auth.signin",
+      actionType: "CREATE",
+      entityType: "user",
+      entityId: ctx.id,
+      entityLabel: ctx.email,
+      statusCode: 200,
+      ok: true,
+      metadata: { email: ctx.email, role: ctx.role },
+      // jwtAuth ran before login, so req.user is still null here — pin
+      // the actor explicitly from the authenticated context.
+      actorOverride: { actor_type: ctx.role, actor_user_id: Number(ctx.id), actor_email: ctx.email, actor_role: ctx.role },
+    });
     return res.json({
       user: userToDTO(ctx),
       passwordChangeRequired: false,
@@ -345,6 +360,17 @@ router.post("/logout", async (req, res) => {
     }
   }
   clearAuthCookies(res);
+  logActivity({
+    req,
+    action: "auth.logout",
+    actionType: "DELETE",
+    entityType: "user",
+    entityId: req.user?.id ?? null,
+    entityLabel: req.user?.email ?? null,
+    statusCode: 200,
+    ok: true,
+    metadata: {},
+  });
   return res.json({ success: true });
 });
 
@@ -417,6 +443,16 @@ router.post("/set-password", setPasswordLimiter, async (req, res) => {
       [invite.user_id],
     );
     await client.query("COMMIT");
+    logActivity({
+      req,
+      action: "auth.set_password",
+      actionType: "UPDATE",
+      entityType: "user",
+      entityId: invite.user_id,
+      statusCode: 200,
+      ok: true,
+      metadata: {},
+    });
     return res.json({ success: true });
   } catch (err) {
     await client.query("ROLLBACK");
@@ -481,7 +517,32 @@ router.post("/forgot-password", forgotLimiter, async (req, res) => {
         html,
         text,
       });
+      // Direct-sendMail bypasses the queue — log the SEND explicitly
+      // (ids only: lowercased email label, NO token).
+      logActivity({
+        req,
+        action: "email.send",
+        actionType: "SEND",
+        entityType: "user",
+        entityId: user.id,
+        entityLabel: typeof user.email === "string" ? user.email.toLowerCase() : null,
+        projectId: null,
+        statusCode: 250,
+        ok: true,
+        metadata: { kind: "password_reset", to: user.email, subject },
+      });
     }
+    logActivity({
+      req,
+      action: "auth.forgot_password_request",
+      actionType: "CREATE",
+      entityType: "user",
+      entityId: user?.id ?? null,
+      entityLabel: typeof email === "string" ? email.toLowerCase() : null,
+      statusCode: 200,
+      ok: true,
+      metadata: { requested: true },
+    });
     return res.json({
       success: true,
       message:
@@ -554,6 +615,16 @@ router.post("/reset-password", forgotLimiter, async (req, res) => {
     // DELETE the reset row, not just mark consumed — see migration 0012.
     await client.query(`DELETE FROM password_reset_tokens WHERE id = $1`, [row.id]);
     await client.query("COMMIT");
+    logActivity({
+      req,
+      action: "auth.reset_password",
+      actionType: "UPDATE",
+      entityType: "user",
+      entityId: row.user_id,
+      statusCode: 200,
+      ok: true,
+      metadata: {},
+    });
     return res.json({ success: true });
   } catch (err) {
     await client.query("ROLLBACK");

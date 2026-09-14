@@ -52,6 +52,26 @@ import {
   resolveReservationCustomerProfiles,
   upsertReservationCustomerProfile,
 } from "../lib/reservation-customer-profiles.js";
+import { logActivity, logError } from "../lib/activity-log.js";
+
+/**
+ * logPublicError — ERROR row for public booking failures (the generic
+ * ERROR middleware skips /api/public/*). Actor is public + customer email
+ * when known; project from the loaded reservation when available.
+ */
+function logPublicError({ req, statusCode, customerMessage, email = null, reservation = null, tag = "[reservation-embed]" }) {
+  logError({
+    req,
+    err: null,
+    tag,
+    action: "booking.public_error",
+    entityType: "booking",
+    projectId: reservation?.project_id ? Number(reservation.project_id) : null,
+    statusCode,
+    customerMessage,
+    actorOverride: { actor_type: "public", actor_email: typeof email === "string" && email.length > 0 ? email : null },
+  });
+}
 
 export const router = express.Router();
 
@@ -482,6 +502,7 @@ router.post(
           [serviceId, reservationId],
         );
         if (svcResult.rowCount === 0 || svcResult.rows[0].status !== "active") {
+          logPublicError({ req, statusCode: 400, customerMessage: "Invalid or inactive service", email: body.email, reservation });
           return res.status(400).json({ errorMessage: "Invalid or inactive service" });
         }
         serviceRow = svcResult.rows[0];
@@ -496,6 +517,7 @@ router.post(
           [reservationId],
         );
         if (defaultSvc.rowCount === 0) {
+          logPublicError({ req, statusCode: 400, customerMessage: "No active service found", email: body.email, reservation });
           return res.status(400).json({ errorMessage: "No active service found" });
         }
         serviceRow = defaultSvc.rows[0];
@@ -507,12 +529,14 @@ router.post(
       const startsMs = new Date(startsAtIso).getTime();
       const leadMs = (serviceRow.lead_time_minutes || 0) * 60 * 1000;
       if (startsMs - nowMs < leadMs) {
+        logPublicError({ req, statusCode: 400, customerMessage: `Booking must start at least ${serviceRow.lead_time_minutes || 0} minute(s) from now`, email: body.email, reservation });
         return res.status(400).json({
           errorMessage: `Booking must start at least ${serviceRow.lead_time_minutes || 0} minute(s) from now`,
         });
       }
       const maxAdvanceMs = (serviceRow.max_advance_days || 90) * 24 * 60 * 60 * 1000;
       if (startsMs - nowMs > maxAdvanceMs) {
+        logPublicError({ req, statusCode: 400, customerMessage: `Booking cannot start more than ${serviceRow.max_advance_days || 90} day(s) from now`, email: body.email, reservation });
         return res.status(400).json({
           errorMessage: `Booking cannot start more than ${serviceRow.max_advance_days || 90} day(s) from now`,
         });
@@ -538,6 +562,7 @@ router.post(
           startsAtIso, endsAtIso, slot, tz, scheduleWindowStartMin,
         );
         if (!alignResult.ok) {
+          logPublicError({ req, statusCode: 400, customerMessage: alignResult.error, email: body.email, reservation });
           return res.status(400).json({ errorMessage: alignResult.error });
         }
       }
@@ -552,6 +577,7 @@ router.post(
         endsAtIso,
       );
       if (!avail.available) {
+        logPublicError({ req, statusCode: 400, customerMessage: avail.reason, email: body.email, reservation });
         return res.status(400).json({ errorMessage: avail.reason });
       }
 
@@ -594,6 +620,7 @@ router.post(
       // Validate contact fields
       const contactResult = validateReservationContact(body);
       if (!contactResult.ok) {
+        logPublicError({ req, statusCode: 400, customerMessage: contactResult.error, email: body.email, reservation });
         return res.status(400).json({ errorMessage: contactResult.error });
       }
 
@@ -605,6 +632,7 @@ router.post(
         );
         const fieldsResult = validateReservationServiceFields(fieldDefs.rows, body.fields);
         if (!fieldsResult.ok) {
+          logPublicError({ req, statusCode: 400, customerMessage: fieldsResult.error, email: body.email, reservation });
           return res.status(400).json({ errorMessage: fieldsResult.error });
         }
       }
@@ -625,7 +653,9 @@ router.post(
       });
 
       if (result.error) {
-        return res.status(result.code === "SLOT_FULL" || result.code === "DUPLICATE_BOOKING" ? 409 : 400).json({ errorMessage: result.error });
+        const status = result.code === "SLOT_FULL" || result.code === "DUPLICATE_BOOKING" ? 409 : 400;
+        logPublicError({ req, statusCode: status, customerMessage: result.error, email: body.email, reservation });
+        return res.status(status).json({ errorMessage: result.error });
       }
 
       const booking = result.booking;
@@ -667,6 +697,7 @@ router.post(
         bookingToken: booking.booking_token,
         secretToken,
         timezone: reservation.timezone || "UTC",
+        audit: { kind: "confirmation", entityType: "booking", entityId: bookingId, entityLabel: `booking #${bookingId}`, projectId: reservation.project_id, actor: { actor_type: "public", actor_email: contactResult.value.email } },
       }).catch(() => {});
 
       // Fetch worker notification settings once (email + push + in-app)
@@ -696,6 +727,7 @@ router.post(
           customerPhone: contactResult.value.phone,
           comment: contactResult.value.comment || null,
           timezone: reservation.timezone || "UTC",
+          audit: { kind: "confirmation", entityType: "booking", entityId: bookingId, entityLabel: `booking #${bookingId}`, projectId: reservation.project_id, actor: { actor_type: "public", actor_email: contactResult.value.email } },
         }).catch(() => {});
       }
 
@@ -715,6 +747,7 @@ router.post(
             entityType: "booking",
             entityId: bookingId,
             metadata: { serviceName: serviceRow.name, customerName, startsAt, endsAt, locale: notifLocale, timezone: reservation.timezone || "UTC" },
+            audit: { entityLabel: `booking #${bookingId}`, projectId: reservation.project_id, actor: { actor_type: "public", actor_email: contactResult.value.email } },
           });
 
           if (workerPushEnabled) {
@@ -725,7 +758,7 @@ router.post(
                 date: formatDate(startsAt, notifLocale, reservation.timezone || "UTC"),
               }),
               url: "/",
-            });
+            }, { entityType: "booking", entityId: bookingId, entityLabel: `booking #${bookingId}`, projectId: reservation.project_id, actor: { actor_type: "public", actor_email: contactResult.value.email } });
           }
         } catch (err) {
           console.error("[notifications] worker push/in-app failed:", err.message);
@@ -749,6 +782,19 @@ router.post(
           });
         } catch { /* best-effort: log and continue */ }
       }
+      logActivity({
+        req,
+        action: "booking.create_public",
+        actionType: "CREATE",
+        entityType: "booking",
+        entityId: bookingId,
+        entityLabel: `booking #${bookingId}`,
+        projectId: reservation.project_id ? Number(reservation.project_id) : null,
+        statusCode: 201,
+        ok: true,
+        actorOverride: { actor_type: "public", actor_email: contactResult.value.email || null },
+        metadata: { created: { id: bookingId, serviceId, startsAt, endsAt } },
+      });
 
       return res.status(201).json({
         id: bookingId,
@@ -1132,17 +1178,20 @@ router.delete(
       );
 
       if (snapshotResult.rowCount === 0) {
+        logPublicError({ req, statusCode: 404, customerMessage: "Booking not found", email: null, reservation, tag: "[reservation-embed/cancel]" });
         return res.status(404).json({ errorMessage: "Booking not found" });
       }
 
       const booking = snapshotResult.rows[0];
 
       if (booking.status === "cancelled") {
+        logPublicError({ req, statusCode: 410, customerMessage: "Booking has been cancelled", email: booking.email, reservation, tag: "[reservation-embed/cancel]" });
         return res.status(410).json({ errorMessage: "Booking has been cancelled" });
       }
 
       // 12-hour guard: prevent cancellation within 12 hours of start
       if (isWithin12Hours(booking.starts_at)) {
+        logPublicError({ req, statusCode: 400, customerMessage: "A foglalás kezdete előtt 12 órán belül nem lehetséges a lemondás.", email: booking.email, reservation, tag: "[reservation-embed/cancel]" });
         return res.status(400).json({
           errorMessage: "A foglalás kezdete előtt 12 órán belül nem lehetséges a lemondás.",
         });
@@ -1169,7 +1218,20 @@ router.delete(
         [Number(reservation.id), bookingToken, cancelReason],
       );
 
-      await notifyBookingCancelled({ reservation, booking });
+      await notifyBookingCancelled({ reservation, booking, audit: { actor: { actor_type: "public", actor_email: booking.email || null } } });
+      logActivity({
+        req,
+        action: "booking.cancel_public",
+        actionType: "UPDATE",
+        entityType: "booking",
+        entityId: Number(booking.id),
+        entityLabel: `booking #${booking.id}`,
+        projectId: reservation.project_id ? Number(reservation.project_id) : null,
+        statusCode: 200,
+        ok: true,
+        actorOverride: { actor_type: "public", actor_email: booking.email || null },
+        metadata: { diff: { status: { from: booking.status, to: "cancelled" } } },
+      });
 
       return res.json({ success: true });
     } catch (err) {
@@ -1237,17 +1299,20 @@ router.patch(
       );
 
       if (existingResult.rowCount === 0) {
+        logPublicError({ req, statusCode: 404, customerMessage: "Booking not found", email: null, reservation, tag: "[reservation-embed/reschedule]" });
         return res.status(404).json({ errorMessage: "Booking not found" });
       }
 
       const existing = existingResult.rows[0];
 
       if (existing.status === "cancelled") {
+        logPublicError({ req, statusCode: 410, customerMessage: "Booking has been cancelled", email: existing.email, reservation, tag: "[reservation-embed/reschedule]" });
         return res.status(410).json({ errorMessage: "Booking has been cancelled" });
       }
 
       // 12-hour guard: prevent reschedule within 12 hours of start
       if (isWithin12Hours(existing.starts_at)) {
+        logPublicError({ req, statusCode: 400, customerMessage: "A foglalás kezdete előtt 12 órán belül nem lehetséges a módosítás.", email: existing.email, reservation, tag: "[reservation-embed/reschedule]" });
         return res.status(400).json({
           errorMessage: "A foglalás kezdete előtt 12 órán belül nem lehetséges a módosítás.",
         });
@@ -1263,6 +1328,7 @@ router.patch(
         [existing.service_id, Number(reservation.id)],
       );
       if (svcResult.rowCount === 0 || svcResult.rows[0].status !== "active") {
+        logPublicError({ req, statusCode: 400, customerMessage: "Service is no longer available", email: existing.email, reservation, tag: "[reservation-embed/reschedule]" });
         return res.status(400).json({ errorMessage: "Service is no longer available" });
       }
       const serviceRow = svcResult.rows[0];
@@ -1300,6 +1366,7 @@ router.patch(
           startsAtIso, endsAtIso, slot, tz, scheduleWindowStartMin,
         );
         if (!alignResult.ok) {
+          logPublicError({ req, statusCode: 400, customerMessage: alignResult.error, email: existing.email, reservation, tag: "[reservation-embed/reschedule]" });
           return res.status(400).json({ errorMessage: alignResult.error });
         }
       }
@@ -1332,6 +1399,7 @@ router.patch(
            WHERE id = $1`,
           [existing.id],
         );
+        logPublicError({ req, statusCode: 409, customerMessage: "Selected time slot is no longer available", email: existing.email, reservation, tag: "[reservation-embed/reschedule]" });
         return res.status(409).json({ errorMessage: "Selected time slot is no longer available" });
       }
 
@@ -1355,6 +1423,7 @@ router.patch(
            WHERE id = $1`,
           [existing.id],
         );
+        logPublicError({ req, statusCode: 409, customerMessage: "Selected time slot is no longer available", email: existing.email, reservation, tag: "[reservation-embed/reschedule]" });
         return res.status(409).json({ errorMessage: "Selected time slot is no longer available" });
       }
 
@@ -1394,7 +1463,7 @@ router.patch(
 
       const newBooking = result.booking;
 
-      await notifyBookingCancelled({ reservation, booking: existing });
+      await notifyBookingCancelled({ reservation, booking: existing, audit: { actor: { actor_type: "public", actor_email: existing.email || null } } });
 
       // Send confirmation email for new booking (fire-and-forget)
       if (existing.email) {
@@ -1411,8 +1480,22 @@ router.patch(
           email: existing.email,
           bookingToken: newBooking.booking_token,
           secretToken,
+          audit: { kind: "confirmation", entityType: "booking", entityId: Number(newBooking.id), entityLabel: `booking #${newBooking.id}`, projectId: reservation.project_id, actor: { actor_type: "public", actor_email: existing.email } },
         }).catch(() => {});
       }
+      logActivity({
+        req,
+        action: "booking.reschedule_public",
+        actionType: "UPDATE",
+        entityType: "booking",
+        entityId: Number(newBooking.id),
+        entityLabel: `booking #${newBooking.id}`,
+        projectId: reservation.project_id ? Number(reservation.project_id) : null,
+        statusCode: 200,
+        ok: true,
+        actorOverride: { actor_type: "public", actor_email: existing.email || null },
+        metadata: { diff: { starts_at: { from: String(existing.starts_at), to: String(newBooking.starts_at) }, ends_at: { from: String(existing.ends_at), to: String(newBooking.ends_at) } } },
+      });
 
       return res.status(200).json({
         id: Number(newBooking.id),

@@ -18,6 +18,8 @@
 import express from "express";
 import crypto from "node:crypto";
 import { pool } from "../db/pool.js";
+import { logActivity, diffObjects } from "../lib/activity-log.js";
+
 import { requireAuth } from "../middleware/jwtAuth.js";
 import { getScopedProjectIds, appendProjectScope } from "../lib/scope.js";
 // generateHolidayRows removed: holiday rules are now per-service in
@@ -1254,7 +1256,7 @@ router.post("/:reservationId/services", async (req, res, next) => {
     }
 
     // Validate translations — default locale name required
-    const reservationResult = await pool.query(`SELECT default_locale FROM reservations WHERE id = $1`, [reservationId]);
+    const reservationResult = await pool.query(`SELECT default_locale, project_id FROM reservations WHERE id = $1`, [reservationId]);
     const defaultLocale = reservationResult.rows[0]?.default_locale || "hu";
     if (!translations || typeof translations !== "object") {
       return res.status(400).json({ errorMessage: "translations is required" });
@@ -1318,6 +1320,7 @@ router.post("/:reservationId/services", async (req, res, next) => {
         "all_saints", "christmas_1", "christmas_2", "rest_day"]],
     );
 
+    logActivity({ req, action: "reservation_service.create", actionType: "CREATE", entityType: "reservation_service", entityId: Number(service.id), entityLabel: defaultTrans?.name || `service #${service.id}`, projectId: reservationResult.rows[0]?.project_id ? Number(reservationResult.rows[0].project_id) : null, statusCode: 201, ok: true, metadata: { created: { id: Number(service.id), reservationId, status: service.status } } });
     return res.status(201).json(rowToServiceDTO(service));
   } catch (err) {
     console.error("[reservations/services/create]", err.code, err.message);
@@ -1339,6 +1342,10 @@ router.put("/:reservationId/services/:serviceId", async (req, res, next) => {
     // Check service exists
     const existCheck = await pool.query(`SELECT id FROM reservation_services WHERE id = $1 AND reservation_id = $2`, [serviceId, reservationId]);
     if (existCheck.rowCount === 0) return res.status(404).json({ errorMessage: "Service not found" });
+    const svcBeforeRes = await pool.query(`SELECT * FROM reservation_services WHERE id = $1 AND reservation_id = $2`, [serviceId, reservationId]);
+    const svcBefore = svcBeforeRes.rows[0] || null;
+    const svcProjRes = await pool.query(`SELECT project_id FROM reservations WHERE id = $1`, [reservationId]);
+    const svcProjectId = svcProjRes.rows[0]?.project_id ? Number(svcProjRes.rows[0].project_id) : null;
 
     // Validate worker if provided
     if (workerUserId) {
@@ -1408,6 +1415,7 @@ router.put("/:reservationId/services/:serviceId", async (req, res, next) => {
     }
 
     const result = await pool.query(`SELECT * FROM reservation_services WHERE id = $1 AND reservation_id = $2`, [serviceId, reservationId]);
+    logActivity({ req, action: "reservation_service.update", actionType: "UPDATE", entityType: "reservation_service", entityId: serviceId, entityLabel: `service #${serviceId}`, projectId: svcProjectId, statusCode: 200, ok: true, metadata: { diff: diffObjects(svcBefore, result.rows[0]) } });
     return res.json(rowToServiceDTO(result.rows[0]));
   } catch (err) {
     console.error("[reservations/services/update]", err.code, err.message);
@@ -1423,6 +1431,11 @@ router.delete("/:reservationId/services/:serviceId", async (req, res, next) => {
     if (!Number.isFinite(reservationId) || !Number.isFinite(serviceId)) {
       return res.status(400).json({ errorMessage: "Invalid ids" });
     }
+    const svcSnapRes = await pool.query(
+      `SELECT rs.id, r.project_id FROM reservation_services rs JOIN reservations r ON r.id = rs.reservation_id WHERE rs.id = $1 AND rs.reservation_id = $2`,
+      [serviceId, reservationId],
+    );
+    const svcSnapProjectId = svcSnapRes.rows[0]?.project_id ? Number(svcSnapRes.rows[0].project_id) : null;
     // Check if bookings exist — archive instead of hard-delete
     const bookingCheck = await pool.query(
       `SELECT 1 FROM reservation_bookings WHERE service_id = $1 AND reservation_id = $2 LIMIT 1`,
@@ -1434,6 +1447,7 @@ router.delete("/:reservationId/services/:serviceId", async (req, res, next) => {
         `UPDATE reservation_services SET status = 'disabled' WHERE id = $1 AND reservation_id = $2`,
         [serviceId, reservationId],
       );
+      logActivity({ req, action: "reservation_service.update", actionType: "UPDATE", entityType: "reservation_service", entityId: serviceId, entityLabel: `service #${serviceId}`, projectId: svcSnapProjectId, statusCode: 200, ok: true, metadata: { diff: { status: { from: "active", to: "disabled" } }, note: "archived (bookings exist — disabled instead of deleted)" } });
       return res.json({ message: "Service archived (disabled)" });
     }
     // Hard delete — no bookings exist
@@ -1441,6 +1455,7 @@ router.delete("/:reservationId/services/:serviceId", async (req, res, next) => {
     await pool.query(`DELETE FROM reservation_service_translations WHERE service_id = $1`, [serviceId]);
     await pool.query(`DELETE FROM reservation_service_attachments WHERE service_id = $1`, [serviceId]);
     await pool.query(`DELETE FROM reservation_services WHERE id = $1 AND reservation_id = $2`, [serviceId, reservationId]);
+    logActivity({ req, action: "reservation_service.delete", actionType: "DELETE", entityType: "reservation_service", entityId: serviceId, entityLabel: `service #${serviceId}`, projectId: svcSnapProjectId, statusCode: 200, ok: true, metadata: { deleted: { id: serviceId, label: `service #${serviceId}` } } });
     return res.json({ message: "Service deleted" });
   } catch (err) {
     console.error("[reservations/services/delete]", err.code, err.message);
@@ -1524,6 +1539,7 @@ router.post("/services/:serviceId/image", async (req, res, next) => {
       );
       const att = insertResult.rows[0];
       const imageUrl = `/api/public/reservations/assets/${storedFilename}`;
+      logActivity({ req, action: "reservation_service.image_upload", actionType: "CREATE", entityType: "reservation_service", entityId: serviceId, entityLabel: `service #${serviceId}`, projectId: svcCheck.rows[0]?.project_id ? Number(svcCheck.rows[0].project_id) : null, statusCode: 200, ok: true, metadata: { created: { id: Number(att.id), serviceId } } });
       return res.json({ imageUrl, id: att.id, storedFilename, mimeType: att.mime_type, sizeBytes: att.size_bytes, uploadedAt: att.uploaded_at });
     });
   } catch (err) {
@@ -1538,6 +1554,11 @@ router.delete("/services/:serviceId/image", async (req, res, next) => {
     if (!Number.isFinite(serviceId) || serviceId <= 0) {
       return res.status(400).json({ errorMessage: "Invalid service id" });
     }
+    const imgSvcRes = await pool.query(
+      `SELECT rs.id, r.project_id FROM reservation_services rs JOIN reservations r ON r.id = rs.reservation_id WHERE rs.id = $1`,
+      [serviceId],
+    );
+    const imgProjectId = imgSvcRes.rows[0]?.project_id ? Number(imgSvcRes.rows[0].project_id) : null;
     const result = await pool.query(
       `DELETE FROM reservation_service_attachments WHERE service_id = $1 AND purpose = 'cover' RETURNING stored_filename`,
       [serviceId],
@@ -1546,6 +1567,7 @@ router.delete("/services/:serviceId/image", async (req, res, next) => {
       const filePath = path.join(UPLOAD_ROOT, "reservation-services", String(serviceId), result.rows[0].stored_filename);
       try { fs.unlinkSync(filePath); } catch { /* file may already be gone */ }
     }
+    logActivity({ req, action: "reservation_service.image_delete", actionType: "DELETE", entityType: "reservation_service", entityId: serviceId, entityLabel: `service #${serviceId}`, projectId: imgProjectId, statusCode: 200, ok: true, metadata: { deleted: { id: serviceId, label: `service #${serviceId}` } } });
     return res.json({ message: "Image deleted" });
   } catch (err) {
     console.error("[reservations/service-image/delete]", err.code, err.message);
@@ -1685,6 +1707,7 @@ router.post("/customers", async (req, res, next) => {
       return res.status(404).json({ errorMessage: "Customer not found" });
     }
     const customer = await upsertReservationCustomer({ db: pool, projectId, contact: contactResult.value });
+    logActivity({ req, action: "customer.create", actionType: "CREATE", entityType: "customer", entityId: Number(customer.id), entityLabel: customer.email || `customer #${customer.id}`, projectId, statusCode: 201, ok: true, metadata: { created: { id: Number(customer.id), projectId, email: customer.email } } });
     return res.status(201).json(rowToReservationCustomerDTO(customer));
   } catch (err) {
     console.error("[reservations/customers/create]", err.code, err.message);
@@ -1718,6 +1741,7 @@ router.put("/customers/:customerId", async (req, res, next) => {
     params.push(customerId);
     await pool.query(`UPDATE reservation_customers SET ${sets.join(", ")} WHERE id = $${pi}`, params);
     const result = await pool.query(`SELECT * FROM reservation_customers WHERE id = $1`, [customerId]);
+    logActivity({ req, action: "customer.update", actionType: "UPDATE", entityType: "customer", entityId: customerId, entityLabel: result.rows[0]?.email || `customer #${customerId}`, projectId: result.rows[0]?.project_id ? Number(result.rows[0].project_id) : null, statusCode: 200, ok: true, metadata: { diff: diffObjects(existing.rows[0], result.rows[0]) } });
     return res.json(rowToReservationCustomerDTO(result.rows[0]));
   } catch (err) {
     console.error("[reservations/customers/update]", err.code, err.message);
@@ -1738,7 +1762,9 @@ router.delete("/customers/:customerId", async (req, res, next) => {
     if (scopedIds !== null && !scopedIds.includes(Number(existing.rows[0].project_id))) {
       return res.status(404).json({ errorMessage: "Customer not found" });
     }
+    const custDelBefore = await pool.query(`SELECT id, project_id, email FROM reservation_customers WHERE id = $1`, [customerId]);
     await pool.query(`DELETE FROM reservation_customers WHERE id = $1`, [customerId]);
+    logActivity({ req, action: "customer.delete", actionType: "DELETE", entityType: "customer", entityId: customerId, entityLabel: custDelBefore.rows[0]?.email || `customer #${customerId}`, projectId: custDelBefore.rows[0]?.project_id ? Number(custDelBefore.rows[0].project_id) : null, statusCode: 200, ok: true, metadata: { deleted: { id: customerId, label: custDelBefore.rows[0]?.email || `customer #${customerId}` } } });
     // FK ON DELETE SET NULL preserves all reservation_bookings rows
     return res.status(204).end();
   } catch (err) {
@@ -1864,6 +1890,8 @@ router.post("/:reservationId/services/:serviceId/availability-schedules", async 
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
       [serviceId, frequency, dayOfWeek || null, dayOfMonth || null, startTime, endTime],
     );
+    const svcSchedProj = await pool.query(`SELECT project_id FROM reservations WHERE id = $1`, [parseInt(req.params.reservationId, 10)]);
+    logActivity({ req, action: "schedule.create", actionType: "CREATE", entityType: "schedule", entityId: Number(result.rows[0].id), entityLabel: `schedule #${result.rows[0].id}`, projectId: svcSchedProj.rows[0]?.project_id ? Number(svcSchedProj.rows[0].project_id) : null, statusCode: 201, ok: true, metadata: { created: { id: Number(result.rows[0].id), serviceId, frequency } } });
     return res.status(201).json(rowToServiceScheduleDTO(result.rows[0]));
   } catch (err) {
     console.error("[reservations/service-schedules/create]", err.code, err.message);
@@ -1877,7 +1905,12 @@ router.delete("/:reservationId/services/:serviceId/availability-schedules/:sched
     if (!Number.isFinite(scheduleId) || scheduleId <= 0) {
       return res.status(400).json({ errorMessage: "Invalid schedule id" });
     }
+    const svcSchedDelProj = await pool.query(
+      `SELECT r.project_id FROM reservation_service_availability_schedules s LEFT JOIN reservation_services rs ON rs.id = s.service_id LEFT JOIN reservations r ON r.id = rs.reservation_id WHERE s.id = $1`,
+      [scheduleId],
+    );
     await pool.query(`DELETE FROM reservation_service_availability_schedules WHERE id = $1`, [scheduleId]);
+    logActivity({ req, action: "schedule.delete", actionType: "DELETE", entityType: "schedule", entityId: scheduleId, entityLabel: `schedule #${scheduleId}`, projectId: svcSchedDelProj.rows[0]?.project_id ? Number(svcSchedDelProj.rows[0].project_id) : null, statusCode: 200, ok: true, metadata: { deleted: { id: scheduleId, label: `schedule #${scheduleId}` } } });
     return res.json({ message: "Schedule deleted" });
   } catch (err) {
     console.error("[reservations/service-schedules/delete]", err.code, err.message);
@@ -1893,6 +1926,12 @@ router.put("/:reservationId/services/:serviceId/availability-schedules/:schedule
     }
     const body = req.body ?? {};
     const { frequency, dayOfWeek, dayOfMonth, startTime, endTime } = body;
+    const svcSchedBeforeRes = await pool.query(`SELECT * FROM reservation_service_availability_schedules WHERE id = $1`, [scheduleId]);
+    const svcSchedBefore = svcSchedBeforeRes.rows[0] || null;
+    const svcSchedUpdProj = await pool.query(
+      `SELECT r.project_id FROM reservation_service_availability_schedules s LEFT JOIN reservation_services rs ON rs.id = s.service_id LEFT JOIN reservations r ON r.id = rs.reservation_id WHERE s.id = $1`,
+      [scheduleId],
+    );
     const sets = [];
     const params = [];
     let pi = 1;
@@ -1907,6 +1946,7 @@ router.put("/:reservationId/services/:serviceId/availability-schedules/:schedule
     }
     const result = await pool.query(`SELECT * FROM reservation_service_availability_schedules WHERE id = $1`, [scheduleId]);
     if (result.rowCount === 0) return res.status(404).json({ errorMessage: "Schedule not found" });
+    logActivity({ req, action: "schedule.update", actionType: "UPDATE", entityType: "schedule", entityId: scheduleId, entityLabel: `schedule #${scheduleId}`, projectId: svcSchedUpdProj.rows[0]?.project_id ? Number(svcSchedUpdProj.rows[0].project_id) : null, statusCode: 200, ok: true, metadata: { diff: diffObjects(svcSchedBefore, result.rows[0]) } });
     return res.json(rowToServiceScheduleDTO(result.rows[0]));
   } catch (err) {
     console.error("[reservations/service-schedules/update]", err.code, err.message);
@@ -2138,6 +2178,7 @@ router.put("/:id/disable-settings/holidays", async (req, res, next) => {
       `SELECT holiday_key, enabled FROM reservation_service_holiday_rules
        WHERE service_id = $1 ORDER BY holiday_key`,
       [serviceId]);
+    logActivity({ req, action: "disable_holidays_update", actionType: "UPDATE", entityType: "reservation", entityId: reservationId, entityLabel: `reservation #${reservationId}`, projectId: reservationCheck.rows[0]?.project_id ? Number(reservationCheck.rows[0].project_id) : null, statusCode: 200, ok: true, metadata: { serviceId, rules: updated.rows.map(r => ({ key: r.holiday_key, enabled: r.enabled })) } });
     return res.json({ serviceId, rules: updated.rows.map(r => ({ key: r.holiday_key, enabled: r.enabled })) });
   } catch (err) {
     console.error("[reservations/disable-settings/holidays]", err.code, err.message);
@@ -2288,6 +2329,7 @@ router.post("/", async (req, res) => {
        WHERE r.id = $1`
       , [newId],
     );
+    logActivity({ req, action: "reservation.create", actionType: "CREATE", entityType: "reservation", entityId: newId, entityLabel: joined[0]?.name || `reservation #${newId}`, projectId: joined[0]?.project_id ? Number(joined[0].project_id) : null, statusCode: 201, ok: true, metadata: { created: { id: newId, name: joined[0]?.name, slug: joined[0]?.slug, projectId: joined[0]?.project_id ? Number(joined[0].project_id) : null } } });
     return res.status(201).json(rowToReservationDTO(joined[0]));
   } catch (err) {
     // 23505 = unique_violation. For slug, return 409 with the user-facing
@@ -2329,6 +2371,8 @@ router.put("/:id", async (req, res) => {
   }
 
   try {
+    const resBeforeRes = await pool.query(`SELECT * FROM reservations WHERE id = $1`, [id]);
+    const resBefore = resBeforeRes.rows[0] || null;
     const setClauses = [];
     const params = [id];
     let p = 2;
@@ -2363,6 +2407,7 @@ router.put("/:id", async (req, res) => {
        WHERE r.id = $1`,
       [id],
     );
+    logActivity({ req, action: "reservation.update", actionType: "UPDATE", entityType: "reservation", entityId: id, entityLabel: joined[0]?.name || `reservation #${id}`, projectId: joined[0]?.project_id ? Number(joined[0].project_id) : null, statusCode: 200, ok: true, metadata: { diff: diffObjects(resBefore, joined[0]) } });
     return res.json(rowToReservationDTO(joined[0]));
   } catch (err) {
     if (err.code === "23505") {
@@ -2390,6 +2435,7 @@ router.delete("/:id", async (req, res) => {
     return res.status(400).json({ errorMessage: "Invalid id" });
   }
   try {
+    const resDelBefore = await pool.query(`SELECT id, name, project_id FROM reservations WHERE id = $1`, [id]);
     const { rows } = await pool.query(
       `DELETE FROM reservations WHERE id = $1 RETURNING module_id`,
       [id],
@@ -2402,6 +2448,7 @@ router.delete("/:id", async (req, res) => {
     if (moduleId) {
       await pool.query(`DELETE FROM project_modules WHERE id = $1`, [moduleId]);
     }
+    logActivity({ req, action: "reservation.delete", actionType: "DELETE", entityType: "reservation", entityId: id, entityLabel: resDelBefore.rows[0]?.name || `reservation #${id}`, projectId: resDelBefore.rows[0]?.project_id ? Number(resDelBefore.rows[0].project_id) : null, statusCode: 200, ok: true, metadata: { deleted: { id, label: resDelBefore.rows[0]?.name || `reservation #${id}` } } });
     return res.status(204).send();
   } catch (err) {
     console.error("[reservations/delete]", err.code, err.message);
@@ -3066,12 +3113,18 @@ router.patch("/:id/bookings/:bookingId", async (req, res, next) => {
     sets.push(`reminder_sent_at = NULL`);
     params.push(bookingId);
     await pool.query(`UPDATE reservation_bookings SET ${sets.join(", ")} WHERE id = $${pi}`, params);
+    const auditActor = req.user ? { actor_type: req.user.role, actor_user_id: Number(req.user.id), actor_email: req.user.email, actor_role: req.user.role } : { actor_type: "system" };
     if (body.status === "cancelled") {
-      await notifyBookingCancelled({ reservation: booking, booking });
+      await notifyBookingCancelled({ reservation: booking, booking, audit: { entityType: "booking", entityId: Number(bookingId), entityLabel: `booking #${bookingId}`, projectId: booking.project_id ? Number(booking.project_id) : null, actor: auditActor } });
     }
 
     const updated = await pool.query(
       `SELECT * FROM reservation_bookings WHERE id = $1`, [bookingId]);
+    if (body.status === "cancelled") {
+      logActivity({ req, action: "booking.cancel", actionType: "UPDATE", entityType: "booking", entityId: bookingId, entityLabel: `booking #${bookingId}`, projectId: booking.project_id ? Number(booking.project_id) : null, statusCode: 200, ok: true, metadata: { diff: diffObjects(booking, updated.rows[0]) } });
+    } else {
+      logActivity({ req, action: "booking.update", actionType: "UPDATE", entityType: "booking", entityId: bookingId, entityLabel: `booking #${bookingId}`, projectId: booking.project_id ? Number(booking.project_id) : null, statusCode: 200, ok: true, metadata: { diff: diffObjects(booking, updated.rows[0]) } });
+    }
     return res.json(rowToReservationBookingDTO(updated.rows[0]));
   } catch (err) {
     console.error("[reservations/bookings/status]", err.code, err.message);
@@ -3129,9 +3182,11 @@ router.delete("/:id/bookings/:bookingId", async (req, res, next) => {
     );
     const snapshot = snapshotResult.rows[0];
 
+    const auditActor = req.user ? { actor_type: req.user.role, actor_user_id: Number(req.user.id), actor_email: req.user.email, actor_role: req.user.role } : { actor_type: "system" };
     await notifyBookingCancelled({
       reservation: { project_id: booking.project_id, timezone: snapshot?.timezone },
       booking: snapshot,
+      audit: { entityType: "booking", entityId: Number(bookingId), entityLabel: `booking #${bookingId}`, projectId: booking.project_id ? Number(booking.project_id) : null, actor: auditActor },
     });
 
     // Delete the booking after notification data has been captured.
@@ -3140,6 +3195,7 @@ router.delete("/:id/bookings/:bookingId", async (req, res, next) => {
       [reservationId, bookingId],
     );
 
+    logActivity({ req, action: "booking.delete", actionType: "DELETE", entityType: "booking", entityId: bookingId, entityLabel: `booking #${bookingId}`, projectId: booking.project_id ? Number(booking.project_id) : null, statusCode: 200, ok: true, metadata: { deleted: { id: bookingId, label: `booking #${bookingId}` } } });
     return res.json({ success: true });
   } catch (err) {
     console.error("[reservations/bookings/delete]", err.code, err.message);
@@ -3288,6 +3344,8 @@ router.post("/:id/bookings", async (req, res, next) => {
     }
 
     // Customer confirmation — footer "write to" = project contact email, sign-off = worker name
+    const auditActor = req.user ? { actor_type: req.user.role, actor_user_id: Number(req.user.id), actor_email: req.user.email, actor_role: req.user.role } : { actor_type: "system" };
+    const bookingAudit = { entityType: "booking", entityId: Number(result.booking.id), entityLabel: `booking #${result.booking.id}`, projectId: reservation.project_id ? Number(reservation.project_id) : null, actor: auditActor };
     notifySubmitter({
       kind: "reservation", projectId: reservation.project_id,
       formName: serviceRow.name || "Reservation", data: null,
@@ -3298,6 +3356,7 @@ router.post("/:id/bookings", async (req, res, next) => {
       bookingToken: result.booking.booking_token,
       secretToken: reservation.secret_token,
       timezone: reservation.timezone || "UTC",
+      audit: { kind: "confirmation", ...bookingAudit },
     }).catch(() => {});
 
     // Fetch worker notification settings once (email + push + in-app)
@@ -3327,6 +3386,7 @@ router.post("/:id/bookings", async (req, res, next) => {
         customerPhone: contactResult.value.phone,
         comment: contactResult.value.comment || null,
         timezone: reservation.timezone || "UTC",
+        audit: { kind: "confirmation", ...bookingAudit },
       }).catch(() => {});
     }
 
@@ -3346,6 +3406,7 @@ router.post("/:id/bookings", async (req, res, next) => {
           entityType: "booking",
           entityId: result.booking.id,
           metadata: { serviceName: serviceRow.name, customerName, startsAt: v.startsAtIso, endsAt: v.endsAtIso, locale: notifLocale, timezone: reservation.timezone || "UTC" },
+          audit: bookingAudit,
         });
 
         if (workerPushEnabled) {
@@ -3356,13 +3417,14 @@ router.post("/:id/bookings", async (req, res, next) => {
               date: formatDate(v.startsAtIso, notifLocale, reservation.timezone || "UTC"),
             }),
             url: "/",
-          });
+          }, bookingAudit);
         }
       } catch (err) {
         console.error("[notifications] worker push/in-app failed:", err.message);
       }
     }
 
+    logActivity({ req, action: "booking.create_manual", actionType: "CREATE", entityType: "booking", entityId: Number(result.booking.id), entityLabel: `booking #${result.booking.id}`, projectId: reservation.project_id ? Number(reservation.project_id) : null, statusCode: 201, ok: true, metadata: { source, created: { id: Number(result.booking.id), serviceId: Number(serviceRow.id), startsAt: v.startsAtIso } } });
     return res.status(201).json(rowToReservationBookingDTO(result.booking));
   } catch (err) {
     if (err.code === "23P01") {
@@ -3526,6 +3588,7 @@ router.post("/:id/disabled-ranges", async (req, res, next) => {
       );
     }
 
+    logActivity({ req, action: "disabled_range.create", actionType: "CREATE", entityType: "disabled_range", entityId: Number(newRange.id), entityLabel: `disabled range #${newRange.id}`, projectId: reservationCheck.rows[0]?.project_id ? Number(reservationCheck.rows[0].project_id) : null, statusCode: 201, ok: true, metadata: { created: { id: Number(newRange.id), reservationId } } });
     return res.status(201).json(rowToDisabledRangeDTO({ ...newRange, service_ids: linkIds }));
   } catch (err) {
     // 23P01 = exclusion_violation → overlapping disabled range.
@@ -3647,6 +3710,7 @@ router.post("/:id/day-toggle", async (req, res, next) => {
           [rangeId, ...serviceIds],
         );
       }
+      logActivity({ req, action: "day_toggle", actionType: "UPDATE", entityType: "reservation", entityId: reservationId, entityLabel: `reservation #${reservationId}`, projectId: reservationCheck.rows[0]?.project_id ? Number(reservationCheck.rows[0].project_id) : null, statusCode: 200, ok: true, metadata: { date: dateStr, enabled: true, rangeId, serviceIds } });
       return res.json({ enabled: true, date: dateStr, rangeId });
     }
     // enabled === false: unlink services from exact-bound ranges, drop orphans.
@@ -3667,6 +3731,7 @@ router.post("/:id/day-toggle", async (req, res, next) => {
         [ids],
       );
     }
+    logActivity({ req, action: "day_toggle", actionType: "UPDATE", entityType: "reservation", entityId: reservationId, entityLabel: `reservation #${reservationId}`, projectId: reservationCheck.rows[0]?.project_id ? Number(reservationCheck.rows[0].project_id) : null, statusCode: 200, ok: true, metadata: { date: dateStr, enabled: false, rangeIds: ids, serviceIds } });
     return res.json({ enabled: false, date: dateStr, rangeIds: ids });
   } catch (err) {
     console.error("[reservations/day-toggle]", err.code, err.message);
@@ -3703,6 +3768,7 @@ router.delete("/:id/disabled-ranges/:rangeId", async (req, res, next) => {
       }
     }
 
+    const drDelProj = await pool.query(`SELECT project_id FROM reservations WHERE id = $1`, [reservationId]);
     const { rowCount } = await pool.query(
       `DELETE FROM reservation_disabled_ranges
        WHERE id = $1 AND reservation_id = $2`,
@@ -3711,6 +3777,7 @@ router.delete("/:id/disabled-ranges/:rangeId", async (req, res, next) => {
     if (rowCount === 0) {
       return res.status(404).json({ errorMessage: "Disabled range not found" });
     }
+    logActivity({ req, action: "disabled_range.delete", actionType: "DELETE", entityType: "disabled_range", entityId: rangeId, entityLabel: `disabled range #${rangeId}`, projectId: drDelProj.rows[0]?.project_id ? Number(drDelProj.rows[0].project_id) : null, statusCode: 200, ok: true, metadata: { deleted: { id: rangeId, label: `disabled range #${rangeId}` } } });
     return res.status(204).send();
   } catch (err) {
     console.error("[reservations/disabled-ranges/delete]", err.code, err.message);
@@ -3750,7 +3817,7 @@ router.put("/:id/disabled-ranges/:rangeId", async (req, res, next) => {
 
     // Only manual ranges can be edited.
     const existing = await pool.query(
-      "SELECT id, source FROM reservation_disabled_ranges WHERE id = $1 AND reservation_id = $2",
+      "SELECT * FROM reservation_disabled_ranges WHERE id = $1 AND reservation_id = $2",
       [rangeId, reservationId],
     );
     if (existing.rowCount === 0) {
@@ -3832,6 +3899,7 @@ router.put("/:id/disabled-ranges/:rangeId", async (req, res, next) => {
     );
     const serviceIds = svcResult.rows[0]?.service_ids || [];
 
+    logActivity({ req, action: "disabled_range.update", actionType: "UPDATE", entityType: "disabled_range", entityId: rangeId, entityLabel: `disabled range #${rangeId}`, projectId: pre.rows[0]?.project_id ? Number(pre.rows[0].project_id) : null, statusCode: 200, ok: true, metadata: { diff: diffObjects(existing.rows[0], updateResult.rows[0]) } });
     return res.json(rowToDisabledRangeDTO({ ...updateResult.rows[0], service_ids: serviceIds }));
   } catch (err) {
     if (err.code === "23P01") {
@@ -4012,6 +4080,7 @@ router.post("/:id/availability-schedules", async (req, res, next) => {
       [reservationId, frequency, dayOfWeek, dayOfMonth, startTime, endTime],
     );
 
+    logActivity({ req, action: "schedule.create", actionType: "CREATE", entityType: "schedule", entityId: Number(insertResult.rows[0].id), entityLabel: `schedule #${insertResult.rows[0].id}`, projectId: reservationCheck.rows[0]?.project_id ? Number(reservationCheck.rows[0].project_id) : null, statusCode: 201, ok: true, metadata: { created: { id: Number(insertResult.rows[0].id), reservationId, frequency } } });
     return res.status(201).json(rowToAvailabilityScheduleDTO(insertResult.rows[0]));
   } catch (err) {
     // 23514 = check_violation (e.g. end_time > start_time, frequency-day constraints).
@@ -4052,6 +4121,7 @@ router.delete("/:id/availability-schedules/:scheduleId", async (req, res, next) 
       }
     }
 
+    const schedDelProj = await pool.query(`SELECT project_id FROM reservations WHERE id = $1`, [reservationId]);
     const { rowCount } = await pool.query(
       `DELETE FROM reservation_availability_schedules
        WHERE id = $1 AND reservation_id = $2`,
@@ -4060,6 +4130,7 @@ router.delete("/:id/availability-schedules/:scheduleId", async (req, res, next) 
     if (rowCount === 0) {
       return res.status(404).json({ errorMessage: "Schedule not found" });
     }
+    logActivity({ req, action: "schedule.delete", actionType: "DELETE", entityType: "schedule", entityId: scheduleId, entityLabel: `schedule #${scheduleId}`, projectId: schedDelProj.rows[0]?.project_id ? Number(schedDelProj.rows[0].project_id) : null, statusCode: 200, ok: true, metadata: { deleted: { id: scheduleId, label: `schedule #${scheduleId}` } } });
     return res.status(204).send();
   } catch (err) {
     console.error("[reservations/availability-schedules/delete]", err.code, err.message);
@@ -4146,6 +4217,8 @@ router.put("/:id/availability-schedules/:scheduleId", async (req, res, next) => 
       return res.status(400).json({ errorMessage: "endTime must be after startTime" });
     }
 
+    const schedBeforeRes = await pool.query(`SELECT * FROM reservation_availability_schedules WHERE id = $1 AND reservation_id = $2`, [scheduleId, reservationId]);
+    const schedBefore = schedBeforeRes.rows[0] || null;
     const updateResult = await pool.query(
       `UPDATE reservation_availability_schedules
        SET frequency = $1, day_of_week = $2, day_of_month = $3,
@@ -4160,6 +4233,7 @@ router.put("/:id/availability-schedules/:scheduleId", async (req, res, next) => 
       return res.status(404).json({ errorMessage: "Schedule not found" });
     }
 
+    logActivity({ req, action: "schedule.update", actionType: "UPDATE", entityType: "schedule", entityId: scheduleId, entityLabel: `schedule #${scheduleId}`, projectId: reservationCheck.rows[0]?.project_id ? Number(reservationCheck.rows[0].project_id) : null, statusCode: 200, ok: true, metadata: { diff: diffObjects(schedBefore, updateResult.rows[0]) } });
     return res.json(rowToAvailabilityScheduleDTO(updateResult.rows[0]));
   } catch (err) {
     if (err.code === "23514") {

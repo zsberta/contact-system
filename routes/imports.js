@@ -25,6 +25,7 @@
 import express from "express";
 import multer from "multer";
 import { pool } from "../db/pool.js";
+import { logActivity } from "../lib/activity-log.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
 import { upsertReservationCustomer } from "../lib/reservation-booking.js";
 import { notifySubmitter } from "../lib/email.js";
@@ -442,6 +443,19 @@ router.post("/bookings/services", async (req, res) => {
       created.push({ id: serviceId, name, existing: false });
     }
 
+    const servicesCreated = created.filter((c) => !c.existing).length;
+    logActivity({
+      req,
+      action: "import.services",
+      actionType: "CREATE",
+      entityType: "import",
+      entityId: null,
+      entityLabel: "services import",
+      projectId: Number(projectId),
+      statusCode: 201,
+      ok: true,
+      metadata: { count: servicesCreated },
+    });
     return res.status(201).json({ created, errors });
   } catch (err) {
     console.error("[imports/bookings/services]", err.code, err.message);
@@ -491,6 +505,19 @@ router.post("/customers", async (req, res) => {
       }
     }
 
+    const customersImported = results.filter((r) => r.ok).length;
+    logActivity({
+      req,
+      action: "import.customers",
+      actionType: "CREATE",
+      entityType: "import",
+      entityId: null,
+      entityLabel: "customers import",
+      projectId: Number(projectId),
+      statusCode: 200,
+      ok: true,
+      metadata: { count: customersImported },
+    });
     return res.json({
       imported: results.filter((r) => r.ok).length,
       failed: results.filter((r) => !r.ok).length,
@@ -655,9 +682,11 @@ router.post("/bookings", async (req, res) => {
 
     client.release();
 
-    // Rate-limited queue: notifySubmitter → enqueueMail per confirmed
-    // booking. emailedBookings is empty when EMAIL_SENDING=false, so
-    // nothing is enqueued.
+    // Audit sidecar: runJob logs one email.send SEND row per delivery
+    // (kind=confirmation). Actor is the importing admin (ids only).
+    const auditActor = req.user
+      ? { actor_type: req.user.role, actor_user_id: Number(req.user.id), actor_email: req.user.email, actor_role: req.user.role }
+      : { actor_type: "system" };
     for (const e of emailedBookings) {
       notifySubmitter({
         kind: "reservation",
@@ -673,9 +702,23 @@ router.post("/bookings", async (req, res) => {
         bookingToken: e.bookingToken,
         secretToken: reservation.secret_token,
         timezone: reservation.timezone || "UTC",
+        audit: { kind: "confirmation", entityType: "booking", entityId: e.bookingId, entityLabel: `booking #${e.bookingId}`, projectId: Number(projectId), actor: auditActor },
       }).catch(() => {});
     }
 
+    const bookingsImported = results.filter((r) => r.ok && !r.skipped).length;
+    logActivity({
+      req,
+      action: "import.bookings",
+      actionType: "CREATE",
+      entityType: "import",
+      entityId: null,
+      entityLabel: "bookings import",
+      projectId: Number(projectId),
+      statusCode: 200,
+      ok: true,
+      metadata: { count: bookingsImported },
+    });
     return res.json({
       imported: results.filter((r) => r.ok && !r.skipped).length,
       skippedDuplicates: results.filter((r) => r.skipped === "duplicate").length,

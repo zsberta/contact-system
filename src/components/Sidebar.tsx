@@ -20,6 +20,7 @@ import {
   List,
   Upload,
   Mail,
+  ScrollText,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -175,6 +176,10 @@ const Sidebar = ({ onClose }: SidebarProps = {}) => {
           <NavLink to="/bulk-email" onClick={() => onClose?.()} className={linkClass}>
             <Mail className="h-4 w-4" />
             <span>{t("navigation:bulk_email")}</span>
+          </NavLink>
+          <NavLink to="/logs" onClick={() => onClose?.()} className={linkClass}>
+            <ScrollText className="h-4 w-4" />
+            <span>{t("navigation:logs")}</span>
           </NavLink>
           <NavLink to="/settings" onClick={() => onClose?.()} className={linkClass}>
             <Settings className="h-4 w-4" />

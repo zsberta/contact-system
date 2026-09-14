@@ -26,7 +26,31 @@
 import express from "express";
 import rateLimit from "express-rate-limit";
 import { pool } from "../db/pool.js";
+import { logActivity, logError } from "../lib/activity-log.js";
+import { detectSubmitterEmail } from "../lib/email-templates.js";
 import { notifyProjectOwner, notifySubmitter } from "../lib/email.js";
+
+/**
+ * logPublicError — ERROR row for public form failures (the generic ERROR
+ * middleware skips /api/public/*). Actor is public + submitter email when
+ * the payload carried one. Never logs the data bag itself.
+ */
+function logPublicFormError({ req, statusCode, customerMessage, data = null }) {
+  let email = null;
+  try {
+    email = detectSubmitterEmail(data);
+  } catch { /* ignore */ }
+  logError({
+    req,
+    err: null,
+    tag: "[form-embed]",
+    action: "form.public_error",
+    entityType: "form_submission",
+    statusCode,
+    customerMessage,
+    actorOverride: { actor_type: "public", actor_email: email },
+  });
+}
 
 export const router = express.Router();
 
@@ -154,13 +178,14 @@ router.post(
       // secret_token is bypassed, but form lookups are single-row and
       // infrequent (once per submission).
       const result = await pool.query(
-        `SELECT id, status, allowed_origins
+        `SELECT id, project_id, status, allowed_origins
          FROM forms
          WHERE trim(secret_token) = $1`,
         [secretToken],
       );
       if (result.rowCount === 0 || result.rows[0].status !== "active") {
         // Indistinguishable 404 — don't leak existence or status.
+        logPublicFormError({ req, statusCode: 404, customerMessage: "Form not found", data });
         return res.status(404).json({ errorMessage: "Form not found" });
       }
       const row = result.rows[0];
@@ -188,6 +213,7 @@ router.post(
           !isOriginAllowed(requestOrigin, allowedOrigins)
         ) {
           // Indistinguishable 404 — don't leak the allowlist contents.
+          logPublicFormError({ req, statusCode: 404, customerMessage: "Form not found", data });
           return res.status(404).json({ errorMessage: "Form not found" });
         }
       }
@@ -221,6 +247,20 @@ router.post(
           ? insertResult.rows[0].submitted_at.toISOString()
           : insertResult.rows[0].submitted_at;
       const submissionId = Number(insertResult.rows[0].id);
+      const submitterEmail = detectSubmitterEmail(data);
+      logActivity({
+        req,
+        action: "form.submission_public",
+        actionType: "CREATE",
+        entityType: "form_submission",
+        entityId: submissionId,
+        entityLabel: `submission #${submissionId}`,
+        projectId: row.project_id ? Number(row.project_id) : null,
+        statusCode: 201,
+        ok: true,
+        actorOverride: { actor_type: "public", actor_email: submitterEmail },
+        metadata: { created: { id: submissionId, formId } },
+      });
 
       // Fire-and-forget emails.
       pool
@@ -239,13 +279,20 @@ router.post(
             data: parsedData,
             locale,
           };
-          // Fire both in parallel; both are fire-and-forget. We don't
-          // await — the public response has already been (or is about
-          // to be) returned. A failure on either side is logged inside
-          // the helpers, never thrown here.
+          // Audit sidecars: runJob logs one email.send SEND row per
+          // delivery. Actor is the public submitter (ids/labels only —
+          // never bodies or tokens).
+          const notifyAudit = (kind) => ({
+            kind,
+            entityType: "form_submission",
+            entityId: submissionId,
+            entityLabel: `submission #${submissionId}`,
+            projectId,
+            actor: { actor_type: "public", actor_email: submitterEmail },
+          });
           Promise.all([
-            notifyProjectOwner(notifyArgs),
-            notifySubmitter(notifyArgs),
+            notifyProjectOwner({ ...notifyArgs, audit: notifyAudit("form_notification") }),
+            notifySubmitter({ ...notifyArgs, audit: notifyAudit("form_autoreply") }),
           ]);
         })
         .catch((err) => {

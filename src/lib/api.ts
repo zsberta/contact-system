@@ -385,6 +385,20 @@ export function buildQueryString(params: CommonQueryParams): string {
   if (params.queries && params.queries.length > 0) {
     params.queries.forEach((q) => query.append("queries", q));
   }
+  // Extended filters (logs page + future consumers): serialize any extra
+  // defined scalar param verbatim, e.g. actionType, action, actorType,
+  // actorEmail, entityType, entityId, method, dateFrom, dateTo.
+  const KNOWN: Record<string, true> = {
+    page: true, size: true, sortField: true, sortOrder: true, filterType: true,
+    status: true, locationType: true, locationId: true, projectId: true,
+    search: true, queries: true, documentType: true, documentStatus: true,
+  };
+  for (const [key, value] of Object.entries(params as Record<string, unknown>)) {
+    if (KNOWN[key] || value === undefined || value === null || value === "") continue;
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      query.append(key, String(value));
+    }
+  }
   return query.toString();
 }
 

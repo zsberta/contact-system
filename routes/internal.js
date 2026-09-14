@@ -1,5 +1,6 @@
 import express from "express";
 import { pool } from "../db/pool.js";
+import { logActivity } from "../lib/activity-log.js";
 
 // Internal endpoint for the host-cron rebuild wrapper to write back the
 // outcome of a landing build. Mounted under /api/internal/* so it's
@@ -93,6 +94,19 @@ router.post("/landing-build-status", async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({ errorMessage: "Project not found for domain" });
     }
+    logActivity({
+      req,
+      action: "deploy.landing_build_status",
+      actionType: "CREATE",
+      entityType: "deploy",
+      entityId: Number(rows[0].id),
+      entityLabel: String(domain).toLowerCase(),
+      projectId: Number(rows[0].id),
+      statusCode: 204,
+      ok: true,
+      actorOverride: { actor_type: "service" },
+      metadata: { created: { domain: String(domain).toLowerCase(), status } },
+    });
     return res.status(204).end();
   } catch (err) {
     console.error("[internal/landing-build-status]", err.code, err.message);

@@ -21,6 +21,7 @@ import { pool } from "../db/pool.js";
 import { requireAuth, requireAdmin } from "../middleware/jwtAuth.js";
 import { sendMail, resolvePublicUrl } from "../lib/email.js";
 import { renderInvite } from "../lib/email-templates.js";
+import { logActivity, diffObjects } from "../lib/activity-log.js";
 
 export const router = express.Router();
 
@@ -299,8 +300,41 @@ router.post("/", async (req, res) => {
         isReinvite: false,
       });
       await sendMail({ to: dto.email, subject, html, text });
+      // Direct-sendMail bypasses the queue — log the SEND explicitly
+      // (ids only: user id + email label, NO token).
+      logActivity({
+        req,
+        action: "email.send",
+        actionType: "SEND",
+        entityType: "user",
+        entityId: dto.id,
+        entityLabel: dto.email,
+        projectId: null,
+        statusCode: 250,
+        ok: true,
+        metadata: { kind: "invite", to: dto.email, subject },
+      });
     }
     await client.query("COMMIT");
+    logActivity({
+      req,
+      action: "user.create",
+      actionType: "CREATE",
+      entityType: "user",
+      entityId: dto.id,
+      entityLabel: dto.email,
+      statusCode: 201,
+      ok: true,
+      metadata: {
+        created: {
+          id: dto.id,
+          email: dto.email,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          role: dto.role,
+        },
+      },
+    });
     return res.status(201).json({ ...dto, inviteToken });
   } catch (err) {
     await client.query("ROLLBACK");
@@ -361,6 +395,17 @@ router.put("/:id", async (req, res) => {
   }
   const enabledValue = enabled === undefined ? true : !!enabled;
 
+  let userBefore = null;
+  try {
+    const { rows: beforeRows } = await pool.query(
+      `SELECT id, first_name, last_name, email, enabled, role, must_set_password FROM users WHERE id = $1`,
+      [userId],
+    );
+    userBefore = beforeRows[0] ?? null;
+  } catch {
+    userBefore = null;
+  }
+
   try {
     const setClauses = [
       "first_name = $2",
@@ -392,6 +437,19 @@ router.put("/:id", async (req, res) => {
       [userId],
     );
     dto.projectIds = aRows.map((r) => Number(r.project_id));
+    logActivity({
+      req,
+      action: "user.update",
+      actionType: "UPDATE",
+      entityType: "user",
+      entityId: dto.id,
+      entityLabel: dto.email,
+      statusCode: 200,
+      ok: true,
+      metadata: userBefore && rows[0]
+        ? { diff: diffObjects(userBefore, rows[0]) }
+        : { note: "no-before-row" },
+    });
     return res.json(dto);
   } catch (err) {
     if (err.code === "23505") {
@@ -414,7 +472,7 @@ router.delete("/:id", async (req, res) => {
   try {
     await client.query("BEGIN");
     const targetRes = await client.query(
-      `SELECT enabled FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT id, email FROM users WHERE id = $1 FOR UPDATE`,
       [userId],
     );
     if (targetRes.rowCount === 0) {
@@ -437,6 +495,17 @@ router.delete("/:id", async (req, res) => {
     );
     await client.query(`DELETE FROM users WHERE id = $1`, [userId]);
     await client.query("COMMIT");
+    logActivity({
+      req,
+      action: "user.delete",
+      actionType: "DELETE",
+      entityType: "user",
+      entityId: userId,
+      entityLabel: targetRes.rows[0]?.email ?? null,
+      statusCode: 204,
+      ok: true,
+      metadata: { deleted: { id: userId, label: targetRes.rows[0]?.email ?? null } },
+    });
     return res.status(204).send();
   } catch (err) {
     await client.query("ROLLBACK");
@@ -505,6 +574,31 @@ router.post("/:id/invite", async (req, res) => {
       isReinvite: true,
     });
     await sendMail({ to: user.email, subject, html, text });
+    // Direct-sendMail bypasses the queue — log the SEND explicitly
+    // (ids only: user id + email label, NO token).
+    logActivity({
+      req,
+      action: "email.send",
+      actionType: "SEND",
+      entityType: "user",
+      entityId: userId,
+      entityLabel: user.email,
+      projectId: null,
+      statusCode: 250,
+      ok: true,
+      metadata: { kind: "invite", to: user.email, subject },
+    });
+    logActivity({
+      req,
+      action: "user.invite",
+      actionType: "CREATE",
+      entityType: "user",
+      entityId: userId,
+      entityLabel: user.email,
+      statusCode: 200,
+      ok: true,
+      metadata: { created: { id: userId, email: user.email } },
+    });
     return res.json({
       inviteToken: plain,
       expiresAt: new Date(Date.now() + INVITE_TTL_SEC * 1000).toISOString(),
@@ -523,11 +617,29 @@ router.delete("/:id/invite", async (req, res) => {
     return res.status(400).json({ errorMessage: "Invalid id" });
   }
   try {
+    let inviteEmail = null;
+    try {
+      const { rows: emailRows } = await pool.query(`SELECT email FROM users WHERE id = $1`, [userId]);
+      inviteEmail = emailRows[0]?.email ?? null;
+    } catch {
+      inviteEmail = null;
+    }
     const { rowCount } = await pool.query(
       `UPDATE invite_tokens SET consumed_at = now()
        WHERE user_id = $1 AND consumed_at IS NULL`,
       [userId],
     );
+    logActivity({
+      req,
+      action: "user.invite_revoke",
+      actionType: "DELETE",
+      entityType: "user",
+      entityId: userId,
+      entityLabel: inviteEmail,
+      statusCode: 200,
+      ok: true,
+      metadata: { deleted: { id: userId, label: inviteEmail }, revoked: rowCount },
+    });
     return res.json({ revoked: rowCount });
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -609,6 +721,16 @@ router.put("/:id/projects", async (req, res) => {
       );
     }
     await client.query("COMMIT");
+    logActivity({
+      req,
+      action: "user.assignments_replace",
+      actionType: "UPDATE",
+      entityType: "user",
+      entityId: userId,
+      statusCode: 200,
+      ok: true,
+      metadata: { created: { userId, projectIds: cleaned } },
+    });
     return res.json({ userId, projectIds: cleaned });
   } catch (err) {
     await client.query("ROLLBACK");
@@ -646,6 +768,16 @@ router.post("/:id/projects", async (req, res) => {
        ON CONFLICT DO NOTHING`,
       [userId, pid],
     );
+    logActivity({
+      req,
+      action: "user.assignments_add",
+      actionType: "CREATE",
+      entityType: "user",
+      entityId: userId,
+      statusCode: 204,
+      ok: true,
+      metadata: { created: { userId, projectId: pid } },
+    });
     return res.status(204).send();
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -668,6 +800,16 @@ router.delete("/:id/projects/:pid", async (req, res) => {
       `DELETE FROM user_project_assignments WHERE user_id = $1 AND project_id = $2`,
       [userId, pid],
     );
+    logActivity({
+      req,
+      action: "user.assignments_remove",
+      actionType: "DELETE",
+      entityType: "user",
+      entityId: userId,
+      statusCode: 204,
+      ok: true,
+      metadata: { deleted: { id: userId, label: `project:${pid}` } },
+    });
     return res.status(204).send();
   } catch (err) {
     // eslint-disable-next-line no-console

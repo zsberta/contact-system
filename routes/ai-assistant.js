@@ -45,6 +45,7 @@ import { requireAuth } from "../middleware/jwtAuth.js";
 import { getScopedProjectIds, appendProjectScope } from "../lib/scope.js";
 import { processDocument } from "../lib/ai-knowledge-processor.js";
 import { encrypt } from "../lib/ai-encryption.js";
+import { logActivity } from "../lib/activity-log.js";
 
 // Read-only for endusers. Mutations are rejected with 403.
 const isEnduser = (req) => req.user && req.user.role === "enduser";
@@ -976,6 +977,18 @@ router.put("/:id", async (req, res) => {
       updatedAt: new Date(t.updated_at).toISOString(),
     }));
 
+    logActivity({
+      req,
+      action: "assistant.update",
+      actionType: "UPDATE",
+      entityType: "assistant",
+      entityId: id,
+      entityLabel: dto.name || `#${id}`,
+      projectId: dto.projectId,
+      statusCode: 200,
+      ok: true,
+      metadata: { note: "no-before-row", fields: [...Object.keys(v), ...(hasTranslations ? ["translations"] : [])] },
+    });
     return res.json(dto);
   } catch (err) {
     await client.query("ROLLBACK");
@@ -1002,13 +1015,27 @@ router.delete("/:id", async (req, res) => {
     return res.status(400).json({ errorMessage: "Invalid id" });
   }
   try {
-    const { rowCount } = await pool.query(
-      `DELETE FROM ai_assistant_configs WHERE id = $1`,
+    const { rows: before } = await pool.query(
+      `SELECT id, project_id, name FROM ai_assistant_configs WHERE id = $1`,
       [id],
     );
-    if (rowCount === 0) {
+    if (before.length === 0) {
       return res.status(404).json({ errorMessage: "AI assistant config not found" });
     }
+    await pool.query(`DELETE FROM ai_assistant_configs WHERE id = $1`, [id]);
+    const label = before[0].name || `#${id}`;
+    logActivity({
+      req,
+      action: "assistant.delete",
+      actionType: "DELETE",
+      entityType: "assistant",
+      entityId: id,
+      entityLabel: label,
+      projectId: before[0].project_id,
+      statusCode: 204,
+      ok: true,
+      metadata: { deleted: { id, label } },
+    });
     return res.status(204).send();
   } catch (err) {
     console.error("[ai-assistant/delete]", err.code, err.message);
@@ -1148,15 +1175,17 @@ router.post("/:id/knowledge", async (req, res) => {
 
   // Verify assistant exists and get upload limits.
   let maxUploadSizeMb = 20;
+  let assistantProjectId = null;
   try {
     const { rows } = await pool.query(
-      `SELECT id, max_upload_size_mb FROM ai_assistant_configs WHERE id = $1`,
+      `SELECT id, project_id, max_upload_size_mb FROM ai_assistant_configs WHERE id = $1`,
       [id],
     );
     if (rows.length === 0) {
       return res.status(404).json({ errorMessage: "AI assistant config not found" });
     }
     maxUploadSizeMb = Number(rows[0].max_upload_size_mb) || 20;
+    assistantProjectId = rows[0].project_id ?? null;
   } catch (err) {
     console.error("[ai-assistant/knowledge-upload/check]", err.code, err.message);
     return res.status(500).json({ errorMessage: "Internal server error" });
@@ -1218,6 +1247,18 @@ router.post("/:id/knowledge", async (req, res) => {
       console.error("[ai-assistant/knowledge-upload/process]", err.message);
     });
 
+    logActivity({
+      req,
+      action: "knowledge.upload",
+      actionType: "CREATE",
+      entityType: "knowledge",
+      entityId: doc.id,
+      entityLabel: doc.original_filename || `#${doc.id}`,
+      projectId: assistantProjectId,
+      statusCode: 201,
+      ok: true,
+      metadata: { created: { filename: doc.original_filename, file_type: doc.file_type, file_size_bytes: Number(doc.file_size_bytes) } },
+    });
     return res.status(201).json({
       id: Number(doc.id),
       assistantId: Number(doc.assistant_id),
@@ -1311,13 +1352,30 @@ router.delete("/:id/knowledge/:docId", async (req, res) => {
   }
 
   try {
-    const { rowCount } = await pool.query(
-      `DELETE FROM ai_knowledge_base WHERE id = $1 AND assistant_id = $2`,
+    const { rows: docs } = await pool.query(
+      `SELECT kb.id, kb.original_filename, c.project_id
+       FROM ai_knowledge_base kb
+       JOIN ai_assistant_configs c ON c.id = kb.assistant_id
+       WHERE kb.id = $1 AND kb.assistant_id = $2`,
       [docId, id],
     );
-    if (rowCount === 0) {
+    if (docs.length === 0) {
       return res.status(404).json({ errorMessage: "Document not found" });
     }
+    await pool.query(`DELETE FROM ai_knowledge_base WHERE id = $1 AND assistant_id = $2`, [docId, id]);
+    const label = docs[0].original_filename || `#${docId}`;
+    logActivity({
+      req,
+      action: "knowledge.delete",
+      actionType: "DELETE",
+      entityType: "knowledge",
+      entityId: docId,
+      entityLabel: label,
+      projectId: docs[0].project_id,
+      statusCode: 204,
+      ok: true,
+      metadata: { deleted: { id: docId, label } },
+    });
     return res.status(204).send();
   } catch (err) {
     console.error("[ai-assistant/knowledge-delete]", err.code, err.message);
@@ -1377,9 +1435,10 @@ router.post("/:id/avatar", async (req, res) => {
   }
 
   // Verify assistant exists
+  let assistantProjectId = null;
   try {
-    const { rowCount } = await pool.query(
-      `SELECT id FROM ai_assistant_configs WHERE id = $1`,
+    const { rows: cfgRows, rowCount } = await pool.query(
+      `SELECT id, project_id FROM ai_assistant_configs WHERE id = $1`,
       [id],
     );
     if (rowCount === 0) {
@@ -1387,6 +1446,7 @@ router.post("/:id/avatar", async (req, res) => {
       await fs2.unlink(req.file.path).catch(() => {});
       return res.status(404).json({ errorMessage: "AI assistant config not found" });
     }
+    assistantProjectId = cfgRows[0].project_id ?? null;
   } catch (err) {
     return res.status(500).json({ errorMessage: "Internal server error" });
   }
@@ -1423,6 +1483,18 @@ router.post("/:id/avatar", async (req, res) => {
     return res.status(500).json({ errorMessage: "Internal server error" });
   }
 
+  logActivity({
+    req,
+    action: "avatar.upload",
+    actionType: "CREATE",
+    entityType: "avatar",
+    entityId: id,
+    entityLabel: storedName,
+    projectId: assistantProjectId,
+    statusCode: 200,
+    ok: true,
+    metadata: { created: { filename: storedName } },
+  });
   return res.json({ avatarUrl });
 });
 
@@ -1441,7 +1513,7 @@ router.delete("/:id/avatar", async (req, res) => {
 
   try {
     const { rows, rowCount } = await pool.query(
-      `SELECT avatar_url FROM ai_assistant_configs WHERE id = $1`,
+      `SELECT avatar_url, project_id FROM ai_assistant_configs WHERE id = $1`,
       [id],
     );
     if (rowCount === 0) {
@@ -1460,6 +1532,19 @@ router.delete("/:id/avatar", async (req, res) => {
       `UPDATE ai_assistant_configs SET avatar_url = NULL, updated_at = NOW() WHERE id = $1`,
       [id],
     );
+    const avatarLabel = rows[0].avatar_url ? String(rows[0].avatar_url).split("/").pop() : `#${id}`;
+    logActivity({
+      req,
+      action: "avatar.delete",
+      actionType: "DELETE",
+      entityType: "avatar",
+      entityId: id,
+      entityLabel: avatarLabel,
+      projectId: rows[0].project_id,
+      statusCode: 204,
+      ok: true,
+      metadata: { deleted: { id, label: avatarLabel } },
+    });
     return res.status(204).send();
   } catch (err) {
     console.error("[ai-assistant/avatar-delete]", err.code, err.message);

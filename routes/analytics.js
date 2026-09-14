@@ -39,6 +39,7 @@ import crypto from "node:crypto";
 import { pool } from "../db/pool.js";
 import { requireAuth } from "../middleware/jwtAuth.js";
 import { getScopedProjectIds, appendProjectScope } from "../lib/scope.js";
+import { logActivity } from "../lib/activity-log.js";
 
 // Read-only for endusers. Mutations are rejected with 403.
 const isEnduser = (req) => req.user && req.user.role === "enduser";
@@ -571,7 +572,20 @@ router.put("/:id", async (req, res) => {
        WHERE c.id = $1`,
       [id],
     );
-    return res.json(rowToConfigDTO(joined[0]));
+    const dto = rowToConfigDTO(joined[0]);
+    logActivity({
+      req,
+      action: "analytics.update",
+      actionType: "UPDATE",
+      entityType: "analytics",
+      entityId: id,
+      entityLabel: dto.name || `#${id}`,
+      projectId: dto.projectId,
+      statusCode: 200,
+      ok: true,
+      metadata: { note: "no-before-row", fields: Object.keys(v) },
+    });
+    return res.json(dto);
   } catch (err) {
     if (err.code === "23514") {
       return res.status(400).json({ errorMessage: "Invalid field value" });
@@ -593,13 +607,30 @@ router.delete("/:id", async (req, res) => {
     return res.status(400).json({ errorMessage: "Invalid id" });
   }
   try {
-    const { rowCount } = await pool.query(
+    const { rows: before } = await pool.query(
+      `SELECT id, project_id, name FROM analytics_configs WHERE id = $1`,
+      [id],
+    );
+    if (before.length === 0) {
+      return res.status(404).json({ errorMessage: "Analytics config not found" });
+    }
+    await pool.query(
       `DELETE FROM analytics_configs WHERE id = $1`,
       [id],
     );
-    if (rowCount === 0) {
-      return res.status(404).json({ errorMessage: "Analytics config not found" });
-    }
+    const label = before[0].name || `#${id}`;
+    logActivity({
+      req,
+      action: "analytics.delete",
+      actionType: "DELETE",
+      entityType: "analytics",
+      entityId: id,
+      entityLabel: label,
+      projectId: before[0].project_id,
+      statusCode: 204,
+      ok: true,
+      metadata: { deleted: { id, label } },
+    });
     return res.status(204).send();
   } catch (err) {
     console.error("[analytics/delete]", err.code, err.message);

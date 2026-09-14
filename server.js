@@ -34,6 +34,7 @@ import { router as aiAssistantEmbedRouter } from "./routes/ai-assistant-embed.js
 import { router as aiConfigPresetsRouter } from "./routes/ai-config-presets.js";
 import { router as internalRouter } from "./routes/internal.js";
 import { router as bulkEmailRouter } from "./routes/bulk-email.js";
+import { router as logsRouter } from "./routes/logs.js";
 import { router as projectModulesRouter } from "./routes/project-modules.js";
 import { router as notificationsRouter } from "./routes/notifications.js";
 import { router as settingsRouter } from "./routes/settings.js";
@@ -41,6 +42,7 @@ import { pool } from "./db/pool.js";
 import { assertSafeStartup } from "./lib/startup-guard.js";
 import { stop as stopEmailQueue } from "./lib/email-queue.js";
 import { startReminders } from "./lib/reservation-reminders.js";
+import { activityReadLogger, activityErrorLogger, startActivityLogPrune, logError } from "./lib/activity-log.js";
 
 dotenv.config();
 
@@ -157,7 +159,13 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
+app.use("/api", activityErrorLogger);
 app.use("/api", csrfProtection);
+// Admin activity log — READ events only (admin GETs). Skips noisy surfaces
+// and /api/logs itself. Mounted after CSRF so req.route resolution matches.
+app.use("/api", activityReadLogger);
+// Admin-only activity log API.
+app.use("/api/logs", logsRouter);
 app.use("/api/auth", authRouter);
 app.use("/api/csrf", csrfRouter);
 app.use("/api/dashboard", dashboardRouter);
@@ -338,7 +346,6 @@ app.use("/api/public/blog", blogPublicRouter);
 app.use("/api/public/faq", faqPublicRouter);
 app.use("/api/public/service", servicePublicRouter);
 app.use("/api/public/ai-assistant", aiAssistantEmbedRouter);
-
 const distDir = path.join(__dirname, "dist");
 const uploadsDir = process.env.UPLOADS_DIR || path.join(__dirname, "uploads");
 // Avatar images (and other uploads) are loaded cross-origin by the widget.
@@ -360,12 +367,19 @@ app.get("*", (req, res, next) => {
 app.use((err, req, res, _next) => {
   // Don't log the full err object — pg errors can include parameter values.
   console.error("[server]", err.code, err.message);
+  // Mirror uncaught errors into the admin log page (ERROR row, ok false).
+  // The activityErrorLogger middleware would also fire on finish for this
+  // 500 — _auditLogged suppresses that second row (no double-log).
+  // logError is sync fire-and-forget and never throws.
+  req._auditLogged = true;
+  logError({ req, err, tag: "[server]", statusCode: err.status || 500, customerMessage: err.message || "Internal server error" });
   res.status(err.status || 500).json({ errorMessage: err.message || "Internal server error" });
 });
 
 const server = app.listen(PORT, () => {
   console.log(`[server] listening on :${PORT} (NODE_ENV=${process.env.NODE_ENV || "development"})`);
   startReminders();
+  startActivityLogPrune();
 });
 
 // Graceful shutdown. docker stop sends SIGTERM and waits

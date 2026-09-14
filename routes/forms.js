@@ -1,6 +1,8 @@
 import express from "express";
 import crypto from "node:crypto";
 import { pool } from "../db/pool.js";
+import { logActivity, diffObjects } from "../lib/activity-log.js";
+
 import { requireAuth } from "../middleware/jwtAuth.js";
 import { getScopedProjectIds, appendProjectScope } from "../lib/scope.js";
 
@@ -522,6 +524,27 @@ router.post("/", async (req, res) => {
        WHERE f.id = $1`,
       [rows[0].id],
     );
+    const createdForm = joined[0];
+    logActivity({
+      req,
+      action: "form.create",
+      actionType: "CREATE",
+      entityType: "form",
+      entityId: Number(rows[0].id),
+      entityLabel: createdForm.name,
+      projectId: Number(createdForm.project_id),
+      statusCode: 201,
+      ok: true,
+      metadata: {
+        created: {
+          id: Number(rows[0].id),
+          projectId: Number(createdForm.project_id),
+          name: createdForm.name,
+          slug: createdForm.slug,
+          status: createdForm.status,
+        },
+      },
+    });
     return res.status(201).json(rowToFormDTO(joined[0]));
   } catch (err) {
     // 23505 = unique_violation. For slug, return 409 with the user-facing
@@ -572,6 +595,11 @@ router.put("/:id", async (req, res) => {
   }
 
   try {
+    const { rows: beforeRows } = await pool.query(`SELECT * FROM forms WHERE id = $1`, [formId]);
+    const beforeForm = beforeRows[0] || null;
+    if (!beforeForm) {
+      return res.status(404).json({ errorMessage: "Form not found" });
+    }
     const setClauses = [];
     const params = [formId];
     let p = 2;
@@ -600,6 +628,20 @@ router.put("/:id", async (req, res) => {
        WHERE f.id = $1`,
       [formId],
     );
+    const { rows: afterRows } = await pool.query(`SELECT * FROM forms WHERE id = $1`, [formId]);
+    const afterForm = afterRows[0] || null;
+    logActivity({
+      req,
+      action: "form.update",
+      actionType: "UPDATE",
+      entityType: "form",
+      entityId: formId,
+      entityLabel: joined[0].name,
+      projectId: Number(joined[0].project_id),
+      statusCode: 200,
+      ok: true,
+      metadata: { diff: diffObjects(beforeForm, afterForm) },
+    });
     return res.json(rowToFormDTO(joined[0]));
   } catch (err) {
     if (err.code === "23505") {
@@ -631,6 +673,8 @@ router.delete("/:id", async (req, res) => {
     return res.status(400).json({ errorMessage: "Invalid id" });
   }
   try {
+    const { rows: snapRows } = await pool.query(`SELECT id, name, project_id FROM forms WHERE id = $1`, [formId]);
+    const snapForm = snapRows[0] || null;
     const { rows } = await pool.query(
       `DELETE FROM forms WHERE id = $1 RETURNING module_id`,
       [formId],
@@ -643,6 +687,18 @@ router.delete("/:id", async (req, res) => {
     if (moduleId) {
       await pool.query(`DELETE FROM project_modules WHERE id = $1`, [moduleId]);
     }
+    logActivity({
+      req,
+      action: "form.delete",
+      actionType: "DELETE",
+      entityType: "form",
+      entityId: formId,
+      entityLabel: snapForm?.name ?? `form #${formId}`,
+      projectId: snapForm?.project_id ? Number(snapForm.project_id) : null,
+      statusCode: 204,
+      ok: true,
+      metadata: { deleted: { id: formId, label: snapForm?.name ?? `form #${formId}` } },
+    });
     return res.status(204).send();
   } catch (err) {
     console.error("[forms/delete]", err.code, err.message);
