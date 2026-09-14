@@ -1790,7 +1790,10 @@ router.get("/customers/:customerId/bookings", async (req, res, next) => {
 });
 
 // ===========================================================================
-// Admin service availability — returns available slots for a service on a date
+// Admin service availability — returns available slots for a service on a date.
+// Operator view: ignores the service `lead_time_minutes` preparation window
+// so a quick manual booking is possible as long as the slot starts in the
+// future. Customers on the public embed keep the lead-time filtering.
 // ===========================================================================
 router.get("/:reservationId/services/:serviceId/availability", async (req, res, next) => {
   try {
@@ -1811,6 +1814,7 @@ router.get("/:reservationId/services/:serviceId/availability", async (req, res, 
       serviceId,
       fromDate: String(from),
       toDate: String(to),
+      ignoreLeadTime: true,
     });
     if (!result) {
       return res.status(404).json({ errorMessage: "Service not found" });
