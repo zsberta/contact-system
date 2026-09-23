@@ -627,7 +627,7 @@ async function getCalendarMonthSlots({ reservationId, monthKey, db = pool }) {
     `SELECT b.service_id, b.starts_at, b.ends_at
      FROM reservation_bookings b
      WHERE b.reservation_id = $1
-       AND b.status = 'confirmed'
+       AND b.status != 'cancelled'
        AND b.starts_at >= $2::timestamptz - interval '1 day'
        AND b.ends_at < $3::timestamptz + interval '1 day'`,
     [reservationId, startDate.toISOString(), endDate.toISOString()],
