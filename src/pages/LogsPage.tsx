@@ -177,6 +177,7 @@ const LogsPage: React.FC = () => {
   const [actorType, setActorType] = useState<string>(actorTypeParam ?? "");
   const [actorEmail, setActorEmail] = useState<string>("");
   const [entityType, setEntityType] = useState<string>("");
+  const [statusCode, setStatusCode] = useState<string>("");
   const [projectId, setProjectId] = useState<string>(
     projectIdFilter !== undefined ? String(projectIdFilter) : "",
   );
@@ -207,13 +208,14 @@ const LogsPage: React.FC = () => {
     ...(actorType ? { actorType } : {}),
     ...(actorEmail ? { actorEmail } : {}),
     ...(entityType ? { entityType } : {}),
+    ...(statusCode && /^\d+$/.test(statusCode) ? { statusCode: Number(statusCode) } : {}),
     ...(projectId && /^\d+$/.test(projectId) ? { projectId: Number(projectId) } : {}),
     ...(dateFrom ? { dateFrom } : {}),
     ...(dateTo ? { dateTo } : {}),
   };
 
   const { data, isLoading } = useQuery<PageLogDTO>({
-    queryKey: ["logs", query, actionType, action, actorType, actorEmail, entityType, projectId, dateFrom, dateTo],
+    queryKey: ["logs", query, actionType, action, actorType, actorEmail, entityType, statusCode, projectId, dateFrom, dateTo],
     queryFn: () => getLogsPaged(fetchParams),
   });
 
@@ -276,6 +278,17 @@ const LogsPage: React.FC = () => {
             <option key={v} value={v}>{v}</option>
           ))}
         </select>
+        <select
+          aria-label={t("logs:filter_status")}
+          className="rounded border bg-background px-2 py-1 text-sm"
+          value={statusCode}
+          onChange={(e) => setStatusCode(e.target.value)}
+        >
+          <option value="">{t("logs:all_statuses")}</option>
+          {(meta?.statusCodes ?? []).map((v) => (
+            <option key={v} value={String(v)}>{v}</option>
+          ))}
+        </select>
         <input
           aria-label={t("logs:filter_project")}
           className="w-28 rounded border bg-background px-2 py-1 text-sm"
@@ -300,7 +313,7 @@ const LogsPage: React.FC = () => {
         />
       </div>
     ),
-    [t, actionType, action, actorType, actorEmail, entityType, projectId, dateFrom, dateTo, meta],
+    [t, actionType, action, actorType, actorEmail, entityType, statusCode, projectId, dateFrom, dateTo, meta],
   );
 
   const columns = [
@@ -355,13 +368,14 @@ const LogsPage: React.FC = () => {
       enableSorting: true,
     },
     {
-      accessorKey: "ok",
+      accessorKey: "statusCode",
       header: t("logs:status"),
       cell: (row: LogDTO) => (
         <Badge variant={row.ok ? "default" : "destructive"}>
           {row.ok ? (row.statusCode ?? "OK") : (row.statusCode ?? "FAIL")}
         </Badge>
       ),
+      enableSorting: true,
     },
     {
       id: "actions",

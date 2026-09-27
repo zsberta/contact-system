@@ -68,6 +68,7 @@ const SORTABLE = {
   entityType: "entity_type",
   projectId: "project_id",
   method: "method",
+  statusCode: "status_code",
 };
 
 function buildOrderClause(sortField, sortOrder) {
@@ -79,15 +80,17 @@ function buildOrderClause(sortField, sortOrder) {
 // GET /api/logs/meta — distinct filter values for the frontend selects.
 router.get("/meta", async (_req, res) => {
   try {
-    const [actions, entityTypes, actorTypes] = await Promise.all([
+    const [actions, entityTypes, actorTypes, statusCodes] = await Promise.all([
       pool.query(`SELECT DISTINCT action FROM activity_logs ORDER BY 1`),
       pool.query(`SELECT DISTINCT entity_type FROM activity_logs WHERE entity_type IS NOT NULL ORDER BY 1`),
       pool.query(`SELECT DISTINCT actor_type FROM activity_logs ORDER BY 1`),
+      pool.query(`SELECT DISTINCT status_code FROM activity_logs WHERE status_code IS NOT NULL ORDER BY 1`),
     ]);
     return res.json({
       actions: actions.rows.map((r) => r.action),
       entityTypes: entityTypes.rows.map((r) => r.entity_type),
       actorTypes: actorTypes.rows.map((r) => r.actor_type),
+      statusCodes: statusCodes.rows.map((r) => r.status_code),
     });
   } catch (err) {
     console.error("[logs/meta]", err.code, err.message);
@@ -135,6 +138,10 @@ router.get("/", async (req, res) => {
     if (Number.isFinite(pid)) addExtra(`project_id = ?`, pid);
   }
   if (req.query.method) addExtra(`method = ?`, String(req.query.method).toUpperCase());
+  if (req.query.statusCode !== undefined && req.query.statusCode !== "") {
+    const sc = parseInt(req.query.statusCode, 10);
+    if (Number.isFinite(sc)) addExtra(`status_code = ?`, sc);
+  }
   if (req.query.dateFrom) addExtra(`created_at >= ?`, req.query.dateFrom);
   if (req.query.dateTo) addExtra(`created_at <= ?`, req.query.dateTo);
 

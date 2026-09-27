@@ -1103,7 +1103,7 @@ export default function ReservationCalendarPage() {
           }
         }}
       >
-        <DialogContent className="sm:max-w-xl max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogContent className={`${showCreateForm ? "sm:max-w-4xl" : "sm:max-w-xl"} max-h-[85vh] overflow-hidden flex flex-col`}>
           <DialogHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 space-y-0 pr-0 sm:pr-6">
             <DialogTitle className="flex items-center gap-2">
               <CalendarDays className="h-5 w-5" />
@@ -1142,9 +1142,9 @@ export default function ReservationCalendarPage() {
             </select>
           </div>
 
-          <div className="overflow-y-auto flex-1 -mx-6 px-6 space-y-3">
+          <div className={`overflow-y-auto flex-1 -mx-6 px-6 ${showCreateForm ? "grid gap-4 md:grid-cols-2 items-start" : "space-y-3"}`}>
             {showCreateForm && (
-              <div className="border rounded-md bg-muted/30 p-4 space-y-3">
+              <div className="border rounded-md bg-muted/30 p-4 space-y-3 md:sticky md:top-0">
                 <p className="text-sm font-medium">
                   {t("reservations:calendar_create_booking_title")}
                 </p>
@@ -1271,6 +1271,7 @@ export default function ReservationCalendarPage() {
               </div>
             )}
 
+            <div className={showCreateForm ? "space-y-2 min-w-0" : "contents"}>
             {dayQuery.isLoading && (
               <div className="py-10 flex items-center justify-center text-muted-foreground gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -1313,6 +1314,7 @@ export default function ReservationCalendarPage() {
                 )}
               </div>
             )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>

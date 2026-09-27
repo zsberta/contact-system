@@ -24,11 +24,13 @@
   "filter_actor_type": "Filter by actor",
   "filter_actor_email": "Actor email…",
   "filter_entity_type": "Filter by entity",
+  "filter_status": "Filter by status",
   "filter_project": "Project #…",
   "filter_date_from": "From date",
   "filter_date_to": "To date",
   "all_action_types": "All types",
   "all_actions": "All actions",
   "all_actors": "All actors",
-  "all_entities": "All entities"
+  "all_entities": "All entities",
+  "all_statuses": "All statuses"
 }

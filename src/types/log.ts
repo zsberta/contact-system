@@ -30,6 +30,7 @@ export interface LogsMetaDTO {
   actions: string[];
   entityTypes: string[];
   actorTypes: string[];
+  statusCodes: number[];
 }
 
 export interface GetLogsParams extends QueryParams {
@@ -41,6 +42,7 @@ export interface GetLogsParams extends QueryParams {
   entityId?: number;
   projectId?: number;
   method?: string;
+  statusCode?: number;
   dateFrom?: string;
   dateTo?: string;
 }

@@ -3319,7 +3319,16 @@ router.post("/:id/bookings", async (req, res, next) => {
     });
 
     if (result.error) {
-      return res.status(result.code === "SLOT_FULL" || result.code === "DUPLICATE_BOOKING" ? 409 : 400).json({ errorMessage: result.error });
+      if (result.code === "DUPLICATE_BOOKING") {
+        const dupLocale = body.locale || reservation.default_locale || "hu";
+        const dupCustomer = [contactResult.value.lastName, contactResult.value.firstName].filter(Boolean).join(" ").trim();
+        const dupDate = formatDate(v.startsAtIso, dupLocale, reservation.timezone || "UTC");
+        const msg = dupLocale === "en"
+          ? `${dupCustomer} already has a reservation for this exact date (${dupDate}).`
+          : `${dupCustomer} már rendelkezik foglalással erre az időpontra (${dupDate}).`;
+        return res.status(409).json({ errorMessage: msg });
+      }
+      return res.status(result.code === "SLOT_FULL" ? 409 : 400).json({ errorMessage: result.error });
     }
 
     // Fire-and-forget notifications

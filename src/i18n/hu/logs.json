@@ -24,11 +24,13 @@
   "filter_actor_type": "Szűrés szereplőre",
   "filter_actor_email": "Szereplő email…",
   "filter_entity_type": "Szűrés entitásra",
+  "filter_status": "Szűrés állapotkódra",
   "filter_project": "Projekt #…",
   "filter_date_from": "Kezdő dátum",
   "filter_date_to": "Záró dátum",
   "all_action_types": "Minden típus",
   "all_actions": "Minden művelet",
   "all_actors": "Minden szereplő",
-  "all_entities": "Minden entitás"
+  "all_entities": "Minden entitás",
+  "all_statuses": "Minden állapot"
 }
