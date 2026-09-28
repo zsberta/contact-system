@@ -652,13 +652,19 @@ export default function ReservationCalendarPage() {
 
   const handleStartCreate = useCallback(
     (prefillServiceId?: number | null) => {
-      if (prefillServiceId != null) {
-        setCreateServiceId(prefillServiceId);
+      if (selectedDateStr == null) return;
+      const createTimeZone = reservation?.timezone || BUDAPEST_TZ;
+      if (selectedDateStr < new Date().toLocaleDateString("en-CA", { timeZone: createTimeZone })) {
+        setCreateServiceId(null);
         setSelectedSlot(null);
+        setShowCreateForm(true);
+        return;
       }
+      setCreateServiceId(prefillServiceId ?? null);
+      setSelectedSlot(null);
       setShowCreateForm(true);
     },
-    [],
+    [selectedDateStr, reservation?.timezone],
   );
 
   const createCustomerMutation = useMutation({
@@ -792,6 +798,22 @@ export default function ReservationCalendarPage() {
     setModifyDialogOpen(true);
   }, []);
 
+  useEffect(() => {
+    if (createServiceId == null || !servicesQuery.data) return;
+    const current = servicesQuery.data.find((s) => s.id === createServiceId);
+    if (current && (workerFilterId == null || current.workerUserId === workerFilterId)) return;
+    setCreateServiceId(null);
+    setSelectedSlot(null);
+    setExpandedServiceId(null);
+  }, [workerFilterId, servicesQuery.data, createServiceId]);
+
+  useEffect(() => {
+    if (selectedDateStr == null) return;
+    setShowCreateForm(false);
+    setCreateServiceId(null);
+    setSelectedSlot(null);
+  }, [selectedDateStr]);
+
   if (!reservationId) {
     return <div className="text-center p-8">{t("common:invalid_id")}</div>;
   }
@@ -818,11 +840,18 @@ export default function ReservationCalendarPage() {
         .filter((svc) => svc.sessions.length > 0)
     : allDayServices;
   const selectedServiceOptions = (servicesQuery.data ?? []).filter(
-    (service) => service.status === "active",
+    (service) =>
+      service.status === "active" &&
+      (workerFilterId == null || service.workerUserId === workerFilterId),
   );
   const selectedCreateService = selectedServiceOptions.find(
     (service) => service.id === createServiceId,
   );
+  const reservationTimeZone = reservation?.timezone || BUDAPEST_TZ;
+  const isSelectedDayPast =
+    selectedDateStr != null &&
+    selectedDateStr <
+      new Date().toLocaleDateString("en-CA", { timeZone: reservationTimeZone });
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 w-full">
@@ -1119,7 +1148,12 @@ export default function ReservationCalendarPage() {
             <Button
               size="sm"
               className="self-start sm:self-auto"
-              onClick={() => handleStartCreate(expandedServiceId ?? dayServices[0]?.serviceId ?? null)}
+              onClick={() => {
+                const candidate = expandedServiceId ?? dayServices[0]?.serviceId ?? null;
+                const candidateAllowed =
+                  candidate == null || selectedServiceOptions.some((service) => service.id === candidate);
+                handleStartCreate(candidateAllowed ? candidate : null);
+              }}
               disabled={showCreateForm}
             >
               <Plus className="h-4 w-4 mr-1" />
@@ -1141,14 +1175,31 @@ export default function ReservationCalendarPage() {
               ))}
             </select>
           </div>
-
           <div className={`overflow-y-auto flex-1 -mx-6 px-6 ${showCreateForm ? "grid gap-4 md:grid-cols-2 items-start" : "space-y-3"}`}>
             {showCreateForm && (
-              <div className="border rounded-md bg-muted/30 p-4 space-y-3 md:sticky md:top-0">
+              isSelectedDayPast ? (
+                <div className="border rounded-md bg-muted/30 p-4 space-y-3 md:sticky md:top-0">
+                  <p className="text-sm font-medium">
+                    {t("reservations:calendar_create_booking_title")}
+                  </p>
+                  <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
+                    {t("reservations:calendar_past_date_warning")}
+                  </p>
+                  <div className="flex gap-2 justify-end">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowCreateForm(false)}
+                    >
+                      {t("common:close")}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="border rounded-md bg-muted/30 p-4 space-y-3 md:sticky md:top-0">
                 <p className="text-sm font-medium">
                   {t("reservations:calendar_create_booking_title")}
                 </p>
-
                 <div className="space-y-1.5">
                   <Label className="text-xs">{t("reservations:service")}</Label>
                   <select
@@ -1161,11 +1212,15 @@ export default function ReservationCalendarPage() {
                     }}
                   >
                     <option value="">{t("reservations:select_service")}</option>
-                    {selectedServiceOptions.map((service) => (
-                      <option key={service.id} value={service.id}>
-                        {service.name || t("reservations:untitled_service")}
-                      </option>
-                    ))}
+                    {selectedServiceOptions.map((service) => {
+                      const serviceLabel = service.name || t("reservations:untitled_service");
+                      const workerName = [service.workerLastName, service.workerFirstName].filter(Boolean).join(" ");
+                      return (
+                        <option key={service.id} value={service.id}>
+                          {workerFilterId == null && workerName ? `${serviceLabel} (${workerName})` : serviceLabel}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -1253,6 +1308,7 @@ export default function ReservationCalendarPage() {
                     onClick={() => createMutation.mutate()}
                     disabled={
                       createMutation.isPending ||
+                      isSelectedDayPast ||
                       !selectedSlot ||
                       !selectedCustomer ||
                       !createServiceId
@@ -1269,6 +1325,7 @@ export default function ReservationCalendarPage() {
                   </Button>
                 </div>
               </div>
+              )
             )}
 
             <div className={showCreateForm ? "space-y-2 min-w-0" : "contents"}>

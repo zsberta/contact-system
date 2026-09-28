@@ -111,6 +111,7 @@
   "seats_remaining": "hely",
   "calendar_select_slot": "Időpont kiválasztása",
   "calendar_no_slots": "Nincs elérhető időpont ezen a napon.",
+  "calendar_past_date_warning": "Ez a dátum már elmúlt, ezért nem lehet rá új foglalást rögzíteni. Válasszon egy mai vagy jövőbeli napot.",
   "calendar_day_details": "Napi részletek",
   "calendar_tab": "Naptár",
   "calendar_title": "Foglalási naptár",

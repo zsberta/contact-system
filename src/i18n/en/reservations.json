@@ -111,6 +111,7 @@
   "seats_remaining": "seats",
   "calendar_select_slot": "Select a time slot",
   "calendar_no_slots": "No available slots on this date.",
+  "calendar_past_date_warning": "This date is in the past, so no new bookings can be created for it. Please choose today or a future date.",
   "calendar_day_details": "Day details",
   "calendar_tab": "Calendar",
   "calendar_title": "Reservation calendar",
