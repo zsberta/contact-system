@@ -5,6 +5,7 @@
   "imports": "Imports",
   "logs": "Activity Log",
   "bulk_email": "Bulk Email",
+  "server_info": "Server",
   "forms": "Forms",
   "reservations": "Reservations",
   "reservation_list": "All Reservations",

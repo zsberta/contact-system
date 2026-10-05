@@ -25,6 +25,7 @@
 # All sensitive values (POSTGRES_PASSWORD, JWT_SECRET, ADMIN_PASSWORD,
 # DATABASE_URL, etc.) come from .env — never check them into git.
 
+
 services:
   db:
     image: pgvector/pgvector:pg16
@@ -46,6 +47,23 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+  # Read-only Docker Engine API proxy for the admin Server info page.
+  # Only this service touches /var/run/docker.sock; the app talks to
+  # the proxy over the internal compose network (DOCKER_PROXY_URL).
+  # POST is 0 globally, so the app can never create/start/stop/exec —
+  # strictly read-only. No `ports:` — unreachable from outside.
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.1
+    container_name: contact-system-socket-proxy
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      CONTAINERS: 1
+      INFO: 1
+      SYSTEM: 1
+      POST: 0
+
 
   app:
     build:
@@ -79,6 +97,9 @@ services:
       COOKIE_SECURE: "true"
       COOKIE_SAMESITE: Lax
       BCRYPT_COST: ${BCRYPT_COST:-12}
+      # Read-only Docker Engine API proxy (socket-proxy service above).
+      # Unset/missing = host monitoring shows "not configured".
+      DOCKER_PROXY_URL: http://socket-proxy:2375
       # Canonical CRM origin — used by routes/blog-attachments.js
       # to build absolute URLs for newly uploaded images, and by
       # lib/email.js for password-reset links. Strip the trailing

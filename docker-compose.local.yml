@@ -21,6 +21,23 @@ services:
       timeout: 5s
       retries: 10
 
+  # Read-only Docker Engine API proxy for the admin Server info page.
+  # Only this service touches /var/run/docker.sock; the app talks to
+  # the proxy over the internal compose network (DOCKER_PROXY_URL).
+  # POST is 0 globally, so the app can never create/start/stop/exec —
+  # strictly read-only. No `ports:` — unreachable from outside.
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.1
+    container_name: contact-system-socket-proxy
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      CONTAINERS: 1
+      INFO: 1
+      SYSTEM: 1
+      POST: 0
+
   app:
     build:
       context: .
@@ -51,6 +68,8 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set in .env}
       COOKIE_SECURE: "false"
       BCRYPT_COST: "12"
+      # Read-only Docker Engine API proxy (socket-proxy service above).
+      DOCKER_PROXY_URL: http://socket-proxy:2375
     env_file:
       - .env
     # Persistent storage for blog cover/inline images. Without this

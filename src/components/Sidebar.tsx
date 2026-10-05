@@ -21,6 +21,7 @@ import {
   Upload,
   Mail,
   ScrollText,
+  Server,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -180,6 +181,10 @@ const Sidebar = ({ onClose }: SidebarProps = {}) => {
           <NavLink to="/logs" onClick={() => onClose?.()} className={linkClass}>
             <ScrollText className="h-4 w-4" />
             <span>{t("navigation:logs")}</span>
+          </NavLink>
+          <NavLink to="/server-info" onClick={() => onClose?.()} className={linkClass}>
+            <Server className="h-4 w-4" />
+            <span>{t("navigation:server_info")}</span>
           </NavLink>
           <NavLink to="/settings" onClick={() => onClose?.()} className={linkClass}>
             <Settings className="h-4 w-4" />

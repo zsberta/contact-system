@@ -35,6 +35,7 @@ import { router as aiConfigPresetsRouter } from "./routes/ai-config-presets.js";
 import { router as internalRouter } from "./routes/internal.js";
 import { router as bulkEmailRouter } from "./routes/bulk-email.js";
 import { router as logsRouter } from "./routes/logs.js";
+import { router as serverInfoRouter } from "./routes/server-info.js";
 import { router as projectModulesRouter } from "./routes/project-modules.js";
 import { router as notificationsRouter } from "./routes/notifications.js";
 import { router as settingsRouter } from "./routes/settings.js";
@@ -42,6 +43,7 @@ import { pool } from "./db/pool.js";
 import { assertSafeStartup } from "./lib/startup-guard.js";
 import { stop as stopEmailQueue } from "./lib/email-queue.js";
 import { startReminders } from "./lib/reservation-reminders.js";
+import { startServerInfo } from "./lib/server-info.js";
 import { activityReadLogger, activityErrorLogger, startActivityLogPrune, logError } from "./lib/activity-log.js";
 
 dotenv.config();
@@ -166,6 +168,8 @@ app.use("/api", csrfProtection);
 app.use("/api", activityReadLogger);
 // Admin-only activity log API.
 app.use("/api/logs", logsRouter);
+// Admin-only server monitoring API.
+app.use("/api/server-info", serverInfoRouter);
 app.use("/api/auth", authRouter);
 app.use("/api/csrf", csrfRouter);
 app.use("/api/dashboard", dashboardRouter);
@@ -379,6 +383,7 @@ app.use((err, req, res, _next) => {
 const server = app.listen(PORT, () => {
   console.log(`[server] listening on :${PORT} (NODE_ENV=${process.env.NODE_ENV || "development"})`);
   startReminders();
+  startServerInfo();
   startActivityLogPrune();
 });
 
