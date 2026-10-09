@@ -14,6 +14,7 @@ import { ModifyBookingDialog } from "@/components/reservations/ModifyBookingDial
 import {
   createReservationCustomer,
   createEnrichedReservationBooking,
+  dayDisableService,
   getAdminServiceAvailability,
   getReservationById,
   getReservationCalendarDay,
@@ -64,6 +65,7 @@ import {
   CalendarDays,
   Loader2,
   Plus,
+  Ban,
 } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
 
@@ -163,11 +165,11 @@ function CalendarSlotChip({
   slot: CalendarSlotSummary;
   locale: string;
 }) {
-  const title = `${slot.serviceName}\n${slot.seatsTaken}/${slot.capacity}\n${slot.startTime} – ${slot.endTime}`;
+  const title = `${slot.serviceName}\n${slot.seatsTaken}/${slot.capacity}\n${slot.startTime} – ${slot.endTime}${slot.disabled ? "\nDisabled" : ""}`;
 
   return (
     <div
-      className="text-[10px] leading-tight bg-primary/15 text-primary rounded px-1 py-0.5 truncate"
+      className={`text-[10px] leading-tight rounded px-1 py-0.5 truncate ${slot.disabled ? "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300" : "bg-primary/15 text-primary"}`}
       title={title}
     >
       {slot.seatsTaken}/{slot.capacity}{" "}
@@ -184,7 +186,10 @@ function DaySession({
   onCompleteBooking,
   onNoShowBooking,
   onModifyBooking,
+  onDisableSession,
+  disablePending,
   serviceName,
+  showWorkerName,
   service,
 }: {
   session: CalendarSessionSummary;
@@ -194,32 +199,54 @@ function DaySession({
   onCompleteBooking?: (bookingId: number) => void;
   onNoShowBooking?: (bookingId: number) => void;
   onModifyBooking?: (bookingId: number, startsAt: string, booking: CalendarBookingSummary, session: CalendarSessionSummary, service: CalendarServiceDetails) => void;
+  onDisableSession?: () => void;
+  disablePending?: boolean;
   serviceName?: string;
+  showWorkerName?: boolean;
   service?: CalendarServiceDetails;
 }) {
-  const workerName = [session.workerFirstName, session.workerLastName]
+  const workerName = [session.workerLastName, session.workerFirstName]
     .filter(Boolean)
     .join(" ");
   const sessionIsPast = isPastInBudapest(session.startsAt);
 
   return (
-    <div className="rounded-md border bg-muted/20 p-3 space-y-2">
+    <div className={`rounded-md border p-3 space-y-2 ${session.disabled ? "border-red-300 bg-red-50/60 dark:border-red-900 dark:bg-red-950/20" : "bg-muted/20"}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          {serviceName && <p className="text-xs font-semibold text-muted-foreground mb-0.5">{serviceName}</p>}
+          {serviceName && (
+            <p className="text-xs font-semibold text-muted-foreground mb-0.5">
+              {serviceName}
+              {showWorkerName && workerName ? ` (${workerName})` : ""}
+            </p>
+          )}
           <p className="text-sm font-medium leading-tight">
             {session.startTime} – {session.endTime}
+            <span className="text-muted-foreground font-normal"> · {session.seatsTaken}/{session.capacity}</span>
           </p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {session.seatsTaken}/{session.capacity} {t("reservations:capacity").toLowerCase()}
-            {workerName ? ` · ${workerName}` : ""}
-          </p>
+          {session.disabled && (
+            <p className="text-[11px] font-medium text-red-700 dark:text-red-400 mt-0.5">
+              {t("reservations:day_service_disabled_badge")}
+            </p>
+          )}
         </div>
+        {onDisableSession && !session.disabled && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0 text-red-700 border-red-200 hover:bg-red-50 hover:text-red-800 dark:text-red-400 dark:border-red-900 dark:hover:bg-red-950/40"
+            onClick={onDisableSession}
+            disabled={disablePending}
+          >
+            <Ban className="h-3.5 w-3.5 mr-1" />
+            {t("reservations:day_disable_service")}
+          </Button>
+        )}
       </div>
 
       {session.bookings.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          {t("reservations:calendar_no_bookings_this_month")}
+          {t("reservations:calendar_no_bookings_for_slot")}
         </p>
       ) : (
         <div className="space-y-1.5">
@@ -391,6 +418,176 @@ function DayServiceAccordion({
     </div>
   );
 }
+// ── manual booking create form (shared by day modal + day view) ─────────────
+
+function CreateBookingForm({
+  t,
+  locale,
+  isDayPast,
+  services,
+  workerFilterId,
+  createServiceId,
+  onServiceChange,
+  selectedCreateService,
+  reservation,
+  selectedCustomer,
+  onCustomerChange,
+  onCreateCustomer,
+  customerDisabled,
+  slotsLoading,
+  slots,
+  selectedSlot,
+  onSlotSelect,
+  onCancel,
+  onConfirm,
+  confirmDisabled,
+  confirmPending,
+}: {
+  t: (key: string) => string;
+  locale: string;
+  isDayPast: boolean;
+  services: Array<{ id: number; name: string | null; workerLastName: string | null; workerFirstName: string | null }>;
+  workerFilterId: number | null;
+  createServiceId: number | null;
+  onServiceChange: (id: number | null) => void;
+  selectedCreateService: { priceAmount: number; currency: string; durationMinutes: number; capacity: number } | undefined;
+  reservation: { projectId: number } | undefined;
+  selectedCustomer: ReservationCustomerDTO | null;
+  onCustomerChange: (c: ReservationCustomerDTO | null) => void;
+  onCreateCustomer: (data: ReservationCustomerCreateDTO) => void;
+  customerDisabled: boolean;
+  slotsLoading: boolean;
+  slots: Array<{ startsAt: string; endsAt: string; startTime: string; endTime: string; remainingSeats: number }> | undefined;
+  selectedSlot: { startsAt: string; endsAt: string } | null;
+  onSlotSelect: (slot: { startsAt: string; endsAt: string }) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+  confirmDisabled: boolean;
+  confirmPending: boolean;
+}) {
+  if (isDayPast) {
+    return (
+      <div className="border rounded-md bg-muted/30 p-4 space-y-3 md:sticky md:top-0">
+        <p className="text-sm font-medium">
+          {t("reservations:calendar_create_booking_title")}
+        </p>
+        <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
+          {t("reservations:calendar_past_date_warning")}
+        </p>
+        <div className="flex gap-2 justify-end">
+          <Button variant="ghost" size="sm" onClick={onCancel}>
+            {t("common:close")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="border rounded-md bg-muted/30 p-4 space-y-3 md:sticky md:top-0">
+      <p className="text-sm font-medium">
+        {t("reservations:calendar_create_booking_title")}
+      </p>
+      <div className="space-y-1.5">
+        <Label className="text-xs">{t("reservations:service")}</Label>
+        <select
+          className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+          value={createServiceId ? String(createServiceId) : ""}
+          onChange={(event) => {
+            const value = event.target.value ? Number(event.target.value) : null;
+            onServiceChange(value);
+          }}
+        >
+          <option value="">{t("reservations:select_service")}</option>
+          {services.map((service) => {
+            const serviceLabel = service.name || t("reservations:untitled_service");
+            const workerName = [service.workerLastName, service.workerFirstName].filter(Boolean).join(" ");
+            return (
+              <option key={service.id} value={service.id}>
+                {workerFilterId == null && workerName ? `${serviceLabel} (${workerName})` : serviceLabel}
+              </option>
+            );
+          })}
+        </select>
+      </div>
+
+      {selectedCreateService && (
+        <p className="text-xs text-muted-foreground">
+          {fmtPrice(selectedCreateService.priceAmount, selectedCreateService.currency, locale)} · {selectedCreateService.durationMinutes} min · {selectedCreateService.capacity} {t("reservations:capacity").toLowerCase()}
+        </p>
+      )}
+
+      {reservation && (
+        <ReservationCustomerPicker
+          projectId={reservation.projectId}
+          value={selectedCustomer}
+          onChange={onCustomerChange}
+          onCreateNew={onCreateCustomer}
+          disabled={customerDisabled}
+        />
+      )}
+
+      {slotsLoading && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          {t("common:loading")}
+        </div>
+      )}
+      {slots && (
+        <div className="space-y-1.5">
+          <Label className="text-xs">{t("reservations:calendar_select_slot")}</Label>
+          {slots.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {t("reservations:calendar_no_slots")}
+            </p>
+          ) : (
+            <div className="grid grid-cols-3 gap-1.5 max-h-32 overflow-y-auto">
+              {slots.map((slot) => {
+                const isSelected = selectedSlot?.startsAt === slot.startsAt;
+                const isFull = slot.remainingSeats <= 0;
+                return (
+                  <button
+                    key={slot.startsAt}
+                    type="button"
+                    disabled={isFull}
+                    className={`text-xs px-2 py-1.5 rounded border transition-colors text-center ${
+                      isSelected
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : isFull
+                          ? "bg-muted text-muted-foreground border-border opacity-50 cursor-not-allowed"
+                          : "bg-background hover:bg-accent border-border"
+                    }`}
+                    onClick={() => onSlotSelect({ startsAt: slot.startsAt, endsAt: slot.endsAt })}
+                  >
+                    {slot.startTime}–{slot.endTime}
+                    <p className={`text-xs mt-1 ${isSelected ? "text-white/80" : "text-muted-foreground"}`}>
+                      {slot.remainingSeats} {t("reservations:seats_remaining")}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex gap-2 justify-end">
+        <Button variant="ghost" size="sm" onClick={onCancel} disabled={customerDisabled}>
+          {t("common:cancel")}
+        </Button>
+        <Button size="sm" onClick={onConfirm} disabled={confirmDisabled}>
+          {confirmPending ? (
+            <>
+              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+              {t("common:saving")}
+            </>
+          ) : (
+            t("reservations:calendar_create_booking_confirm")
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 // ── main component ──────────────────────────────────────────────────────────
 
@@ -472,17 +669,27 @@ export default function ReservationCalendarPage() {
   });
 
   const dayQuery = useQuery({
-    queryKey: ["reservation-calendar-day", reservationId, selectedDateStr],
-    queryFn: () => getReservationCalendarDay(reservationId!, selectedDateStr!),
+    queryKey: ["reservation-calendar-day", reservationId, selectedDateStr, "slots"],
+    queryFn: () => getReservationCalendarDay(reservationId!, selectedDateStr!, { includeSlots: true }),
     enabled: !!reservationId && dayModalOpen && !!selectedDateStr,
   });
 
-  // Available slots for the selected service and date
+  // Available slots for the selected service and date. The active create date
+  // is the modal date when open, otherwise the day-view date.
+  const activeCreateDateStr = dayModalOpen ? selectedDateStr : ymd(dayDate);
   const slotsQuery = useQuery({
-    queryKey: ["reservation-service-slots", reservationId, createServiceId, selectedDateStr],
-    queryFn: () => getAdminServiceAvailability(reservationId!, createServiceId!, selectedDateStr!, selectedDateStr!),
-    enabled: !!reservationId && !!createServiceId && !!selectedDateStr && showCreateForm,
+    queryKey: ["reservation-service-slots", reservationId, createServiceId, activeCreateDateStr],
+    queryFn: () => getAdminServiceAvailability(reservationId!, createServiceId!, activeCreateDateStr!, activeCreateDateStr!),
+    enabled: !!reservationId && !!createServiceId && !!activeCreateDateStr && showCreateForm,
   });
+
+  // Drop the selection when the refreshed slot list no longer contains it
+  // (e.g. the chosen window was just disabled or booked).
+  useEffect(() => {
+    if (!selectedSlot || !slotsQuery.data) return;
+    const stillThere = slotsQuery.data.slots.some((s) => s.startsAt === selectedSlot.startsAt);
+    if (!stillThere) setSelectedSlot(null);
+  }, [slotsQuery.data, selectedSlot]);
 
   useEffect(() => {
     setSelectedDateStr(null);
@@ -615,22 +822,31 @@ export default function ReservationCalendarPage() {
   // ── day view data (reuse day API) ──────────────────────────────────────
   const dayDateStr = ymd(dayDate);
   const dayViewQuery = useQuery({
-    queryKey: ["reservation-calendar-day", reservationId, dayDateStr],
-    queryFn: () => getReservationCalendarDay(reservationId!, dayDateStr),
+    queryKey: ["reservation-calendar-day", reservationId, dayDateStr, "slots"],
+    queryFn: () => getReservationCalendarDay(reservationId!, dayDateStr, { includeSlots: true }),
     enabled: !!reservationId && viewMode === "day",
   });
 
-  // Filter day view by worker
+  // Filter day view by worker (disabled services stay visible even when empty).
+  // hideEmpty drops sessions with no active bookings (seatsTaken === 0),
+  // except disabled ones which must stay visible.
   const dayViewServices = useMemo(() => {
     const all = dayViewQuery.data?.services ?? [];
-    if (workerFilterId == null) return all;
+    if (workerFilterId == null) {
+      if (!hideEmpty) return all;
+      return all
+        .map((svc) => ({ ...svc, sessions: svc.sessions.filter((s) => s.seatsTaken > 0 || s.disabled) }))
+        .filter((svc) => svc.sessions.length > 0);
+    }
     return all
       .map((svc) => ({
         ...svc,
-        sessions: svc.sessions.filter((s) => s.workerUserId === workerFilterId),
+        sessions: svc.sessions
+          .filter((s) => s.workerUserId === workerFilterId)
+          .filter((s) => !hideEmpty || s.seatsTaken > 0 || s.disabled),
       }))
-      .filter((svc) => svc.sessions.length > 0);
-  }, [dayViewQuery.data, workerFilterId]);
+      .filter((svc) => svc.sessions.length > 0 || svc.sessions.some((s) => s.disabled));
+  }, [dayViewQuery.data, workerFilterId, hideEmpty]);
 
   const openDay = useCallback(
     (date: Date) => {
@@ -651,10 +867,11 @@ export default function ReservationCalendarPage() {
   }, []);
 
   const handleStartCreate = useCallback(
-    (prefillServiceId?: number | null) => {
-      if (selectedDateStr == null) return;
+    (dateStr: string | null, prefillServiceId?: number | null) => {
+      if (dateStr == null) return;
+      setSelectedDateStr(dateStr);
       const createTimeZone = reservation?.timezone || BUDAPEST_TZ;
-      if (selectedDateStr < new Date().toLocaleDateString("en-CA", { timeZone: createTimeZone })) {
+      if (dateStr < new Date().toLocaleDateString("en-CA", { timeZone: createTimeZone })) {
         setCreateServiceId(null);
         setSelectedSlot(null);
         setShowCreateForm(true);
@@ -664,9 +881,8 @@ export default function ReservationCalendarPage() {
       setSelectedSlot(null);
       setShowCreateForm(true);
     },
-    [selectedDateStr, reservation?.timezone],
+    [reservation?.timezone],
   );
-
   const createCustomerMutation = useMutation({
     mutationFn: (data: ReservationCustomerCreateDTO) =>
       createReservationCustomer(data),
@@ -691,12 +907,15 @@ export default function ReservationCalendarPage() {
       queryKey: ["reservation-calendar-month", reservationId, monthQueryKey],
     });
     queryClient.invalidateQueries({
-      queryKey: ["reservation-calendar-day", reservationId, selectedDateStr],
+      queryKey: ["reservation-calendar-day", reservationId],
+    });
+    queryClient.invalidateQueries({
+      queryKey: ["reservation-service-slots", reservationId],
     });
     queryClient.invalidateQueries({
       queryKey: ["reservation-bookings", reservationId],
     });
-  }, [queryClient, reservationId, monthQueryKey, selectedDateStr]);
+  }, [queryClient, reservationId, monthQueryKey]);
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -729,6 +948,34 @@ export default function ReservationCalendarPage() {
     },
     onError: (err: Error) => {
       showError(t("reservations:calendar_booking_failed", { error: err.message }));
+    },
+  });
+  // ── disable one session window ────────────────────────────────────────────
+  const [disableTarget, setDisableTarget] = useState<{
+    service: CalendarServiceDetails;
+    session: CalendarSessionSummary;
+  } | null>(null);
+
+  const disableServiceMutation = useMutation({
+    mutationFn: (target: { service: CalendarServiceDetails; session: CalendarSessionSummary }) =>
+      dayDisableService(reservationId!, {
+        serviceId: target.service.serviceId,
+        startsAt: target.session.startsAt,
+        endsAt: target.session.endsAt,
+      }),
+    onSuccess: (result) => {
+      const count = result.cancelledBookingIds.length;
+      showSuccess(
+        count > 0
+          ? t("reservations:day_disable_service_success", { count })
+          : t("reservations:day_disable_service_success_empty"),
+      );
+      invalidateCalendar();
+      setSelectedSlot(null);
+      setDisableTarget(null);
+    },
+    onError: (err: Error) => {
+      showError(err.message || t("reservations:day_disable_service_failed"));
     },
   });
 
@@ -807,13 +1054,6 @@ export default function ReservationCalendarPage() {
     setExpandedServiceId(null);
   }, [workerFilterId, servicesQuery.data, createServiceId]);
 
-  useEffect(() => {
-    if (selectedDateStr == null) return;
-    setShowCreateForm(false);
-    setCreateServiceId(null);
-    setSelectedSlot(null);
-  }, [selectedDateStr]);
-
   if (!reservationId) {
     return <div className="text-center p-8">{t("common:invalid_id")}</div>;
   }
@@ -835,10 +1075,16 @@ export default function ReservationCalendarPage() {
     ? allDayServices
         .map((svc) => ({
           ...svc,
-          sessions: svc.sessions.filter((s) => s.workerUserId === workerFilterId),
+          sessions: svc.sessions
+            .filter((s) => s.workerUserId === workerFilterId)
+            .filter((s) => !hideEmpty || s.seatsTaken > 0 || s.disabled),
         }))
-        .filter((svc) => svc.sessions.length > 0)
-    : allDayServices;
+        .filter((svc) => svc.sessions.length > 0 || svc.sessions.some((s) => s.disabled))
+    : hideEmpty
+      ? allDayServices
+          .map((svc) => ({ ...svc, sessions: svc.sessions.filter((s) => s.seatsTaken > 0 || s.disabled) }))
+          .filter((svc) => svc.sessions.length > 0)
+      : allDayServices;
   const selectedServiceOptions = (servicesQuery.data ?? []).filter(
     (service) =>
       service.status === "active" &&
@@ -1062,8 +1308,8 @@ export default function ReservationCalendarPage() {
                                 key={slotKey(slot)}
                                 type="button"
                                 onClick={() => openDay(date)}
-                                className="w-full text-left rounded bg-primary/10 text-primary hover:bg-primary/20 px-1 py-0.5 mb-0.5 transition-colors"
-                                title={`${slot.serviceName}\n${slot.startTime}–${slot.endTime}\n${slot.seatsTaken}/${slot.capacity}`}
+                                className={`w-full text-left rounded px-1 py-0.5 mb-0.5 transition-colors ${slot.disabled ? "bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-950/40 dark:text-red-300" : "bg-primary/10 text-primary hover:bg-primary/20"}`}
+                                title={`${slot.serviceName}\n${slot.startTime}–${slot.endTime}\n${slot.seatsTaken}/${slot.capacity}${slot.disabled ? "\nDisabled" : ""}`}
                               >
                                 <div className="text-[10px] font-medium leading-tight break-words">
                                   {slot.serviceName}
@@ -1086,12 +1332,68 @@ export default function ReservationCalendarPage() {
           {/* ═══════════════════ DAY VIEW ═══════════════════ */}
           {viewMode === "day" && (
             <>
+              <div className="flex justify-end py-2">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    handleStartCreate(dayDateStr, dayViewServices[0]?.serviceId ?? null);
+                  }}
+                  disabled={showCreateForm}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  {t("reservations:calendar_add_booking")}
+                </Button>
+              </div>
+              {showCreateForm && viewMode === "day" && (
+                <div className="pb-2">
+                  <CreateBookingForm
+                    t={t}
+                    locale={locale}
+                    isDayPast={dayDateStr < new Date().toLocaleDateString("en-CA", { timeZone: reservationTimeZone })}
+                    services={selectedServiceOptions}
+                    workerFilterId={workerFilterId}
+                    createServiceId={createServiceId}
+                    onServiceChange={(value) => {
+                      setCreateServiceId(value);
+                      setSelectedSlot(null);
+                    }}
+                    selectedCreateService={selectedCreateService}
+                    reservation={reservation}
+                    selectedCustomer={selectedCustomer}
+                    onCustomerChange={setSelectedCustomer}
+                    onCreateCustomer={(data) =>
+                      createCustomerMutation.mutate({
+                        ...data,
+                        projectId: reservation!.projectId,
+                      })
+                    }
+                    customerDisabled={createMutation.isPending}
+                    slotsLoading={slotsQuery.isLoading}
+                    slots={slotsQuery.data?.slots}
+                    selectedSlot={selectedSlot}
+                    onSlotSelect={setSelectedSlot}
+                    onCancel={() => {
+                      setShowCreateForm(false);
+                      setCreateServiceId(null);
+                      setSelectedCustomer(null);
+                    }}
+                    onConfirm={() => createMutation.mutate()}
+                    confirmDisabled={
+                      createMutation.isPending ||
+                      !selectedSlot ||
+                      !selectedCustomer ||
+                      !createServiceId
+                    }
+                    confirmPending={createMutation.isPending}
+                  />
+                </div>
+              )}
               {dayViewQuery.isLoading ? (
                 <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
                   <Loader2 className="h-5 w-5 animate-spin" />
                   {t("common:loading")}
                 </div>
-              ) : dayViewServices.length === 0 ? (
+              ) : dayViewServices.every((service) => service.sessions.length === 0) ? (
                 <div className="py-12 text-center text-sm text-muted-foreground">
                   {t("reservations:calendar_no_bookings_this_month")}
                 </div>
@@ -1108,7 +1410,13 @@ export default function ReservationCalendarPage() {
                         onCompleteBooking={handleCompleteBooking}
                         onNoShowBooking={handleNoShowBooking}
                         onModifyBooking={handleModifyBooking}
+                        onDisableSession={() => {
+                          setSelectedDateStr(dayDateStr);
+                          setDisableTarget({ service, session });
+                        }}
+                        disablePending={disableServiceMutation.isPending}
                         serviceName={service.serviceName}
+                        showWorkerName={workerFilterId == null}
                         service={service}
                       />
                     )),
@@ -1152,7 +1460,7 @@ export default function ReservationCalendarPage() {
                 const candidate = expandedServiceId ?? dayServices[0]?.serviceId ?? null;
                 const candidateAllowed =
                   candidate == null || selectedServiceOptions.some((service) => service.id === candidate);
-                handleStartCreate(candidateAllowed ? candidate : null);
+                handleStartCreate(selectedDateStr, candidateAllowed ? candidate : null);
               }}
               disabled={showCreateForm}
             >
@@ -1177,155 +1485,47 @@ export default function ReservationCalendarPage() {
           </div>
           <div className={`overflow-y-auto flex-1 -mx-6 px-6 ${showCreateForm ? "grid gap-4 md:grid-cols-2 items-start" : "space-y-3"}`}>
             {showCreateForm && (
-              isSelectedDayPast ? (
-                <div className="border rounded-md bg-muted/30 p-4 space-y-3 md:sticky md:top-0">
-                  <p className="text-sm font-medium">
-                    {t("reservations:calendar_create_booking_title")}
-                  </p>
-                  <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
-                    {t("reservations:calendar_past_date_warning")}
-                  </p>
-                  <div className="flex gap-2 justify-end">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setShowCreateForm(false)}
-                    >
-                      {t("common:close")}
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="border rounded-md bg-muted/30 p-4 space-y-3 md:sticky md:top-0">
-                <p className="text-sm font-medium">
-                  {t("reservations:calendar_create_booking_title")}
-                </p>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">{t("reservations:service")}</Label>
-                  <select
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                    value={createServiceId ? String(createServiceId) : ""}
-                    onChange={(event) => {
-                      const value = event.target.value ? Number(event.target.value) : null;
-                      setCreateServiceId(value);
-                      setSelectedSlot(null);
-                    }}
-                  >
-                    <option value="">{t("reservations:select_service")}</option>
-                    {selectedServiceOptions.map((service) => {
-                      const serviceLabel = service.name || t("reservations:untitled_service");
-                      const workerName = [service.workerLastName, service.workerFirstName].filter(Boolean).join(" ");
-                      return (
-                        <option key={service.id} value={service.id}>
-                          {workerFilterId == null && workerName ? `${serviceLabel} (${workerName})` : serviceLabel}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-
-                {selectedCreateService && (
-                  <p className="text-xs text-muted-foreground">
-                    {fmtPrice(selectedCreateService.priceAmount, selectedCreateService.currency, locale)} · {selectedCreateService.durationMinutes} min · {selectedCreateService.capacity} {t("reservations:capacity").toLowerCase()}
-                  </p>
-                )}
-
-                {reservation && (
-                  <ReservationCustomerPicker
-                    projectId={reservation.projectId}
-                    value={selectedCustomer}
-                    onChange={setSelectedCustomer}
-                    onCreateNew={(data) =>
-                      createCustomerMutation.mutate({
-                        ...data,
-                        projectId: reservation.projectId,
-                      })
-                    }
-                    disabled={createMutation.isPending}
-                  />
-                )}
-
-                {/* Slot picker */}
-                {slotsQuery.isLoading && (
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    {t("common:loading")}
-                  </div>
-                )}
-                {slotsQuery.data && (
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">{t("reservations:calendar_select_slot", "Időpont kiválasztása")}</Label>
-                    {slotsQuery.data.slots.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">
-                        {t("reservations:calendar_no_slots", "Nincs elérhető időpont ezen a napon.")}
-                      </p>
-                    ) : (
-                      <div className="grid grid-cols-3 gap-1.5 max-h-32 overflow-y-auto">
-                        {slotsQuery.data.slots.map((slot) => {
-                          const isSelected = selectedSlot?.startsAt === slot.startsAt;
-                          const isFull = slot.remainingSeats <= 0;
-                          return (
-                            <button
-                              key={slot.startsAt}
-                              type="button"
-                              disabled={isFull}
-                              className={`text-xs px-2 py-1.5 rounded border transition-colors text-center ${
-                                isSelected
-                                  ? "bg-primary text-primary-foreground border-primary"
-                                  : isFull
-                                    ? "bg-muted text-muted-foreground border-border opacity-50 cursor-not-allowed"
-                                    : "bg-background hover:bg-accent border-border"
-                              }`}
-                              onClick={() => setSelectedSlot({ startsAt: slot.startsAt, endsAt: slot.endsAt })}
-                            >
-                              {slot.startTime}–{slot.endTime}
-                              <p className={`text-xs mt-1 ${isSelected ? "text-white/80" : "text-muted-foreground"}`}>
-                                {slot.remainingSeats} {t("reservations:seats_remaining", "hely")}
-                              </p>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="flex gap-2 justify-end">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setShowCreateForm(false);
-                      setCreateServiceId(null);
-                      setSelectedCustomer(null);
-                    }}
-                    disabled={createMutation.isPending}
-                  >
-                    {t("common:cancel")}
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => createMutation.mutate()}
-                    disabled={
-                      createMutation.isPending ||
-                      isSelectedDayPast ||
-                      !selectedSlot ||
-                      !selectedCustomer ||
-                      !createServiceId
-                    }
-                  >
-                    {createMutation.isPending ? (
-                      <>
-                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                        {t("common:saving")}
-                      </>
-                    ) : (
-                      t("reservations:calendar_create_booking_confirm")
-                    )}
-                  </Button>
-                </div>
-              </div>
-              )
+              <CreateBookingForm
+                t={t}
+                locale={locale}
+                isDayPast={isSelectedDayPast}
+                services={selectedServiceOptions}
+                workerFilterId={workerFilterId}
+                createServiceId={createServiceId}
+                onServiceChange={(value) => {
+                  setCreateServiceId(value);
+                  setSelectedSlot(null);
+                }}
+                selectedCreateService={selectedCreateService}
+                reservation={reservation}
+                selectedCustomer={selectedCustomer}
+                onCustomerChange={setSelectedCustomer}
+                onCreateCustomer={(data) =>
+                  createCustomerMutation.mutate({
+                    ...data,
+                    projectId: reservation!.projectId,
+                  })
+                }
+                customerDisabled={createMutation.isPending}
+                slotsLoading={slotsQuery.isLoading}
+                slots={slotsQuery.data?.slots}
+                selectedSlot={selectedSlot}
+                onSlotSelect={setSelectedSlot}
+                onCancel={() => {
+                  setShowCreateForm(false);
+                  setCreateServiceId(null);
+                  setSelectedCustomer(null);
+                }}
+                onConfirm={() => createMutation.mutate()}
+                confirmDisabled={
+                  createMutation.isPending ||
+                  isSelectedDayPast ||
+                  !selectedSlot ||
+                  !selectedCustomer ||
+                  !createServiceId
+                }
+                confirmPending={createMutation.isPending}
+              />
             )}
 
             <div className={showCreateForm ? "space-y-2 min-w-0" : "contents"}>
@@ -1353,8 +1553,8 @@ export default function ReservationCalendarPage() {
 
             {!dayQuery.isLoading && !dayQuery.isError && dayServices.length > 0 && (
               <div className="space-y-2">
-                {dayServices.map((service) =>
-                  service.sessions.map((session, idx) => (
+                {dayServices.flatMap((service) =>
+                  service.sessions.length === 0 ? [] : service.sessions.map((session, idx) => (
                     <DaySession
                       key={`${service.serviceId}-${session.startsAt}-${idx}`}
                       session={session}
@@ -1364,7 +1564,10 @@ export default function ReservationCalendarPage() {
                       onCompleteBooking={handleCompleteBooking}
                       onNoShowBooking={handleNoShowBooking}
                       onModifyBooking={handleModifyBooking}
+                      onDisableSession={() => setDisableTarget({ service, session })}
+                      disablePending={disableServiceMutation.isPending}
                       serviceName={service.serviceName}
+                      showWorkerName={workerFilterId == null}
                       service={service}
                     />
                   ))
@@ -1420,6 +1623,49 @@ export default function ReservationCalendarPage() {
               {cancelMutation.isPending
                 ? t("reservations:booking_deleting")
                 : t("reservations:booking_action_cancel")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={disableTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDisableTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("reservations:day_disable_service_title")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {disableTarget
+                ? t("reservations:day_disable_service_description", {
+                    service: disableTarget.service.serviceName,
+                    timeRange: `${disableTarget.session.startTime}–${disableTarget.session.endTime}`,
+                  })
+                : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={disableServiceMutation.isPending}>
+              {t("common:cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (disableTarget) disableServiceMutation.mutate(disableTarget);
+              }}
+              disabled={disableServiceMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {disableServiceMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                  {t("common:saving")}
+                </>
+              ) : (
+                t("reservations:day_disable_service_confirm")
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

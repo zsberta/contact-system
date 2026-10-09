@@ -328,6 +328,30 @@ export async function toggleDisabledDate(
     { method: "POST", body: JSON.stringify(data) },
   );
 }
+export interface DayDisableServiceDTO {
+  serviceId: number;
+  startsAt: string;
+  endsAt: string;
+  reason?: string | null;
+}
+
+export interface DayDisableServiceResponse {
+  startsAt: string;
+  endsAt: string;
+  serviceId: number;
+  rangeId: number;
+  cancelledBookingIds: number[];
+}
+
+export async function dayDisableService(
+  reservationId: number,
+  data: DayDisableServiceDTO,
+): Promise<DayDisableServiceResponse> {
+  return apiFetch(
+    `/reservations/${reservationId}/day-disable-service`,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
 
 export async function updateServiceHolidays(
   reservationId: number,
@@ -554,9 +578,13 @@ export async function getReservationCalendarMonth(
 export async function getReservationCalendarDay(
   reservationId: number,
   date: string,
+  params?: { includeSlots?: boolean },
 ): Promise<CalendarDayDetailsResponse> {
+  const q = new URLSearchParams();
+  if (params?.includeSlots) q.set("includeSlots", "true");
+  const suffix = q.toString() ? `?${q.toString()}` : "";
   return apiFetch<CalendarDayDetailsResponse>(
-    `/reservations/${reservationId}/calendar/${encodeURIComponent(date)}`,
+    `/reservations/${reservationId}/calendar/${encodeURIComponent(date)}${suffix}`,
   );
 }
 

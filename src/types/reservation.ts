@@ -606,6 +606,7 @@ export interface CalendarSlotSummary {
   endTime: string;
   seatsTaken: number;
   capacity: number;
+  disabled?: boolean;
 }
 
 export interface CalendarMonthResponse {
@@ -637,6 +638,7 @@ export interface CalendarSessionSummary {
   endsAt: string;
   seatsTaken: number;
   capacity: number;
+  disabled?: boolean;
   bookings: CalendarBookingSummary[];
 }
 

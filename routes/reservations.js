@@ -521,7 +521,10 @@ function generateServiceSlotsForDate({ service, schedules, timezone, dateStr, di
           if (startUtc.getTime() > now.getTime() + maxAdvanceMs) continue;
         }
       }
-      if (overlapsDisabledRange(startUtc, endUtc, disabledRanges)) continue;
+      // Admin calendar keeps disabled slots visible (flagged) so operators can
+      // still see remaining bookings; the public availability path has its own
+      // generator that skips them.
+      const isDisabledSlot = overlapsDisabledRange(startUtc, endUtc, disabledRanges);
 
       const startIso = startUtc.toISOString();
       const endIso = endUtc.toISOString();
@@ -544,6 +547,7 @@ function generateServiceSlotsForDate({ service, schedules, timezone, dateStr, di
         endsAt: endIso,
         seatsTaken,
         capacity,
+        disabled: isDisabledSlot,
       });
     }
   }
@@ -672,6 +676,7 @@ async function getCalendarMonthSlots({ reservationId, monthKey, db = pool }) {
           endTime: slot.endTime,
           seatsTaken: slot.seatsTaken,
           capacity: slot.capacity,
+          disabled: !!slot.disabled,
         });
       }
     }
@@ -680,14 +685,23 @@ async function getCalendarMonthSlots({ reservationId, monthKey, db = pool }) {
   return { month: monthKey, slots };
 }
 
-async function getCalendarDayDetails({ reservationId, dateStr, db = pool }) {
+async function getCalendarDayDetails({ reservationId, dateStr, db = pool, includeSlots = false }) {
   if (!dateStr || !ISO_DATE_RE.test(dateStr)) return null;
 
   const reservationMeta = await loadReservationTimezone(reservationId, db);
   if (!reservationMeta) return null;
+  const tz = reservationMeta.timezone || "UTC";
 
   const services = await loadActiveReservationServices(reservationId, db);
-  const bookings = await loadBookingsForDate(reservationId, dateStr, reservationMeta.timezone || "UTC", db);
+  const { startUtc, endUtc } = dayRangeForUtcDate(dateStr, tz);
+  const serviceIds = services.map((service) => service.id);
+  const [bookings, disabledRanges, serviceSchedulesMap, reservationSchedules, holidayRules] = await Promise.all([
+    loadBookingsForDate(reservationId, dateStr, tz, db),
+    loadDisabledRanges(reservationId, startUtc, endUtc, db),
+    includeSlots ? loadServiceSchedules(serviceIds, db) : Promise.resolve(Object.create(null)),
+    includeSlots ? loadReservationSchedules(reservationId, db) : Promise.resolve([]),
+    includeSlots ? loadServiceHolidayRules(reservationId, db) : Promise.resolve(Object.create(null)),
+  ]);
   const activeBookings = aggregateActiveBookings(bookings);
   const bookingsByService = Object.create(null);
   for (const booking of activeBookings) {
@@ -696,10 +710,39 @@ async function getCalendarDayDetails({ reservationId, dateStr, db = pool }) {
     bookingsByService[key].push(booking);
   }
 
+  // A session counts as disabled when a manual range overlaps its window.
+  const isSessionDisabled = (serviceId, startIso, endIso) => {
+    const ranges = filterManualRangesForService(disabledRanges, serviceId);
+    const startMs = new Date(startIso).getTime();
+    const endMs = new Date(endIso).getTime();
+    return ranges.some((range) => {
+      const rangeStart = new Date(range.starts_at).getTime();
+      const rangeEnd = new Date(range.ends_at).getTime();
+      return startMs < rangeEnd && rangeStart < endMs;
+    });
+  };
+
   const serviceGroups = [];
   for (const service of services) {
     const serviceBookings = bookingsByService[Number(service.id)] || [];
-    if (serviceBookings.length === 0) continue;
+
+    // Optional schedule slots so booking-less windows also get a per-session
+    // row (and disable button) in the day modal. Bookings are merged onto
+    // them by exact start instant; stray bookings outside the schedule keep
+    // their own rows.
+    let scheduleSlots = [];
+    if (includeSlots) {
+      scheduleSlots = generateServiceSlotsForDate({
+        service,
+        schedules: serviceSchedulesMap[service.id] || reservationSchedules,
+        timezone: reservationMeta.timezone,
+        dateStr,
+        disabledRanges: filterManualRangesForService(disabledRanges, service.id),
+        enabledHolidays: holidayRules[service.id] || new Set(),
+        bookingsForDate: aggregateActiveBookings(serviceBookings),
+        includePast: true,
+      });
+    }
 
     const sessions = [];
     const bookingsByStart = Object.create(null);
@@ -711,7 +754,41 @@ async function getCalendarDayDetails({ reservationId, dateStr, db = pool }) {
       bookingsByStart[startKey].push(booking);
     }
 
+    const consumedStarts = new Set();
+    for (const slot of scheduleSlots) {
+      const groupBookings = bookingsByStart[slot.startsAt] || [];
+      if (groupBookings.length > 0) consumedStarts.add(slot.startsAt);
+      const overlapCount = groupBookings.length > 0
+        ? bookingsForRange(serviceBookings, slot.startsAt, slot.endsAt)
+        : 0;
+      const capacity = Number(service.capacity || 0);
+      sessions.push({
+        workerUserId: slot.workerUserId != null ? Number(slot.workerUserId) : (service.worker_user_id != null ? Number(service.worker_user_id) : null),
+        workerFirstName: slot.workerFirstName || service.worker_first_name || null,
+        workerLastName: service.worker_last_name || null,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        startsAt: slot.startsAt,
+        endsAt: slot.endsAt,
+        seatsTaken: Math.min(capacity, groupBookings.length > 0 ? overlapCount : slot.seatsTaken),
+        capacity,
+        disabled: !!slot.disabled,
+        bookings: groupBookings.map((row) => ({
+          id: Number(row.id),
+          customer: {
+            firstName: row.first_name || null,
+            lastName: row.last_name || null,
+            email: row.email || null,
+            phone: row.phone || null,
+          },
+          status: row.status,
+          cancellationReason: row.cancellation_reason || null,
+        })),
+      });
+    }
+
     for (const [startKey, groupBookings] of Object.entries(bookingsByStart)) {
+      if (consumedStarts.has(startKey)) continue;
       const booking = groupBookings[0];
       const startIso = booking.starts_at instanceof Date
         ? booking.starts_at.toISOString()
@@ -732,6 +809,7 @@ async function getCalendarDayDetails({ reservationId, dateStr, db = pool }) {
         endsAt: endIso,
         seatsTaken: Math.min(capacity, overlapCount),
         capacity,
+        disabled: isSessionDisabled(service.id, startIso, endIso),
         bookings: groupBookings.map((row) => ({
           id: Number(row.id),
           customer: {
@@ -781,6 +859,7 @@ function rowToCalendarSlotSummary(row) {
     endTime: row.endTime,
     seatsTaken: row.seatsTaken,
     capacity: row.capacity,
+    disabled: !!row.disabled,
   };
 }
 
@@ -2798,9 +2877,10 @@ router.get("/:reservationId/calendar", async (req, res, next) => {
 
     let slots = result.slots.map(rowToCalendarSlotSummary);
 
-    // Filter: hide empty slots (seatsTaken === 0)
+    // Filter: hide empty slots (seatsTaken === 0), but always keep disabled
+    // ones so operators can still see remaining bookings on blocked days.
     if (req.query.hideEmpty === "true") {
-      slots = slots.filter((slot) => slot.seatsTaken > 0);
+      slots = slots.filter((slot) => slot.seatsTaken > 0 || slot.disabled);
     }
 
     // Filter: only show slots for a specific worker
@@ -2848,7 +2928,7 @@ router.get("/:reservationId/calendar/:date", async (req, res, next) => {
       }
     }
 
-    const result = await getCalendarDayDetails({ reservationId, dateStr });
+    const result = await getCalendarDayDetails({ reservationId, dateStr, includeSlots: req.query.includeSlots === "true" });
     if (!result) {
       return res.status(404).json({ errorMessage: "Reservation not found" });
     }
@@ -3747,6 +3827,153 @@ router.post("/:id/day-toggle", async (req, res, next) => {
     next(err);
   }
 });
+// ---- POST /api/reservations/:id/day-disable-service ----
+// Disable one service for a single session window [startsAt, endsAt) and
+// cancel its confirmed bookings overlapping that window. The manual range is
+// created/linked exactly like a disabled range; cancellations reuse the
+// booking-cancel delivery path (notifyBookingCancelled) per booking.
+router.post("/:id/day-disable-service", async (req, res, next) => {
+  try {
+    const reservationId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(reservationId) || reservationId <= 0) {
+      return res.status(400).json({ errorMessage: "Invalid reservation id" });
+    }
+    const body = req.body ?? {};
+    const startsAt = parseStrictIso(body.startsAt);
+    const endsAt = parseStrictIso(body.endsAt);
+    if (!startsAt || !endsAt) {
+      return res.status(400).json({ errorMessage: "startsAt and endsAt must be ISO 8601" });
+    }
+    if (endsAt.getTime() <= startsAt.getTime()) {
+      return res.status(400).json({ errorMessage: "endsAt must be after startsAt" });
+    }
+    const serviceId = Number(body.serviceId);
+    if (!Number.isFinite(serviceId) || serviceId <= 0) {
+      return res.status(400).json({ errorMessage: "serviceId must be a positive integer" });
+    }
+    let reason = null;
+    if (body.reason !== undefined && body.reason !== null) {
+      if (typeof body.reason !== "string") {
+        return res.status(400).json({ errorMessage: "reason must be a string" });
+      }
+      const trimmed = body.reason.trim().slice(0, 500);
+      if (trimmed.length > 0) reason = trimmed;
+    }
+
+    const reservationCheck = await pool.query(
+      "SELECT id, project_id, timezone FROM reservations WHERE id = $1",
+      [reservationId],
+    );
+    if (reservationCheck.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "Reservation not found" });
+    }
+    if (isEnduser(req)) {
+      const allowed = Array.isArray(req.user.projectIds)
+        ? req.user.projectIds.includes(Number(reservationCheck.rows[0].project_id))
+        : false;
+      if (!allowed) {
+        return res.status(404).json({ errorMessage: "Reservation not found" });
+      }
+    }
+    const svcCheck = await pool.query(
+      `SELECT id FROM reservation_services WHERE id = $1 AND reservation_id = $2 AND status = 'active'`,
+      [serviceId, reservationId],
+    );
+    if (svcCheck.rowCount === 0) {
+      return res.status(404).json({ errorMessage: "Service not found" });
+    }
+    // Session-window manual range: exactly [startsAt, endsAt) for this service.
+    const startIso = startsAt.toISOString();
+    const endIso = endsAt.toISOString();
+    const existing = await pool.query(
+      `SELECT id FROM reservation_disabled_ranges
+       WHERE reservation_id = $1 AND source = 'manual'
+         AND starts_at = $2::timestamptz AND ends_at = $3::timestamptz`,
+      [reservationId, startIso, endIso],
+    );
+    let rangeId;
+    if (existing.rowCount > 0) {
+      rangeId = Number(existing.rows[0].id);
+      await pool.query(
+        `INSERT INTO reservation_disabled_range_services (disabled_range_id, service_id)
+         VALUES ($1, $2) ON CONFLICT (disabled_range_id, service_id) DO NOTHING`,
+        [rangeId, serviceId],
+      );
+    } else {
+      try {
+        const insertResult = await pool.query(
+          `INSERT INTO reservation_disabled_ranges
+             (reservation_id, starts_at, ends_at, reason)
+           VALUES ($1, $2::timestamptz, $3::timestamptz, $4)
+           RETURNING id`,
+          [reservationId, startIso, endIso, reason],
+        );
+        rangeId = Number(insertResult.rows[0].id);
+      } catch (err) {
+        if (err.code === "23P01") {
+          return res.status(409).json({ errorMessage: "This range overlaps with an existing disabled range" });
+        }
+        throw err;
+      }
+      await pool.query(
+        `INSERT INTO reservation_disabled_range_services (disabled_range_id, service_id) VALUES ($1, $2)`,
+        [rangeId, serviceId],
+      );
+    }
+
+    // Cancel confirmed bookings overlapping this session window. History
+    // (attended / no-show / completed) must not be rewritten.
+    const targets = await pool.query(
+      `SELECT rb.*, r.project_id AS project_id, rs.worker_user_id AS svc_worker_user_id,
+              worker.email AS worker_email,
+              rc.email AS customer_email,
+              rc.first_name AS customer_first_name,
+              rc.last_name AS customer_last_name,
+              COALESCE(rst.name, rb.service_name_snapshot) AS service_name
+       FROM reservation_bookings rb
+       JOIN reservations r ON r.id = rb.reservation_id
+       LEFT JOIN reservation_services rs ON rs.id = rb.service_id
+       LEFT JOIN users worker ON worker.id = rs.worker_user_id
+       LEFT JOIN reservation_customers rc ON rc.id = rb.customer_id
+       LEFT JOIN reservation_service_translations rst
+         ON rst.service_id = rb.service_id
+         AND rst.locale = rb.locale
+       WHERE rb.reservation_id = $1 AND rb.service_id = $2
+         AND tstzrange(rb.starts_at, rb.ends_at, '[)') && tstzrange($3::timestamptz, $4::timestamptz, '[)')
+         AND rb.status = 'confirmed'`,
+      [reservationId, serviceId, startIso, endIso],
+    );
+    const auditActor = req.user
+      ? { actor_type: req.user.role, actor_user_id: Number(req.user.id), actor_email: req.user.email, actor_role: req.user.role }
+      : { actor_type: "system" };
+    const cancelledIds = [];
+    for (const booking of targets.rows) {
+      const bookingId = Number(booking.id);
+      await pool.query(
+        `UPDATE reservation_bookings
+         SET status = 'cancelled', cancelled_at = NOW(), cancelled_by_user_id = $2,
+             cancellation_reason = COALESCE($3, cancellation_reason), reminder_sent_at = NULL
+         WHERE id = $1`,
+        [bookingId, req.user?.id || null, reason],
+      );
+      const updated = await pool.query(`SELECT * FROM reservation_bookings WHERE id = $1`, [bookingId]);
+      await notifyBookingCancelled({
+        reservation: booking,
+        booking,
+        audit: { entityType: "booking", entityId: bookingId, entityLabel: `booking #${bookingId}`, projectId: booking.project_id ? Number(booking.project_id) : null, actor: auditActor },
+      });
+      logActivity({ req, action: "booking.cancel", actionType: "UPDATE", entityType: "booking", entityId: bookingId, entityLabel: `booking #${bookingId}`, projectId: booking.project_id ? Number(booking.project_id) : null, statusCode: 200, ok: true, metadata: { diff: diffObjects(booking, updated.rows[0]) } });
+      cancelledIds.push(bookingId);
+    }
+
+    logActivity({ req, action: "day_disable_service", actionType: "UPDATE", entityType: "reservation", entityId: reservationId, entityLabel: `reservation #${reservationId}`, projectId: reservationCheck.rows[0]?.project_id ? Number(reservationCheck.rows[0].project_id) : null, statusCode: 200, ok: true, metadata: { startsAt: startIso, endsAt: endIso, serviceId, rangeId, cancelledBookingIds: cancelledIds } });
+    return res.json({ startsAt: startIso, endsAt: endIso, serviceId, rangeId, cancelledBookingIds: cancelledIds });
+  } catch (err) {
+    console.error("[reservations/day-disable-service]", err.code, err.message);
+    next(err);
+  }
+});
+
 
 // ---- DELETE /api/reservations/:id/disabled-ranges/:rangeId ----
 router.delete("/:id/disabled-ranges/:rangeId", async (req, res, next) => {
