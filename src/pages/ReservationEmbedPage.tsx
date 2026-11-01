@@ -240,6 +240,16 @@ function translateError(message: string, locale: string): string {
 
 export default function ReservationEmbedPage() {
   const { secretToken, bookingToken } = useParams<{ secretToken: string; bookingToken: string }>();
+  // Standalone vs iframe-embedded: the host page supplies padding when this
+  // runs inside an iframe, so only add our own when opened directly as the
+  // top-level window (e.g. manage/cancel links from emails).
+  const [isStandalone] = useState(() => {
+    try {
+      return window.self === window.top;
+    } catch {
+      return false;
+    }
+  });
 
   const [view, setView] = useState<ViewState>("catalog");
   const [catalog, setCatalog] = useState<CatalogData | null>(null);
@@ -549,7 +559,7 @@ export default function ReservationEmbedPage() {
   })() : null;
 
   return (
-    <div className="min-h-screen">
+    <div className={isStandalone ? "min-h-screen px-2 py-4 sm:px-4 sm:py-6" : "min-h-screen"}>
       {/* Header */}
       {catalog && (
         <div className="max-w-5xl mx-auto mb-6">
@@ -1049,7 +1059,18 @@ export default function ReservationEmbedPage() {
           </Button>
         </div>
       )}
-
+      {/* ── Powered-by footer (all views, subtle) ─────────────────────────── */}
+      <div className="text-center text-xs text-muted-foreground mt-8 pb-2">
+        {locale === "en" ? "Powered by " : "Üzemelteti: "}
+        <a
+          href="https://zsoltberta.hu/idopontfoglalo-rendszer/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline hover:text-foreground"
+        >
+          Berta Zsolt e.v.
+        </a>
+      </div>
       {/* ── Delete profile confirmation dialog ──────────────────────────── */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
         <AlertDialogContent>
