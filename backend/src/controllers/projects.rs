@@ -360,8 +360,8 @@ fn validate_body(b: &Value, partial: bool) -> std::result::Result<HashMap<String
     Ok(out)
 }
 
-const PROJECT_COLS: &str = "id, name, domain_address, price, fordulonap, billing_period,
-              status, comment, customer_name, customer_phone, customer_email,
+const PROJECT_COLS: &str = "id, name, domain_address, price, fordulonap, billing_period::text AS billing_period,
+              status::text AS status, comment, customer_name, customer_phone, customer_email,
               landing_repo_dir, landing_build_command, landing_build_env,
               landing_dist_path, landing_enabled, landing_last_build_at,
               landing_last_build_status, landing_last_build_log,
@@ -369,7 +369,7 @@ const PROJECT_COLS: &str = "id, name, domain_address, price, fordulonap, billing
               created_at, updated_at, last_status_change_at";
 
 const PROJECT_SELECT: &str = "SELECT id, name, domain_address, price::float8 AS price, fordulonap,
-              billing_period, status, comment, customer_name, customer_phone, customer_email,
+              billing_period::text AS billing_period, status::text AS status, comment, customer_name, customer_phone, customer_email,
               landing_repo_dir, landing_build_command, landing_build_env::text AS landing_build_env,
               landing_dist_path, landing_enabled, landing_last_build_at,
               landing_last_build_status, landing_last_build_log,
@@ -459,7 +459,7 @@ async fn list(
     };
     let data_sql = format!(
         "SELECT id, name, domain_address, price::float8 AS price, fordulonap,
-                billing_period, status, comment, customer_name,
+                billing_period::text AS billing_period, status::text AS status, comment, customer_name,
                 customer_phone, customer_email, brand_color,
                 gateway_merchant_id, created_at, updated_at, last_status_change_at
          FROM projects {where_sql} {order} LIMIT ${} OFFSET ${}",

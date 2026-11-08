@@ -455,7 +455,7 @@ async fn create(
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             &format!(
-                "INSERT INTO payments (project_id, amount, status, due_date, created_by, paid_at, note) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING {PAY_COLS}"
+                "INSERT INTO payments (project_id, amount, status, due_date, created_by, paid_at, note) VALUES ($1,$2::numeric,$3::payment_status,$4::date,$5::payment_origin,$6::timestamptz,$7) RETURNING {PAY_COLS}"
             ),
             vec![
                 project_id.into(),
@@ -534,7 +534,15 @@ async fn update(
                 x.as_str().unwrap_or("").to_string().into()
             };
             params.push(val);
-            sets.push(format!("{col} = ${}", params.len()));
+            let cast = match col {
+                "amount" => "::numeric",
+                "status" => "::payment_status",
+                "due_date" => "::date",
+                "created_by" => "::payment_origin",
+                "paid_at" => "::timestamptz",
+                _ => "",
+            };
+            sets.push(format!("{col} = ${}{cast}", params.len()));
         }
     }
     sets.push("updated_at = now()".to_string());
