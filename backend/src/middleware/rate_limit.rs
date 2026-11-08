@@ -96,7 +96,7 @@ const MIN15: Duration = Duration::from_secs(900);
 
 fn global() -> &'static Limiter {
     static L: LazyLock<Limiter> =
-        LazyLock::new(|| Limiter::new("API_GLOBAL_LIMIT", 10_000, MIN, "Too many requests"));
+        LazyLock::new(|| Limiter::new("API_GLOBAL_LIMIT", 1_000_000, MIN, "Too many requests"));
     &L
 }
 fn signin() -> &'static Limiter {
