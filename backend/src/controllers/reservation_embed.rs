@@ -564,7 +564,7 @@ async fn create_booking_public(
                 vec![svc.id.to_string().into()],
             ))
             .await
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()))?;
+            .map_err(|e| { tracing::error!("[reservation-embed/book] txn-step failed: {e:?}"); (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()) })?;
             let srow: Option<sea_orm::QueryResult> = txn
                 .query_one_raw(Statement::from_sql_and_values(
                     sea_orm::DatabaseBackend::Postgres,
@@ -572,7 +572,7 @@ async fn create_booking_public(
                     vec![svc.id.into(), reservation.id.into()],
                 ))
                 .await
-                .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()))?;
+                .map_err(|e| { tracing::error!("[reservation-embed/book] txn-step L575 failed: {e:?}"); (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()) })?;
             let Some(srow) = srow else {
                 txn.rollback().await.ok();
                 return Err((StatusCode::BAD_REQUEST, "Service is not available".to_string()));
@@ -599,7 +599,7 @@ async fn create_booking_public(
                     vec![svc.id.into(), starts_iso.clone().into(), ends_iso.clone().into()],
                 ))
                 .await
-                .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()))?
+                .map_err(|e| { tracing::error!("[reservation-embed/book] txn-step L602 failed: {e:?}"); (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()) })?
                 .and_then(|r| r.try_get::<i64>("", "cnt").ok())
                 .unwrap_or(0);
             let dup = txn
@@ -609,7 +609,7 @@ async fn create_booking_public(
                     vec![svc.id.into(), starts_iso.clone().into(), ends_iso.clone().into(), contact.email.clone().into()],
                 ))
                 .await
-                .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()))?
+                .map_err(|e| { tracing::error!("[reservation-embed/book] txn-step L612 failed: {e:?}"); (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()) })?
                 .is_some();
             if dup {
                 txn.rollback().await.ok();
@@ -620,7 +620,7 @@ async fn create_booking_public(
                 txn.rollback().await.ok();
                 return Err((StatusCode::CONFLICT, "Slot already booked".to_string()));
             }
-            let cust = R::upsert_customer(&txn, reservation.project_id, &contact).await.map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()))?;
+            let cust = R::upsert_customer(&txn, reservation.project_id, &contact).await.map_err(|e| { tracing::error!("[reservation-embed/book] txn-step L623 failed: {e:?}"); (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()) })?;
             let cust_id: i64 = cust.try_get("", "id").unwrap_or(0);
             let dur: i64 = srow.try_get::<i32>("", "duration_minutes").map(|v| v as i64).unwrap_or(svc.duration_minutes);
             let worker: Option<i64> = srow.try_get::<Option<i64>>("", "worker_user_id").ok().flatten().or(svc.worker_user_id);
@@ -651,7 +651,7 @@ async fn create_booking_public(
                     }
                     (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
                 })?;
-            txn.commit().await.map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()))?;
+            txn.commit().await.map_err(|e| { tracing::error!("[reservation-embed/book] txn-step L654 failed: {e:?}"); (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()) })?;
             row.ok_or((StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()))
         })
         .await;
