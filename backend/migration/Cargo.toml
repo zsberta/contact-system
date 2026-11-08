@@ -1,0 +1,10 @@
+[package]
+name = "migration"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+loco-rs = { workspace = true }
+sea-orm-migration = { version = "2.0.0-rc", features = ["sqlx-postgres", "runtime-tokio-rustls"] }
+tokio = { version = "1.45" }

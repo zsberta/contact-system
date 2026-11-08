@@ -1,37 +1,53 @@
-FROM node:22-alpine AS builder
-WORKDIR /app
-RUN apk upgrade --no-cache openssl libssl3 libcrypto3 busybox
+# contact-system (Rust/Loco backend + Vite frontend)
+#
+# `docker compose up -d --build` builds everything:
+#   1. frontend-builder: npm build -> /dist (the React SPA)
+#   2. backend-builder:  cargo build --release -> contact-system-cli
+#   3. runner: binary + backend/config + dist + entrypoint
+#
+# Migrations run automatically on boot (config `auto_migrate: true` +
+# explicit `db migrate` in the entrypoint). Same Postgres schema as the
+# old Express backend — zero data loss on existing volumes.
 
+# ---------- frontend ----------
+FROM node:22-alpine AS frontend-builder
+WORKDIR /fe
 COPY package*.json ./
-RUN npm install --include=dev
+RUN npm ci --no-audit --no-fund
 COPY public ./public
 COPY src ./src
 COPY scripts ./scripts
-COPY index.html vite.config.ts tailwind.config.ts postcss.config.js ./
-COPY tsconfig.json tsconfig.app.json tsconfig.node.json ./
+COPY index.html vite.config.ts tailwind.config.ts postcss.config.js components.json ./
+COPY tsconfig.json tsconfig.app.json ./
+RUN npm run build
 
-RUN npm run build && npm prune --omit=dev && cp -R node_modules /tmp/prod_node_modules
+# ---------- backend ----------
+FROM rust:1.90-slim-bookworm AS backend-builder
+WORKDIR /build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      pkg-config libssl-dev ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY Cargo.toml Cargo.lock* ./
+COPY backend ./backend
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/build/target \
+    cargo build --release -p contact-system \
+ && cp /build/target/release/contact-system-cli /tmp/contact-system-cli
 
-FROM node:22-alpine AS runner
+# ---------- runner ----------
+FROM debian:bookworm-slim AS runner
 WORKDIR /app
-RUN apk upgrade --no-cache openssl libssl3 libcrypto3 busybox && apk add --no-cache su-exec
-
-COPY --from=builder /app/dist ./dist
-RUN chmod -R a+rX /app/dist
-COPY server.js package*.json ./
-COPY --from=builder /tmp/prod_node_modules ./node_modules
-COPY db ./db
-COPY lib ./lib
-COPY routes ./routes
-COPY middleware ./middleware
-COPY scripts ./scripts
-COPY public ./public
-
-RUN addgroup -S nodeapp && adduser -S nodeapp -G nodeapp \
-    && mkdir -p /app/uploads/ai-assistant-avatars \
-    && chown -R nodeapp:nodeapp /app
-# Don't set USER here — docker-compose drops privileges via su-exec after
-# fixing the uploads volume permissions at startup.
-
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+ && groupadd -r appuser && useradd -r -g appuser appuser \
+ && mkdir -p /app/uploads /app/dist /app/backend/config \
+ && chown -R appuser:appuser /app
+COPY --from=backend-builder /tmp/contact-system-cli /app/contact-system-cli
+COPY backend/config ./backend/config
+COPY backend/entrypoint.sh ./entrypoint.sh
+COPY --from=frontend-builder /fe/dist ./dist
+RUN chmod +x /app/entrypoint.sh /app/contact-system-cli \
+ && chown -R appuser:appuser /app
+USER appuser
 EXPOSE 3000
-CMD ["node", "server.js"]
+ENTRYPOINT ["/app/entrypoint.sh"]

@@ -1,0 +1,34 @@
+logger:
+  enable: false
+  level: debug
+  format: compact
+
+server:
+  port: 3000
+  binding: 0.0.0.0
+  host: http://localhost
+  middlewares:
+    static:
+      enable: false
+
+workers:
+  mode: ForegroundBlocking
+
+mailer:
+  smtp:
+    enable: false
+    host: localhost
+    port: 1025
+    secure: false
+
+database:
+  uri: <%= get_env(name="DATABASE_URL", default="postgres://contact:contact@localhost:5432/contact_system_test") %>
+  enable_logging: false
+  auto_migrate: true
+  dangerously_truncate: false
+  dangerously_recreate: false
+
+auth:
+  jwt:
+    secret: test-secret-32chars-minimum-please
+    expiration: 3600

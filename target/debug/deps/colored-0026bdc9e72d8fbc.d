@@ -1,0 +1,10 @@
+/Users/bertazsolt/Documents/vallalkozas/contact-system/target/debug/deps/colored-0026bdc9e72d8fbc.d: /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colored-3.1.1/src/lib.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colored-3.1.1/src/color.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colored-3.1.1/src/control.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colored-3.1.1/src/error.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colored-3.1.1/src/style.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colored-3.1.1/src/customcolors.rs
+
+/Users/bertazsolt/Documents/vallalkozas/contact-system/target/debug/deps/libcolored-0026bdc9e72d8fbc.rmeta: /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colored-3.1.1/src/lib.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colored-3.1.1/src/color.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colored-3.1.1/src/control.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colored-3.1.1/src/error.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colored-3.1.1/src/style.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colored-3.1.1/src/customcolors.rs
+
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colored-3.1.1/src/lib.rs:
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colored-3.1.1/src/color.rs:
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colored-3.1.1/src/control.rs:
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colored-3.1.1/src/error.rs:
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colored-3.1.1/src/style.rs:
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colored-3.1.1/src/customcolors.rs:

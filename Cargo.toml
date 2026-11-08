@@ -1,0 +1,7 @@
+[workspace]
+members = ["backend", "backend/migration"]
+resolver = "2"
+
+[workspace.dependencies]
+loco-rs = { version = "1.3.1", features = ["with-db", "auth", "worker", "mailer"] }
+sea-orm = { version = "2.0.0-rc", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }

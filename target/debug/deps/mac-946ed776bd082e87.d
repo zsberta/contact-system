@@ -1,0 +1,12 @@
+/Users/bertazsolt/Documents/vallalkozas/contact-system/target/debug/deps/mac-946ed776bd082e87.d: /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/lib.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/test.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/mem.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/format.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/syntax_ext.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/matches.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/inspect.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/cfg.rs
+
+/Users/bertazsolt/Documents/vallalkozas/contact-system/target/debug/deps/libmac-946ed776bd082e87.rmeta: /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/lib.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/test.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/mem.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/format.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/syntax_ext.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/matches.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/inspect.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/cfg.rs
+
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/lib.rs:
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/test.rs:
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/mem.rs:
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/format.rs:
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/syntax_ext.rs:
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/matches.rs:
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/inspect.rs:
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mac-0.1.1/src/cfg.rs:

@@ -1,0 +1,9 @@
+/Users/bertazsolt/Documents/vallalkozas/contact-system/target/debug/deps/sea_query_sqlx-a3110eb2bbd85010.d: /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-query-sqlx-0.9.1/src/lib.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-query-sqlx-0.9.1/src/sqlx_postgres.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-query-sqlx-0.9.1/src/sqlx_sqlite.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-query-sqlx-0.9.1/src/values.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-query-sqlx-0.9.1/src/sqlx.rs
+
+/Users/bertazsolt/Documents/vallalkozas/contact-system/target/debug/deps/libsea_query_sqlx-a3110eb2bbd85010.rmeta: /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-query-sqlx-0.9.1/src/lib.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-query-sqlx-0.9.1/src/sqlx_postgres.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-query-sqlx-0.9.1/src/sqlx_sqlite.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-query-sqlx-0.9.1/src/values.rs /Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-query-sqlx-0.9.1/src/sqlx.rs
+
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-query-sqlx-0.9.1/src/lib.rs:
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-query-sqlx-0.9.1/src/sqlx_postgres.rs:
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-query-sqlx-0.9.1/src/sqlx_sqlite.rs:
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-query-sqlx-0.9.1/src/values.rs:
+/Users/bertazsolt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-query-sqlx-0.9.1/src/sqlx.rs:

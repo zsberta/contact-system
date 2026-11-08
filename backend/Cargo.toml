@@ -1,0 +1,42 @@
+[package]
+name = "contact-system"
+version = "0.1.0"
+edition = "2021"
+publish = false
+default-run = "contact-system-cli"
+
+[dependencies]
+loco-rs = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+tokio = { version = "1.45", default-features = false, features = ["rt-multi-thread", "macros", "time"] }
+async-trait = { version = "0.1" }
+axum = { version = "0.8", features = ["multipart"] }
+axum-extra = { version = "0.10", features = ["cookie", "form"] }
+tower-http = { version = "0.6", features = ["cors", "compression-gzip", "limit", "trace", "fs"] }
+tower = { version = "0.5" }
+tracing = { version = "0.1" }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+regex = { version = "1.11" }
+migration = { path = "migration" }
+sea-orm = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+validator = { version = "0.20" }
+uuid = { version = "1.6", features = ["v4", "serde"] }
+jsonwebtoken = { version = "9" }
+bcrypt = { version = "0.17" }
+sha2 = { version = "0.10" }
+rand = { version = "0.8" }
+cookie = { version = "0.18" }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1", "tokio1-rustls-tls", "builder"] }
+mime_guess = { version = "2" }
+sanitize-filename = { version = "0.6" }
+
+[[bin]]
+name = "contact-system-cli"
+path = "src/bin/main.rs"
+
+[dev-dependencies]
+loco-rs = { workspace = true, features = ["testing"] }
+serial_test = { version = "3.1.1" }
