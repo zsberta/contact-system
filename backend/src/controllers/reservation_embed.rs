@@ -587,8 +587,9 @@ async fn create_booking_public(
                     txn.rollback().await.ok();
                     return Err((StatusCode::BAD_REQUEST, reason));
                 }
-                Err(_) => {
+                Err(e) => {
                     txn.rollback().await.ok();
+                    tracing::error!("[reservation-embed/book] slot-check failed: {e:?}");
                     return Err((StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()));
                 }
             }
@@ -649,6 +650,7 @@ async fn create_booking_public(
                     if R::pg_debug_code(&e).as_deref() == Some("23P01") {
                         return (StatusCode::CONFLICT, "Slot already booked".to_string());
                     }
+                    tracing::error!("[reservation-embed/book] insert failed: {e:?}");
                     (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
                 })?;
             txn.commit().await.map_err(|e| { tracing::error!("[reservation-embed/book] txn-step L654 failed: {e:?}"); (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()) })?;
