@@ -10,7 +10,11 @@ server:
   host: <%= get_env(name="APP_PUBLIC_URL", default="http://localhost") %>
   middlewares:
     static:
-      enable: true
+      # Disabled: the SPA + uploads are served by explicit controller
+      # routes (controllers::spa), mirroring the old Express tail.
+      # Leaving this enabled nests a second static handler that
+      # answers deep links with 404.
+      enable: false
       must_exist: false
       precompressed: false
       folder:

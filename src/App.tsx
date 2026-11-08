@@ -135,6 +135,7 @@ const App = () => (
                     <Route path="/logs" element={<LogsPage />} />
                     <Route path="/server-info" element={<ServerInfoPage />} />
                     <Route path="/gateway" element={<GatewayPage />} />
+                    <Route path="/settings" element={<SettingsPage />} />
                     <Route path="/users/create" element={<UserCreatePage />} />
                     <Route path="/users/view/:id" element={<UserViewPage />} />
                     <Route path="/users/edit/:id" element={<UserEditPage />} />

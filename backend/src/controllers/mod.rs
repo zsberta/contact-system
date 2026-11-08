@@ -30,5 +30,6 @@ pub mod server_info;
 pub mod service;
 pub mod service_public;
 pub mod settings;
+pub mod spa;
 pub mod submissions;
 pub mod users;

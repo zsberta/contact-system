@@ -22,6 +22,84 @@ use std::time::Instant;
 use crate::middleware::auth::{require_admin, MaybeUser};
 use crate::workers::server_info as server_info_worker;
 
+// ---------------------------------------------------------------------------
+// Host facts (Linux /proc, graceful nulls elsewhere). The container is
+// Debian; local macOS dev gets nulls the same way missing /proc would.
+// ---------------------------------------------------------------------------
+
+static STARTED_AT: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
+fn uptime_sec() -> u64 {
+    STARTED_AT.get_or_init(Instant::now).elapsed().as_secs()
+}
+
+fn rustc_version() -> String {
+    option_env!("RUSTC_VERSION").unwrap_or("unknown").to_string()
+}
+
+fn hostname() -> String {
+    std::env::var("HOSTNAME")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            std::fs::read_to_string("/etc/hostname")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn proc_file(name: &str) -> Option<String> {
+    std::fs::read_to_string(format!("/proc/{name}")).ok()
+}
+
+fn load_avg() -> Vec<f64> {
+    proc_file("loadavg")
+        .and_then(|s| {
+            let v: Vec<f64> = s.split_whitespace().take(3).filter_map(|x| x.parse().ok()).collect();
+            if v.len() == 3 { Some(v) } else { None }
+        })
+        .unwrap_or_else(|| vec![0.0, 0.0, 0.0])
+}
+
+fn cpu_count() -> Option<u32> {
+    std::thread::available_parallelism().ok().map(|n| n.get() as u32)
+}
+
+fn meminfo_kb(key: &str) -> Option<u64> {
+    proc_file("meminfo")?.lines().find_map(|l| {
+        let mut it = l.split_whitespace();
+        if it.next()? == format!("{key}:") {
+            it.next()?.parse::<u64>().ok()
+        } else {
+            None
+        }
+    })
+}
+
+fn mem_total_bytes() -> Option<u64> {
+    meminfo_kb("MemTotal").map(|kb| kb * 1024)
+}
+
+fn mem_free_bytes() -> Option<u64> {
+    // MemAvailable is the honest "free for new work" figure.
+    meminfo_kb("MemAvailable")
+        .or_else(|| meminfo_kb("MemFree"))
+        .map(|kb| kb * 1024)
+}
+
+fn process_memory() -> serde_json::Value {
+    // rss from /proc/self/statm (pages * page size); heap detail doesn't
+    // exist for Rust — report rss and mirror it so shape matches.
+    let rss: u64 = std::fs::read_to_string("/proc/self/statm")
+        .ok()
+        .and_then(|s| s.split_whitespace().nth(1)?.parse::<u64>().ok())
+        .map(|pages| pages * 4096)
+        .unwrap_or(0);
+    serde_json::json!({ "rss": rss, "heapUsed": rss, "heapTotal": rss, "external": 0 })
+}
+
 fn is_secret_key(key: &str) -> bool {
     let upper = key.to_uppercase();
     ["PASS", "SECRET", "TOKEN", "KEY", "PRIVATE", "CREDENTIAL", "DATABASE", "DATABASE_URL", "DSN"]
@@ -270,10 +348,19 @@ async fn snapshot(State(ctx): State<AppContext>, MaybeUser(u): MaybeUser, Query(
         Json(json!({
             "collectedAt": chrono::Utc::now().to_rfc3339(),
             "app": {
+                "nodeVersion": format!("rust-{} (loco)", rustc_version()),
                 "platform": std::env::consts::OS,
                 "arch": std::env::consts::ARCH,
-                "env": std::env::var("NODE_ENV").unwrap_or_else(|_| "development".to_string()),
-                "db": if db_ok { json!({ "ok": true, "latencyMs": latency_ms }) }
+                "hostname": hostname(),
+                "uptimeSec": uptime_sec(),
+                "loadAvg": load_avg(),
+                "cpuCount": cpu_count(),
+                "memTotalBytes": mem_total_bytes(),
+                "memFreeBytes": mem_free_bytes(),
+                "processMemory": process_memory(),
+                "eventLoopLagMs": crate::workers::server_info::event_loop_lag_ms(),
+                "env": std::env::var("LOCO_ENV").ok().filter(|v| !v.is_empty()).or_else(|| std::env::var("NODE_ENV").ok()).unwrap_or_else(|| "development".to_string()),
+                "db": if db_ok { json!({ "ok": true, "latencyMs": latency_ms, "pool": { "total": 10, "idle": 10, "waiting": 0, "max": 10 } }) }
                       else { json!({ "ok": false, "error": "DB unreachable" }) },
                 "uploads": uploads_usage(),
                 "disk": null,

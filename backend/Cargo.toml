@@ -10,7 +10,7 @@ loco-rs = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 serde_urlencoded = { version = "0.7" }
-tokio = { version = "1.45", default-features = false, features = ["rt-multi-thread", "macros", "time"] }
+tokio = { version = "1.45", default-features = false, features = ["rt-multi-thread", "macros", "time", "fs"] }
 async-trait = { version = "0.1" }
 axum = { version = "0.8", features = ["multipart"] }
 axum-extra = { version = "0.10", features = ["cookie", "form"] }

@@ -65,25 +65,16 @@ impl Hooks for App {
         // Origin/Referer check, then rate limiting, then double-submit
         // CSRF check. Layers run last-added-first, so they are added in
         // reverse execution order.
-        let router = router
+        Ok(router
             .layer(middleware::from_fn(crate::middleware::csrf::csrf_protection))
             .layer(middleware::from_fn(
                 crate::middleware::rate_limit::limit_all,
             ))
-            .layer(middleware::from_fn(crate::middleware::csrf::origin_check));
-        // SPA fallback: serve the Vite build (dist/) for non-API GETs.
-        // The Docker image copies the frontend build to ./dist.
-        let dist = std::env::var("FRONTEND_DIST").unwrap_or_else(|_| "dist".to_string());
-        let router = if std::path::Path::new(&dist).join("index.html").exists() {
-            router.fallback_service(
-                axum::routing::get_service(tower_http::services::ServeDir::new(&dist).not_found_service(
-                    tower_http::services::ServeFile::new(format!("{dist}/index.html")),
-                )),
-            )
-        } else {
-            router
-        };
-        Ok(router)
+            .layer(middleware::from_fn(crate::middleware::csrf::origin_check)))
+        // NOTE: no fallback_service here on purpose — the SPA is served by
+        // the explicit controllers::spa routes (registered last in routes()
+        // so API mounts win). A fallback_service would be silently replaced
+        // by Loco's own fallback middleware and answer 404 (see #spa-404).
     }
 
     fn routes(_ctx: &AppContext) -> AppRoutes {
@@ -122,6 +113,10 @@ impl Hooks for App {
             .add_route(controllers::server_info::routes())
             .add_route(controllers::gateway::routes())
             .add_route(controllers::health::routes())
+            // SPA + uploads last: explicit routes (not a fallback service)
+            // so API mounts always win and deep links return 200 like the
+            // old Express `app.get("*")` did.
+            .add_route(controllers::spa::routes())
     }
 
     async fn connect_workers(_ctx: &AppContext, _queue: &Queue) -> Result<()> {
