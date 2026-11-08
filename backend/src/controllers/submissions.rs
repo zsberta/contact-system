@@ -743,7 +743,7 @@ async fn booking_create(
                 "INSERT INTO reservation_bookings
                    (reservation_id, service_id, starts_at, ends_at, ip_address,
                     user_agent, referer, locale, data)
-                 VALUES ($1, $2, $3, $4, NULL, 'admin-panel', NULL, NULL, $5::jsonb)
+                 VALUES ($1, $2, $3::timestamptz, $4::timestamptz, NULL, 'admin-panel', NULL, NULL, $5::jsonb)
                  RETURNING id, starts_at, ends_at, booked_at",
                 vec![
                     reservation_id.into(),
