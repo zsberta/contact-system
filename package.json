@@ -5,20 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:server": "node --watch server.js",
     "check:i18n": "node scripts/check-i18n-keys.mjs",
     "build": "npm run check:i18n && vite build",
     "typecheck": "tsc -b",
     "lint": "npm run check:i18n && eslint .",
     "preview": "vite preview",
-    "start": "NODE_ENV=production node server.js",
-    "db:migrate": "node-pg-migrate up -d DATABASE_URL -m db/migrations --migration-file-language sql",
-    "db:migrate:down": "node-pg-migrate down -d DATABASE_URL -m db/migrations --migration-file-language sql",
-    "db:seed": "node db/seed.js",
-    "db:fresh": "node scripts/db-fresh.mjs",
-    "db:status": "node scripts/migration-status.mjs",
-    "db:fix-names": "node scripts/fix-migration-names.mjs",
-    "db:create": "node scripts/create-migration.mjs"
+    "start": "echo 'backend is now Rust/Loco: use docker compose up -d --build'",
+    "backend:check": "cargo check -p contact-system",
+    "backend:routes": "cargo run -p contact-system --bin contact-system-cli -- routes --environment development",
+    "db:migrate": "echo 'migrations run inside the Rust binary on container boot (see backend/entrypoint.sh)'",
+    "db:seed": "echo 'admin seed runs inside the Rust binary on container boot (task seed_admin)'"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
