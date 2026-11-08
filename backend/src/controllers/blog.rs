@@ -34,6 +34,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::json;
 
 use crate::middleware::auth::{CurrentUser, scoped_project_ids};
+use crate::middleware::query::MultiQuery;
 
 // ---------------------------------------------------------------------------
 // Small response helpers
@@ -845,7 +846,7 @@ fn deny_unscoped(user: &CurrentUser, project_id: i64) -> Option<Response> {
 async fn list(
     State(ctx): State<AppContext>,
     user: CurrentUser,
-    Query(q): Query<HashMap<String, Vec<String>>>,
+    MultiQuery(q): MultiQuery,
 ) -> impl IntoResponse {
     let page = first(&q, &["page"])
         .and_then(|s| s.parse().ok())
@@ -997,7 +998,7 @@ async fn list(
 async fn slug_check(
     State(ctx): State<AppContext>,
     user: CurrentUser,
-    Query(q): Query<HashMap<String, Vec<String>>>,
+    MultiQuery(q): MultiQuery,
 ) -> impl IntoResponse {
     let slug = first(&q, &["slug"]).unwrap_or("").trim().to_string();
     let project_id = first(&q, &["projectId", "project_id"]).and_then(|s| s.parse::<i64>().ok());

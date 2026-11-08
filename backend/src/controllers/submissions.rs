@@ -25,6 +25,7 @@ use sea_orm::{ConnectionTrait, Statement};
 use serde_json::json;
 
 use crate::middleware::auth::CurrentUser;
+use crate::middleware::query::MultiQuery;
 
 fn err(status: StatusCode, msg: &str) -> Response {
     (status, Json(json!({ "errorMessage": msg }))).into_response()
@@ -163,7 +164,7 @@ fn form_row(row: &sea_orm::QueryResult) -> serde_json::Value {
 async fn forms_list(
     State(ctx): State<AppContext>,
     user: CurrentUser,
-    Query(q): Query<HashMap<String, Vec<String>>>,
+    MultiQuery(q): MultiQuery,
 ) -> Response {
     let p = parse_page(&q);
     let sort_field = if p.sort_field.is_empty() {
@@ -323,7 +324,7 @@ fn booking_row(row: &sea_orm::QueryResult) -> serde_json::Value {
 async fn bookings_list(
     State(ctx): State<AppContext>,
     user: CurrentUser,
-    Query(q): Query<HashMap<String, Vec<String>>>,
+    MultiQuery(q): MultiQuery,
 ) -> Response {
     let p = parse_page(&q);
     let sort_field = if p.sort_field.is_empty() {

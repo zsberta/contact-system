@@ -27,6 +27,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::json;
 
 use crate::middleware::auth::{CurrentUser, MaybeUser, require_admin, scoped_project_ids};
+use crate::middleware::query::MultiQuery;
 
 fn err(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, Json(json!({ "errorMessage": msg.into() }))).into_response()
@@ -83,7 +84,7 @@ fn dto_from_row(r: &sea_orm::QueryResult) -> Result<serde_json::Value, sea_orm::
     }))
 }
 
-const PAY_COLS: &str = "id, project_id, amount::float8 AS amount, status, due_date, created_by, paid_at, note, created_at, updated_at";
+const PAY_COLS: &str = "id, project_id, amount::float8 AS amount, status::text AS status, due_date, created_by::text AS created_by, paid_at, note, created_at, updated_at";
 
 fn body_get<'a>(
     body: &'a serde_json::Value,
@@ -259,7 +260,7 @@ fn validate_payment(body: &serde_json::Value, partial: bool) -> Result<ValidPaym
 async fn list(
     State(ctx): State<AppContext>,
     user: CurrentUser,
-    Query(q): Query<HashMap<String, Vec<String>>>,
+    MultiQuery(q): MultiQuery,
 ) -> impl IntoResponse {
     let page = first(&q, &["page"])
         .and_then(|s| s.parse().ok())
@@ -582,7 +583,7 @@ async fn delete_one(
         .db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT status FROM payments WHERE id = $1",
+            "SELECT status::text AS status FROM payments WHERE id = $1",
             vec![pid.into()],
         ))
         .await

@@ -30,6 +30,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::json;
 
 use crate::middleware::auth::{CurrentUser, scoped_project_ids};
+use crate::middleware::query::MultiQuery;
 
 /// Enduser project gate (mirrors requireProjectAccess in faq.js).
 fn deny_unscoped(user: &CurrentUser, project_id: i64) -> Option<Response> {
@@ -248,7 +249,7 @@ async fn ensure_module(
 async fn list(
     State(ctx): State<AppContext>,
     user: CurrentUser,
-    Query(q): Query<HashMap<String, Vec<String>>>,
+    MultiQuery(q): MultiQuery,
 ) -> impl IntoResponse {
     let page = first(&q, &["page"])
         .and_then(|s| s.parse().ok())

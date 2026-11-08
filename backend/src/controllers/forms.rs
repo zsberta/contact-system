@@ -24,6 +24,7 @@ use sea_orm::{ConnectionTrait, Statement};
 use serde_json::json;
 
 use crate::middleware::auth::{CurrentUser, MaybeUser};
+use crate::middleware::query::MultiQuery;
 
 // ---------------------------------------------------------------------------
 // Small helpers (duplicated locally per porting rules)
@@ -357,7 +358,7 @@ fn scope_sql(ids: &[i64], alias: &str) -> String {
 async fn list(
     State(ctx): State<AppContext>,
     user: CurrentUser,
-    Query(q): Query<HashMap<String, Vec<String>>>,
+    MultiQuery(q): MultiQuery,
 ) -> Response {
     let one = |k: &str| {
         q.get(k)
@@ -980,7 +981,7 @@ async fn submissions_list(
     State(ctx): State<AppContext>,
     user: CurrentUser,
     Path(id): Path<i64>,
-    Query(q): Query<HashMap<String, Vec<String>>>,
+    MultiQuery(q): MultiQuery,
 ) -> Response {
     if id <= 0 {
         return err(StatusCode::BAD_REQUEST, "Invalid form id");

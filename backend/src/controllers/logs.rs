@@ -16,6 +16,7 @@ use serde_json::json;
 use std::collections::HashMap;
 
 use crate::middleware::auth::{require_admin, MaybeUser};
+use crate::middleware::query::MultiQuery;
 
 const SEARCH_COLUMNS: &[&str] = &["action", "path", "actor_email", "entity_label", "metadata::text"];
 
@@ -132,7 +133,7 @@ async fn meta(State(ctx): State<AppContext>, MaybeUser(u): MaybeUser) -> Respons
 async fn list(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
-    Query(q): Query<HashMap<String, Vec<String>>>,
+    MultiQuery(q): MultiQuery,
 ) -> Response {
     if let Err(r) = require_admin(&u) {
         return r;

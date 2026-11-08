@@ -24,6 +24,7 @@ use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
 use crate::middleware::auth::{scoped_project_ids, CurrentUser};
+use crate::middleware::query::MultiQuery;
 
 const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
 
@@ -390,7 +391,7 @@ fn enduser_forbidden(user: &CurrentUser) -> Option<Response> {
 async fn list(
     State(ctx): State<AppContext>,
     user: CurrentUser,
-    Query(q): Query<HashMap<String, Vec<String>>>,
+    MultiQuery(q): MultiQuery,
 ) -> Response {
     let page: i64 = one(&q, "page").and_then(|v| v.parse().ok()).unwrap_or(0).max(0);
     let size: i64 = one(&q, "size").and_then(|v| v.parse().ok()).unwrap_or(10).clamp(1, 100);

@@ -24,6 +24,7 @@ use sea_orm::{ConnectionTrait, Statement};
 use serde_json::json;
 
 use crate::middleware::auth::{CurrentUser, MaybeUser};
+use crate::middleware::query::MultiQuery;
 
 fn err(status: StatusCode, msg: &str) -> Response {
     (status, Json(json!({ "errorMessage": msg }))).into_response()
@@ -319,7 +320,7 @@ fn row_to_dto(row: &sea_orm::QueryResult) -> serde_json::Value {
 async fn list(
     State(ctx): State<AppContext>,
     user: CurrentUser,
-    Query(q): Query<HashMap<String, Vec<String>>>,
+    MultiQuery(q): MultiQuery,
 ) -> Response {
     let one = |k: &str| {
         q.get(k)

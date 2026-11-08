@@ -22,6 +22,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use loco_rs::prelude::*;
+use crate::middleware::query::MultiQuery;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::json;
 
@@ -253,7 +254,7 @@ async fn list_posts(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
     Path(domain): Path<String>,
-    Query(q): Query<HashMap<String, Vec<String>>>,
+    MultiQuery(q): MultiQuery,
 ) -> Response {
     let locale = q
         .get("locale")
@@ -358,7 +359,7 @@ async fn list_slugs(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
     Path(domain): Path<String>,
-    Query(q): Query<HashMap<String, Vec<String>>>,
+    MultiQuery(q): MultiQuery,
 ) -> Response {
     let locale = q
         .get("locale")
@@ -435,7 +436,7 @@ async fn get_post(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
     Path((domain, slug)): Path<(String, String)>,
-    Query(q): Query<HashMap<String, Vec<String>>>,
+    MultiQuery(q): MultiQuery,
 ) -> Response {
     if !is_slug(&slug) {
         return err(StatusCode::BAD_REQUEST, "Invalid slug");

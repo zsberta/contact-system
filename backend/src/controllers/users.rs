@@ -23,6 +23,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 
 use crate::middleware::auth::{require_admin, MaybeUser};
+use crate::middleware::query::MultiQuery;
 
 const INVITE_TTL_SEC: i64 = 24 * 60 * 60; // 24 hours
 
@@ -124,7 +125,7 @@ fn sortable_col(field: &str) -> &'static str {
 async fn list(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
-    Query(q): Query<HashMap<String, Vec<String>>>,
+    MultiQuery(q): MultiQuery,
 ) -> Response {
     if let Err(r) = require_admin(&u) {
         return r;
