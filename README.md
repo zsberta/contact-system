@@ -1,12 +1,14 @@
 # Zsolt's CRM
 
-A simple, single-user admin dashboard. Login-only, no public registration, no SSO. Built on the same React/Vite/shadcn stack as InventoBee, but with Express + PostgreSQL as the backend (no Java proxy).
+A simple, single-user admin dashboard. Login-only, no public registration, no SSO. React/Vite/shadcn frontend with a **Rust (Loco) + PostgreSQL** backend.
+
+> Branch `rust-loco-migration`: the backend was ported from Express to Rust/Loco with zero data/feature loss. The old Node backend is archived under `old_backend/` for reference. Same API contract (`/api/*`), same Postgres schema, same React SPA.
 
 ## Stack
 
 - **Frontend**: React 18 + TypeScript + Vite + shadcn/ui (Radix + Tailwind) + react-router + react-query + react-hook-form + zod + i18next
-- **Backend**: Node.js + Express 4 + PostgreSQL (`pg`) + JWT (`jsonwebtoken`) + bcrypt
-- **Tooling**: ESLint, multi-stage Docker, docker-compose, node-pg-migrate
+- **Backend**: Rust + Loco (`backend/`, Axum + SeaORM) + PostgreSQL + JWT + bcrypt
+- **Tooling**: ESLint, Cargo, multi-stage Docker, docker-compose (migrations embedded in the binary)
 
 ## Quickstart (Docker)
 
@@ -17,8 +19,10 @@ echo "JWT_SECRET=$(openssl rand -hex 64)" >> .env.tmp
 sed -i '' "s|JWT_SECRET=.*|JWT_SECRET=$(openssl rand -hex 64)|" .env 2>/dev/null \
   || sed -i "s|JWT_SECRET=.*|JWT_SECRET=$(openssl rand -hex 64)|" .env
 # Set admin credentials in .env
-docker compose -f docker-compose.local.yml up --build
+docker compose up -d --build
 ```
+
+The app will be at <http://localhost>. Migrations run automatically on boot (embedded SQL, idempotent — safe against the existing database volume), then the admin user is ensured from `ADMIN_EMAIL`/`ADMIN_PASSWORD`, then the server starts.
 
 The app will be at <http://localhost>. Postgres at `localhost:5432` (user `contact`, password `contact_pw`, database `contact_system`).
 
@@ -30,13 +34,13 @@ You need a running PostgreSQL. Update `DATABASE_URL` in `.env` accordingly.
 cp .env.example .env
 # Set JWT_SECRET (must be ≥ 32 bytes), ADMIN_EMAIL, ADMIN_PASSWORD
 npm install
-npm run db:migrate
-npm run db:seed
-npm run build
-npm start                   # production: serves SPA + API on :3000
-# OR for dev:
-npm run dev                 # Vite dev server on :8080 (proxies /api → :3000)
-npm run dev:server          # Express with --watch on :3000
+npm run build             # frontend SPA into dist/
+# Backend (needs Rust toolchain + running Postgres, DATABASE_URL in env):
+cargo run -p contact-system --bin contact-system-cli -- db migrate
+cargo run -p contact-system --bin contact-system-cli -- task seed_admin
+cargo run -p contact-system --bin contact-system-cli -- start
+# OR for frontend dev:
+npm run dev               # Vite dev server on :8080 (proxies /api → :3000)
 ```
 
 ## Environment variables

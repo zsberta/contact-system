@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 # Rust builder for the Loco backend.
-FROM rust:1.90-slim-bookworm AS backend-builder
+# NOTE: keep this on the latest Rust 1.x — loco-rs/sea-orm require ≥1.94.
+FROM rust:1-bookworm AS backend-builder
 WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates \
   && rm -rf /var/lib/apt/lists/*
