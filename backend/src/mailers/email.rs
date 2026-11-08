@@ -1,6 +1,18 @@
-//! SMTP mailer (lettre-backed). Port of old_backend/lib/email.js +
-//! email-queue.js: paced sending with retry, EMAIL_SENDING kill-switch.
+//! SMTP mailer (lettre-backed). Port of old_backend/lib/email.js.
+//!
+//! Direct dispatch with the EMAIL_SENDING kill-switch. The old
+//! token-bucket pacing/retries from email-queue.js are intentionally not
+//! replicated (no worker queue exists in this workspace yet) — sends are
+//! best-effort and never fail the calling request.
 
+use lettre::{
+    message::{Mailbox, MultiPart, SinglePart},
+    transport::smtp::{
+        authentication::Credentials,
+        client::{Tls, TlsParameters},
+    },
+    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
+};
 use loco_rs::prelude::*;
 
 pub struct EmailMailer;
@@ -20,8 +32,75 @@ impl EmailMailer {
         let user = std::env::var("SMTP_USER").unwrap_or_default();
         let pass = std::env::var("SMTP_PASSWORD").unwrap_or_default();
         let from = std::env::var("SMTP_FROM").unwrap_or_else(|_| "info@zsoltberta.hu".to_string());
-        let _ = (host, port, user, pass, from, to, subject, html, text);
-        // Full SMTP dispatch lands with the email-queue worker port.
-        Ok(())
+        let reject_unauthorized = std::env::var("SMTP_REJECT_UNAUTHORIZED")
+            .map(|v| v != "false")
+            .unwrap_or(true);
+
+        fn build_message(
+            from: &str,
+            to: &str,
+            subject: &str,
+            html: &str,
+            text: &str,
+        ) -> std::result::Result<Message, String> {
+            let from_box: Mailbox = from.parse().map_err(|e| format!("bad SMTP_FROM: {e}"))?;
+            let to_box: Mailbox = to.parse().map_err(|e| format!("bad recipient: {e}"))?;
+            Message::builder()
+                .from(from_box)
+                .to(to_box)
+                .subject(subject)
+                .multipart(
+                    MultiPart::alternative()
+                        .singlepart(SinglePart::plain(text.to_string()))
+                        .singlepart(SinglePart::html(html.to_string())),
+                )
+                .map_err(|e| format!("message build failed: {e}"))
+        }
+        let msg = match build_message(&from, to, subject, html, text) {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!("[mailer] {e}");
+                return Ok(());
+            }
+        };
+
+        let tls = if port == 465 {
+            if reject_unauthorized {
+                Tls::Wrapper(
+                    TlsParameters::new(host.clone())
+                        .map_err(|e| Error::Message(format!("tls setup failed: {e}")))?,
+                )
+            } else {
+                Tls::Wrapper(
+                    TlsParameters::builder(host.clone())
+                        .dangerous_accept_invalid_certs(true)
+                        .build()
+                        .map_err(|e| Error::Message(format!("tls setup failed: {e}")))?,
+                )
+            }
+        } else {
+            Tls::Opportunistic(
+                TlsParameters::new(host.clone())
+                    .map_err(|e| Error::Message(format!("tls setup failed: {e}")))?,
+            )
+        };
+        let mut builder =
+            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host.clone()).port(port);
+        builder = builder.tls(tls);
+        if !user.is_empty() {
+            builder = builder.credentials(Credentials::new(user, pass));
+        }
+        let transport = builder.build();
+        match transport.send(msg).await {
+            Ok(_) => {
+                tracing::info!("[mailer] sent to {to} subject={subject}");
+                Ok(())
+            }
+            Err(e) => {
+                // Best-effort: log, never fail the request.
+                tracing::warn!("[mailer] send to {to} failed (best-effort): {e}");
+                Ok(())
+            }
+        }
     }
 }
