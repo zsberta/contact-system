@@ -38,8 +38,8 @@ impl Hooks for App {
         environment: &Environment,
         config: Config,
     ) -> Result<BootResult> {
-        // Fail-fast on unsafe config (mirrors old_backend/lib/startup-guard.js).
-        crate::startup_guard::assert_safe_startup();
+        // NOTE: the startup guard runs in main() (it must cover `db`
+        // subcommands too, which bypass boot()).
         create_app::<Self, Migrator>(mode, environment, config).await
     }
 
