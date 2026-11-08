@@ -799,6 +799,26 @@ async fn create_booking_public(
                 });
             }
         }
+        // In-app + push notification to worker (old embed create:
+        // createNotification BOOKING_CREATED; fan-out is central).
+        if let Some(wid) = svc.worker_user_id {
+            let cname = format!("{} {}", contact.first_name, contact.last_name);
+            let cname = cname.trim();
+            let customer_name = if cname.is_empty() { contact.email.clone() } else { cname.to_string() };
+            R::notify_booking_created(
+                &ctx.db,
+                wid,
+                &locale,
+                &customer_name,
+                &sname,
+                &starts_iso,
+                &ends_iso,
+                &reservation.timezone,
+                bid,
+                reservation.project_id,
+            )
+            .await;
+        }
         // "remember me" profile opt-in (best-effort)
         let mut profile: Option<Value> = None;
         if body.get("rememberCustomer").and_then(|v| v.as_bool()).unwrap_or(false) {

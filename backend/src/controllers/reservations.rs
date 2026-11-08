@@ -3857,7 +3857,7 @@ pub(crate) async fn notify_booking_cancelled(db: &sea_orm::DatabaseConnection, r
     let bk = db
         .query_one_raw(Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Postgres,
-            "SELECT rb.id, rb.starts_at, rb.ends_at, rb.locale, rb.email, rb.first_name, rb.last_name, rb.service_name_snapshot, rb.service_id, COALESCE(rst.name, rb.service_name_snapshot) AS service_name, w.email AS worker_email, w.first_name AS worker_first, w.last_name AS worker_last FROM reservation_bookings rb LEFT JOIN reservation_service_translations rst ON rst.service_id = rb.service_id AND rst.locale = 'hu' LEFT JOIN reservation_services rs ON rs.id = rb.service_id LEFT JOIN users w ON w.id = rs.worker_user_id WHERE rb.id = $1",
+            "SELECT rb.id, rb.starts_at, rb.ends_at, rb.locale, rb.email, rb.first_name, rb.last_name, rb.service_name_snapshot, rb.service_id, COALESCE(rst.name, rb.service_name_snapshot) AS service_name, rs.worker_user_id, w.email AS worker_email, w.first_name AS worker_first, w.last_name AS worker_last FROM reservation_bookings rb LEFT JOIN reservation_service_translations rst ON rst.service_id = rb.service_id AND rst.locale = 'hu' LEFT JOIN reservation_services rs ON rs.id = rb.service_id LEFT JOIN users w ON w.id = rs.worker_user_id WHERE rb.id = $1",
             vec![booking_id.into()],
         ))
         .await
@@ -3990,6 +3990,93 @@ pub(crate) async fn notify_booking_cancelled(db: &sea_orm::DatabaseConnection, r
             from_address: None,
         });
     }
+    // In-app + push notification to the worker (old
+    // reservation-cancellation-notifications.js: in-app row only when a
+    // worker is assigned; push fan-out is central in create_notification).
+    if let Some(wid) = bk
+        .try_get::<Option<i64>>("", "worker_user_id")
+        .ok()
+        .flatten()
+    {
+        let date = crate::push::format_date(&starts, &locale, &tz);
+        let title = crate::push::t(&locale, "booking_cancelled", &[]);
+        let message = crate::push::t(
+            &locale,
+            "booking_cancelled_message",
+            &[
+                ("customerName", customer_name.as_str()),
+                ("serviceName", service_name.as_str()),
+                ("date", date.as_str()),
+            ],
+        );
+        crate::push::create_notification(
+            db,
+            wid,
+            "BOOKING_CANCELLED",
+            &title,
+            &message,
+            Some("booking"),
+            Some(booking_id as i32),
+            serde_json::json!({
+                "serviceName": service_name,
+                "customerName": customer_name,
+                "startsAt": starts,
+                "endsAt": ends,
+                "locale": locale,
+                "timezone": tz,
+            }),
+        )
+        .await;
+    }
+}
+
+/// In-app + push notification to the worker for a new booking (old
+/// routes/reservation-embed.js + routes/reservations.js admin create:
+/// `createNotification({ type: "BOOKING_CREATED", ... })`; push fan-out
+/// is central in create_notification).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn notify_booking_created(
+    db: &sea_orm::DatabaseConnection,
+    worker_id: i64,
+    locale: &str,
+    customer_name: &str,
+    service_name: &str,
+    starts_iso: &str,
+    ends_iso: &str,
+    tz: &str,
+    booking_id: i64,
+    project_id: i64,
+) {
+    let _ = project_id;
+    let date = crate::push::format_date(starts_iso, locale, tz);
+    let title = crate::push::t(locale, "new_booking", &[]);
+    let message = crate::push::t(
+        locale,
+        "booking_message",
+        &[
+            ("customerName", customer_name),
+            ("serviceName", service_name),
+            ("date", date.as_str()),
+        ],
+    );
+    crate::push::create_notification(
+        db,
+        worker_id,
+        "BOOKING_CREATED",
+        &title,
+        &message,
+        Some("booking"),
+        Some(booking_id as i32),
+        serde_json::json!({
+            "serviceName": service_name,
+            "customerName": customer_name,
+            "startsAt": starts_iso,
+            "endsAt": ends_iso,
+            "locale": locale,
+            "timezone": tz,
+        }),
+    )
+    .await;
 }
 
 /// Customer confirmation for a new booking. Same template/kind as the old
@@ -5031,6 +5118,26 @@ async fn create_booking(
                             });
                         }
                     }
+                }
+                // In-app + push notification to worker (old admin create:
+                // createNotification BOOKING_CREATED; fan-out is central).
+                if let Some(wid) = svc.worker_user_id {
+                    let cname = format!("{} {}", contact.first_name, contact.last_name);
+                    let cname = cname.trim();
+                    let customer_name = if cname.is_empty() { email.clone() } else { cname.to_string() };
+                    notify_booking_created(
+                        &ctx.db,
+                        wid,
+                        &locale,
+                        &customer_name,
+                        &sname,
+                        &starts_iso,
+                        &ends_iso,
+                        &res_tz,
+                        bid,
+                        project_id,
+                    )
+                    .await;
                 }
                 tracing::info!("[reservations] booking.create id={bid}");
                 let full = ctx
