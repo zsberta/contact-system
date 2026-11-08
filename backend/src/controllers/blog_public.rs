@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use axum::{
     body::Body,
-    extract::{Path, Query},
+    extract::Path,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };

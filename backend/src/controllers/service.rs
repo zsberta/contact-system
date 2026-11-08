@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 
 use axum::{
-    extract::{Path, Query},
+    extract::Path,
     http::StatusCode,
     response::{IntoResponse, Response},
 };

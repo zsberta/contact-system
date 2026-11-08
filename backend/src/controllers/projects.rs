@@ -14,7 +14,7 @@
 
 use axum::{
     body::Body,
-    extract::{Multipart, Path, Query, State},
+    extract::{Multipart, Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };

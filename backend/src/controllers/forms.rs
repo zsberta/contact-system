@@ -10,11 +10,10 @@
 //!   GET    /api/forms/:id/submissions
 //!   GET    /api/forms/:id/submissions/:submissionId
 
-use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };

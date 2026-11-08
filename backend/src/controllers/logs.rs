@@ -6,7 +6,7 @@
 //!   GET /api/logs/{id} — single row or 404
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };

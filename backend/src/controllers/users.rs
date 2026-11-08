@@ -13,7 +13,7 @@
 //!   DELETE /api/users/{id}/projects/{pid}    (remove one, idempotent)
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
