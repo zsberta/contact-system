@@ -34,12 +34,10 @@
 //! - `logActivity`/`diffObjects`/`logError` have no Rust equivalent yet:
 //!   mutations emit `tracing::info!` instead (same action names).
 //! - `notifySubmitter` (lib/email.js) + `createNotification` (lib/push.js)
-//!   have no Rust equivalent yet: booking e-mails are sent best-effort via
-//!   `crate::mailers::email::EmailMailer::send` with a compact bilingual
-//!   subject/body (not the full email-templates.js HTML); in-app + browser
-//!   push notifications are skipped. `EmailMailer::send` itself is
-//!   currently a paced no-op until the queue worker lands, so this is
-//!   doubly best-effort.
+//!   are replaced by the templated queue fan-out (`enqueue_mail` with
+//!   `renderBookingAutoReply` / `renderBookingDeletedNotification` /
+//!   `renderWorkerBookingNotification`, same subjects/kinds as the old
+//!   code); in-app + browser push notifications are skipped.
 //! - Image sniffing uses hand-rolled magic bytes (png/jpeg/webp/avif) since
 //!   the `file-type` crate is unavailable.
 //! - Timestamps are rendered `YYYY-MM-DDTHH:MM:SS.mmmZ` (same instants as
@@ -61,7 +59,6 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use crate::mailers::email::EmailMailer;
 use crate::middleware::auth::{CurrentUser, MaybeUser};
 
 // ---------------------------------------------------------------------------
@@ -3840,8 +3837,13 @@ async fn create_booking_txn(
 // Cancellation notifications (port of reservation-cancellation-notifications.js)
 // ---------------------------------------------------------------------------
 
-/// Best-effort cancellation e-mails (customer + worker). Push/in-app
-/// notifications have no Rust equivalent yet and are skipped.
+/// Best-effort cancellation e-mails (customer + worker). Port of
+/// `old_backend/lib/reservation-cancellation-notifications.js` (same
+/// templates/kinds): the customer gets the cancelled booking auto-reply
+/// (`renderBookingAutoReply` with `cancelled: true`, project-branded,
+/// sent from the worker address when one is assigned); the worker gets the
+/// operator-facing worker template. Push/in-app notifications have no Rust
+/// equivalent yet and are skipped.
 pub(crate) async fn notify_booking_cancelled(db: &sea_orm::DatabaseConnection, reservation_id: i64, booking_id: i64) {
     let res_row = db
         .query_one_raw(Statement::from_sql_and_values(
@@ -3875,21 +3877,78 @@ pub(crate) async fn notify_booking_cancelled(db: &sea_orm::DatabaseConnection, r
     let proj = db
         .query_one_raw(Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Postgres,
-            "SELECT name, customer_email FROM projects WHERE id = $1",
+            "SELECT name, domain_address, customer_email FROM projects WHERE id = $1",
             vec![project_id.into()],
         ))
         .await
         .ok()
         .flatten();
-    let project_name = proj.as_ref().and_then(|r| str_opt(r, "name")).unwrap_or_else(|| format!("project #{project_id}"));
-    let subject = if hu { format!("Foglalás törölve – {service_name}") } else { format!("Booking cancelled – {service_name}") };
-    let body_text = if hu {
-        format!("Tisztelt Ügyfelünk!\n\nA(z) {service_name} foglalása ({starts} – {ends}, {tz}) törlésre került.\n\nÜdvözlettel,\n{project_name}")
+    let project_name: Option<String> =
+        proj.as_ref().and_then(|r| str_opt(r, "name")).filter(|s| !s.is_empty());
+    let domain_address: Option<String> =
+        proj.as_ref().and_then(|r| str_opt(r, "domain_address"));
+    let customer_contact: Option<String> =
+        proj.as_ref().and_then(|r| str_opt(r, "customer_email"));
+    let starts_opt = if starts.is_empty() { None } else { Some(starts.as_str()) };
+    let ends_opt = if ends.is_empty() { None } else { Some(ends.as_str()) };
+    // Worker display name (old order: hu "Last First", en "First Last").
+    let wfirst = str_opt(&bk, "worker_first").unwrap_or_default();
+    let wlast = str_opt(&bk, "worker_last").unwrap_or_default();
+    let worker_display = if hu {
+        format!("{wlast} {wfirst}")
     } else {
-        format!("Dear customer,\n\nYour {service_name} booking ({starts} – {ends}, {tz}) has been cancelled.\n\nBest regards,\n{project_name}")
+        format!("{wfirst} {wlast}")
+    }
+    .trim()
+    .to_string();
+    let worker_display_opt = if worker_display.is_empty() {
+        None
+    } else {
+        Some(worker_display.as_str())
+    };
+    // Customer name (old order: "First Last", falling back to the email).
+    let cfirst = str_opt(&bk, "first_name").unwrap_or_default();
+    let clast = str_opt(&bk, "last_name").unwrap_or_default();
+    let customer_name = format!("{cfirst} {clast}").trim().to_string();
+    let customer_name = if customer_name.is_empty() {
+        cust_email.clone()
+    } else {
+        customer_name
     };
     if !cust_email.is_empty() && !same {
-        let _ = EmailMailer::send(&cust_email, &subject, &body_text, &body_text).await;
+        let rendered = crate::mailers::templates::render_booking_auto_reply(
+            crate::mailers::templates::BookingAutoReplyParams {
+                reservation_name: Some(&service_name),
+                project_name: project_name.as_deref(),
+                domain_address: domain_address.as_deref(),
+                customer_email: customer_contact.as_deref(),
+                starts_at: starts_opt,
+                ends_at: ends_opt,
+                booking_id: Some(booking_id),
+                service_name: Some(&service_name),
+                worker_name: worker_display_opt,
+                locale: Some(&locale),
+                timezone: Some(&tz),
+                signer_name: worker_display_opt,
+                hide_reply_hint: false,
+                hide_sign_off: false,
+                booking_token: None,
+                embed_base_url: None,
+                cancelled: true,
+            },
+        );
+        crate::mailers::email::enqueue_mail(crate::mailers::email::EmailJob {
+            to: cust_email.clone(),
+            subject: rendered.subject,
+            text: rendered.text,
+            html: rendered.html,
+            from_name: project_name.clone(),
+            from_address: if worker_email.is_empty() {
+                None
+            } else {
+                Some(worker_email.clone())
+            },
+        });
     }
     let enabled: bool = db
         .query_one_raw(Statement::from_sql_and_values(
@@ -3904,10 +3963,39 @@ pub(crate) async fn notify_booking_cancelled(db: &sea_orm::DatabaseConnection, r
         .map(|v| v != "false")
         .unwrap_or(true);
     if !worker_email.is_empty() && enabled {
-        let _ = EmailMailer::send(&worker_email, &subject, &body_text, &body_text).await;
+        let rendered = crate::mailers::templates::render_worker_booking_notification(
+            crate::mailers::templates::WorkerBookingNotificationParams {
+                service_name: Some(&service_name),
+                customer_name: Some(&customer_name),
+                customer_email: if cust_email.is_empty() {
+                    None
+                } else {
+                    Some(cust_email.as_str())
+                },
+                customer_phone: None,
+                comment: None,
+                starts_at: starts_opt,
+                ends_at: ends_opt,
+                locale: Some(&locale),
+                timezone: Some(&tz),
+                cancelled: true,
+            },
+        );
+        crate::mailers::email::enqueue_mail(crate::mailers::email::EmailJob {
+            to: worker_email.clone(),
+            subject: rendered.subject,
+            text: rendered.text,
+            html: rendered.html,
+            from_name: None,
+            from_address: None,
+        });
     }
 }
 
+/// Customer confirmation for a new booking. Same template/kind as the old
+/// `notifySubmitter({ kind: "reservation", ... })` path: `renderBookingAutoReply`
+/// (project-branded, worker-qualified service line, sent from the worker
+/// address when one is assigned), queued (non-blocking, best-effort).
 pub(crate) async fn send_booking_confirmation(
     db: &sea_orm::DatabaseConnection,
     project_id: i64,
@@ -3918,19 +4006,118 @@ pub(crate) async fn send_booking_confirmation(
     ends_iso: &str,
     tz: &str,
     locale: &str,
+    booking_id: Option<i64>,
     booking_token: Option<String>,
+    secret_token: Option<String>,
 ) {
-    let hu = locale == "hu";
-    let pname = project_name.unwrap_or_else(|| format!("project #{project_id}"));
-    let subject = if hu { format!("Foglalás megerősítve – {service_name}") } else { format!("Booking confirmed – {service_name}") };
-    let manage = booking_token.map(|t| format!("\nManage: /bookings/{t}")).unwrap_or_default();
-    let text = if hu {
-        format!("Tisztelt Ügyfelünk!\n\nFoglalása létrejött: {service_name}\nIdőpont: {starts_iso} – {ends_iso} ({tz})\n\nÜdvözlettel,\n{pname}{manage}")
-    } else {
-        format!("Dear customer,\n\nYour booking was created: {service_name}\nWhen: {starts_iso} – {ends_iso} ({tz})\n\nBest regards,\n{pname}{manage}")
+    if to_email.trim().is_empty() {
+        return;
+    }
+    let proj = db
+        .query_one_raw(Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT name, domain_address, customer_email FROM projects WHERE id = $1",
+            vec![project_id.into()],
+        ))
+        .await
+        .ok()
+        .flatten();
+    let resolved_name: Option<String> = project_name
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| proj.as_ref().and_then(|r| str_opt(r, "name")))
+        .filter(|s| !s.is_empty());
+    let domain_address: Option<String> =
+        proj.as_ref().and_then(|r| str_opt(r, "domain_address"));
+    let customer_contact: Option<String> =
+        proj.as_ref().and_then(|r| str_opt(r, "customer_email"));
+    // Assigned worker (old worker-lookup: booking worker, else the
+    // service's worker). Drives the "Service - Worker" line, the sign-off
+    // and the From address.
+    let mut worker_email: Option<String> = None;
+    let mut worker_display: Option<String> = None;
+    if let Some(bid) = booking_id {
+        if let Ok(Some(w)) = db
+            .query_one_raw(Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT u.first_name, u.last_name, u.email
+                 FROM reservation_bookings b
+                 LEFT JOIN reservation_services s ON s.id = b.service_id
+                 LEFT JOIN users u ON u.id = COALESCE(b.worker_user_id, s.worker_user_id)
+                 WHERE b.id = $1",
+                vec![bid.into()],
+            ))
+            .await
+        {
+            worker_email = w
+                .try_get::<Option<String>>("", "email")
+                .ok()
+                .flatten()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+            let first = w
+                .try_get::<Option<String>>("", "first_name")
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            let last = w
+                .try_get::<Option<String>>("", "last_name")
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            let name = if locale == "hu" {
+                format!("{last} {first}")
+            } else {
+                format!("{first} {last}")
+            }
+            .trim()
+            .to_string();
+            if !name.is_empty() {
+                worker_display = Some(name);
+            }
+        }
+    }
+    // Manage-link base: APP_PUBLIC_URL + embed secret (no buttons when the
+    // public URL is unset or no tokens were passed — same as the old
+    // `embedBaseUrl` null branch).
+    let app_url = std::env::var("APP_PUBLIC_URL")
+        .unwrap_or_default()
+        .trim_end_matches('/')
+        .to_string();
+    let embed_base_url: Option<String> = match (app_url.is_empty(), secret_token.as_deref().map(str::trim)) {
+        (false, Some(sec)) if !sec.is_empty() => {
+            Some(format!("{app_url}/embed/reservations/{sec}"))
+        }
+        _ => None,
     };
-    let _ = db;
-    let _ = EmailMailer::send(to_email, &subject, &text, &text).await;
+    let rendered = crate::mailers::templates::render_booking_auto_reply(
+        crate::mailers::templates::BookingAutoReplyParams {
+            reservation_name: Some(service_name),
+            project_name: resolved_name.as_deref(),
+            domain_address: domain_address.as_deref(),
+            customer_email: customer_contact.as_deref(),
+            starts_at: Some(starts_iso),
+            ends_at: Some(ends_iso),
+            booking_id,
+            service_name: Some(service_name),
+            worker_name: worker_display.as_deref(),
+            locale: Some(locale),
+            timezone: Some(tz),
+            signer_name: worker_display.as_deref(),
+            hide_reply_hint: false,
+            hide_sign_off: false,
+            booking_token: booking_token.as_deref(),
+            embed_base_url: embed_base_url.as_deref(),
+            cancelled: false,
+        },
+    );
+    crate::mailers::email::enqueue_mail(crate::mailers::email::EmailJob {
+        to: to_email.to_string(),
+        subject: rendered.subject,
+        text: rendered.text,
+        html: rendered.html,
+        from_name: resolved_name.filter(|s| !s.is_empty()),
+        from_address: worker_email,
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -4775,7 +4962,9 @@ async fn create_booking(
             Ok(row) => {
                 let bid: i64 = row.try_get("", "id").unwrap_or(0);
                 let token: Option<String> = row.try_get::<Option<String>>("", "booking_token").ok().flatten();
-                // fire-and-forget confirmation e-mails
+                // Fire-and-forget confirmation e-mails (same templates/kinds
+                // as the old admin create: customer auto-reply + worker
+                // notification, both queued).
                 let pname: Option<String> = ctx
                     .db
                     .query_one_raw(Statement::from_sql_and_values(
@@ -4790,7 +4979,7 @@ async fn create_booking(
                 let email = contact.email.clone();
                 let sname = svc.name.clone().unwrap_or_else(|| "Reservation".to_string());
                 let msgsvc = sname.clone();
-                send_booking_confirmation(&ctx.db, project_id, pname, &email, &msgsvc, &starts_iso, &ends_iso, &res_tz, &locale, token).await;
+                send_booking_confirmation(&ctx.db, project_id, pname, &email, &msgsvc, &starts_iso, &ends_iso, &res_tz, &locale, Some(bid), token, Some(secret_token.clone())).await;
                 if let Some(wid) = svc.worker_user_id {
                     let wrow = ctx
                         .db
@@ -4818,12 +5007,31 @@ async fn create_booking(
                             .unwrap_or(true);
                         if wset {
                             let cname = format!("{} {}", contact.last_name, contact.first_name);
-                            let wtext = format!("New booking: {sname}\nCustomer: {cname} <{email}>\nWhen: {starts_iso} – {ends_iso} ({res_tz})");
-                            let _ = EmailMailer::send(&wemail, &format!("New booking – {sname}"), &wtext, &wtext).await;
+                            let rendered = crate::mailers::templates::render_worker_booking_notification(
+                                crate::mailers::templates::WorkerBookingNotificationParams {
+                                    service_name: Some(&sname),
+                                    customer_name: Some(cname.trim()).filter(|s| !s.is_empty()),
+                                    customer_email: Some(&email),
+                                    customer_phone: if contact.phone.is_empty() { None } else { Some(&contact.phone) },
+                                    comment: contact.comment.as_deref(),
+                                    starts_at: Some(&starts_iso),
+                                    ends_at: Some(&ends_iso),
+                                    locale: Some(&locale),
+                                    timezone: Some(&res_tz),
+                                    cancelled: false,
+                                },
+                            );
+                            crate::mailers::email::enqueue_mail(crate::mailers::email::EmailJob {
+                                to: wemail,
+                                subject: rendered.subject,
+                                text: rendered.text,
+                                html: rendered.html,
+                                from_name: None,
+                                from_address: None,
+                            });
                         }
                     }
                 }
-                let _ = secret_token;
                 tracing::info!("[reservations] booking.create id={bid}");
                 let full = ctx
                     .db

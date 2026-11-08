@@ -483,7 +483,7 @@ async fn forgot_password(
                 ))
                 .await;
             // Best-effort reset email (never fails the request; the token
-            // itself is never logged). Mirrors renderForgotPassword (hu).
+            // itself is never logged). Uses renderForgotPassword (hu).
             // Base URL: APP_PUBLIC_URL, else the request Host (same
             // fallback as the old resolvePublicUrl).
             let mut base = std::env::var("APP_PUBLIC_URL").unwrap_or_default();
@@ -498,18 +498,22 @@ async fn forgot_password(
                     base.trim_end_matches('/'),
                     plain
                 );
-                let greeting = match first {
-                    Some(n) if !n.is_empty() => format!("Szia {n}!"),
-                    _ => "Szia!".to_string(),
-                };
-                let subject = "Jelszó visszaállítása — Nexus";
-                let text = format!(
-                    "{greeting}\n\nJelszó visszaállítása\n\nKérés érkezett a jelszavad visszaállítására. Új jelszó beállítása: {link}\n\nEz a link 15 percig érvényes.\n\nHa nem te kérted, nyugodtan hagyd figyelmen kívül."
+                // Same subjects/kinds as the old forgot-password flow:
+                // renderForgotPassword, queued (non-blocking).
+                let rendered = crate::mailers::templates::render_forgot_password(
+                    crate::mailers::templates::ForgotPasswordParams {
+                        user_name: first.as_deref(),
+                        reset_link: &link,
+                    },
                 );
-                let html = format!(
-                    "<p>{greeting}</p><p>Kérés érkezett a jelszavad visszaállítására. Kattints az alábbi gombra, hogy új jelszót állíthass be:</p><p><a href=\"{link}\">Új jelszó beállítása →</a></p><p>Ez a link 15 percig érvényes.</p><p>Ha nem te kérted, nyugodtan hagyd figyelmen kívül.</p>"
-                );
-                crate::mailers::email::EmailMailer::send(&addr, subject, &html, &text).await.ok();
+                crate::mailers::email::enqueue_mail(crate::mailers::email::EmailJob {
+                    to: addr,
+                    subject: rendered.subject,
+                    text: rendered.text,
+                    html: rendered.html,
+                    from_name: None,
+                    from_address: None,
+                });
             }
         }
     }

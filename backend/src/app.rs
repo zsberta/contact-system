@@ -38,7 +38,22 @@ impl Hooks for App {
         environment: &Environment,
         config: Config,
     ) -> Result<BootResult> {
+        // Fail-fast on unsafe config (mirrors old_backend/lib/startup-guard.js).
+        crate::startup_guard::assert_safe_startup();
         create_app::<Self, Migrator>(mode, environment, config).await
+    }
+
+    async fn before_run(app_context: &AppContext) -> Result<()> {
+        // Background loops (mirror old_backend/server.js wiring):
+        // mail queue drain, reservation reminders (60s), gateway payment
+        // watch (120s), server-info snapshot, activity-log prune.
+        crate::mailers::email::start();
+        let db = app_context.db.clone();
+        crate::workers::reminders::spawn(db.clone());
+        crate::workers::gateway_watch::spawn(db.clone());
+        crate::workers::server_info::spawn();
+        crate::workers::prune::spawn(db);
+        Ok(())
     }
 
     async fn after_routes(

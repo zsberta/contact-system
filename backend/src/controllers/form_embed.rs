@@ -7,9 +7,11 @@
 //! Notes vs the original:
 //! - Per-IP burst/sustained rate limiting is left to the global middleware
 //!   (generous in-handler limiting is out of scope).
-//! - Confirmation e-mails go through EmailMailer::send (best-effort, never
-//!   fails the request) instead of the old notifyProjectOwner/notifySubmitter
-//!   queue pair; the message is a generic branded confirmation.
+//! - Confirmation e-mails go through the paced queue (`enqueue_mail`,
+//!   best-effort, never fails the request) instead of the old
+//!   notifyProjectOwner/notifySubmitter pair: the operator notification
+//!   uses renderSubmissionNotification (always HU) and the submitter
+//!   auto-reply uses renderSubmissionAutoReply + detectSubmitterEmail.
 
 use axum::{
     extract::{Path, State},
@@ -19,8 +21,6 @@ use axum::{
 use loco_rs::prelude::*;
 use sea_orm::{ConnectionTrait, Statement};
 use serde_json::json;
-
-use crate::mailers::email::EmailMailer;
 
 fn err(status: StatusCode, msg: &str) -> Response {
     (status, Json(json!({ "errorMessage": msg }))).into_response()
@@ -106,23 +106,87 @@ fn allowed_of(row: &sea_orm::QueryResult) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Very small submitter-email heuristic (port of detectSubmitterEmail):
-/// first string value in `data` whose key looks like an e-mail field and
-/// whose value contains '@'.
-fn detect_submitter_email(data: &serde_json::Value) -> Option<String> {
-    let map = data.as_object()?;
-    for (mk, mv) in map {
-        let lower = mk.to_lowercase();
-        if lower.contains("email") || lower.contains("e-mail") || lower == "mail" {
-            if let Some(s) = mv.as_str() {
-                let t = s.trim();
-                if t.contains('@') && t.len() < 255 {
-                    return Some(t.to_string());
-                }
-            }
-        }
+/// Fire-and-forget operator notification + submitter auto-reply. Port of
+/// the old `notifyProjectOwner` + `notifySubmitter` pair (same templates,
+/// same subjects/kinds): the operator mail is always Hungarian with a
+/// `Nexus` From; the auto-reply is project-branded.
+async fn send_form_emails(
+    db: &sea_orm::DatabaseConnection,
+    project_id: i64,
+    form_name: &str,
+    data: &serde_json::Value,
+    locale: Option<&str>,
+) {
+    use crate::mailers::{
+        email::{EmailJob, enqueue_mail},
+        templates::{
+            SubmissionAutoReplyParams, SubmissionNotificationParams, detect_submitter_email,
+            render_submission_auto_reply, render_submission_notification,
+        },
+    };
+    let proj = db
+        .query_one_raw(Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT name, domain_address, customer_email FROM projects WHERE id = $1",
+            vec![project_id.into()],
+        ))
+        .await
+        .ok()
+        .flatten();
+    let project_name: String = proj
+        .as_ref()
+        .and_then(|r| r.try_get::<Option<String>>("", "name").ok().flatten())
+        .unwrap_or_default();
+    let domain_address: Option<String> = proj
+        .as_ref()
+        .and_then(|r| r.try_get::<Option<String>>("", "domain_address").ok().flatten());
+    let customer_email: Option<String> = proj
+        .as_ref()
+        .and_then(|r| r.try_get::<Option<String>>("", "customer_email").ok().flatten());
+
+    // Operator notification (always Hungarian — same as the old path).
+    if let Some(to) = customer_email.clone().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+        let rendered = render_submission_notification(SubmissionNotificationParams {
+            project_name: &project_name,
+            form_name,
+            data: Some(data),
+            locale: Some("hu"),
+            kind: "form",
+            starts_at: None,
+            ends_at: None,
+        });
+        enqueue_mail(EmailJob {
+            to,
+            subject: rendered.subject,
+            text: rendered.text,
+            html: rendered.html,
+            from_name: Some("Nexus".to_string()),
+            from_address: None,
+        });
     }
-    None
+
+    // Submitter auto-reply (project-branded From).
+    if let Some(submitter) = detect_submitter_email(data) {
+        let rendered = render_submission_auto_reply(SubmissionAutoReplyParams {
+            form_name: Some(form_name),
+            project_name: if project_name.is_empty() { None } else { Some(&project_name) },
+            domain_address: domain_address.as_deref(),
+            customer_email: customer_email.as_deref(),
+            locale,
+        });
+        enqueue_mail(EmailJob {
+            to: submitter,
+            subject: rendered.subject,
+            text: rendered.text,
+            html: rendered.html,
+            from_name: if project_name.is_empty() {
+                None
+            } else {
+                Some(project_name.clone())
+            },
+            from_address: None,
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -255,6 +319,7 @@ async fn submit(
             return Ok(err(StatusCode::NOT_FOUND, "Form not found"));
         }
         let form_id: i64 = r.try_get("", "id")?;
+        let project_id: i64 = r.try_get("", "project_id").unwrap_or(0);
         let form_name: String = r
             .try_get::<Option<String>>("", "name")
             .ok()
@@ -317,19 +382,24 @@ async fn submit(
         let submitted_at =
             submitted.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
-        // Best-effort confirmation e-mail (never fails the request).
-        let submitter = detect_submitter_email(
-            &serde_json::from_str::<serde_json::Value>(&data_json)
-                .unwrap_or(json!({})),
-        );
-        if let Some(to) = submitter {
-            let subject = format!("Köszönjük megkeresését — {form_name}");
-            let html = format!(
-                "<p>Köszönjük megkeresését ({form_name}).</p><p>Azonosító: #{sid}</p>"
-            );
-            let text =
-                format!("Köszönjük megkeresését ({form_name}). Azonosító: #{sid}");
-            let _ = EmailMailer::send(&to, &subject, &html, &text).await;
+        // Fire-and-forget notification + auto-reply (never fails the
+        // request; the queue worker owns delivery + retries).
+        {
+            let db = ctx.db.clone();
+            let data_owned: serde_json::Value =
+                serde_json::from_str::<serde_json::Value>(&data_json).unwrap_or(json!({}));
+            let locale_owned = locale.clone();
+            let form_name_owned = form_name.clone();
+            tokio::spawn(async move {
+                send_form_emails(
+                    &db,
+                    project_id,
+                    &form_name_owned,
+                    &data_owned,
+                    locale_owned.as_deref(),
+                )
+                .await;
+            });
         }
         Ok((
             StatusCode::CREATED,

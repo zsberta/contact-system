@@ -69,14 +69,25 @@ fn public_url() -> String {
         .unwrap_or_else(|| "http://localhost:3000".to_string())
 }
 
-async fn send_invite_email(to: &str, name: Option<&str>, link: &str) {
-    let subject = "You have been invited — set your password";
-    let greeting = name.unwrap_or("there");
-    let html = format!(
-        "<p>Hi {greeting},</p><p>You have been invited. Set your password here:</p><p><a href=\"{link}\">{link}</a></p><p>This link expires in 24 hours.</p>"
+/// Best-effort invite email (never fails the request). Port of the old
+/// `renderInvite` + `sendMail` pair in `old_backend/routes/users.js`, routed
+/// through the paced queue instead of a direct send.
+fn send_invite_email(to: &str, name: Option<&str>, link: &str, is_reinvite: bool) {
+    let rendered = crate::mailers::templates::render_invite(
+        crate::mailers::templates::InviteParams {
+            user_name: name,
+            invite_link: link,
+            is_reinvite,
+        },
     );
-    let text = format!("Hi {greeting},\n\nYou have been invited. Set your password here:\n{link}\n\nThis link expires in 24 hours.");
-    let _ = crate::mailers::email::EmailMailer::send(to, subject, &html, &text).await;
+    crate::mailers::email::enqueue_mail(crate::mailers::email::EmailJob {
+        to: to.to_string(),
+        subject: rendered.subject,
+        text: rendered.text,
+        html: rendered.html,
+        from_name: None,
+        from_address: None,
+    });
 }
 
 fn row_to_dto(r: &sea_orm::QueryResult, project_ids: Vec<i64>) -> serde_json::Value {
@@ -384,7 +395,7 @@ async fn create(State(ctx): State<AppContext>, MaybeUser(u): MaybeUser, Json(b):
             // Best-effort invite email after commit (never rolls back the create).
             if let Some(plain) = invite_token {
                 let link = format!("{}/set-password?token={plain}", public_url());
-                send_invite_email(&email_s, first_name.as_deref(), &link).await;
+                send_invite_email(&email_s, first_name.as_deref(), &link, false);
             }
             (StatusCode::CREATED, Json(dto)).into_response()
         }
@@ -601,7 +612,7 @@ async fn invite(State(ctx): State<AppContext>, MaybeUser(u): MaybeUser, Path(id)
     match res {
         Ok(plain) => {
             let link = format!("{}/set-password?token={plain}", public_url());
-            send_invite_email(&email, first_name.as_deref(), &link).await;
+            send_invite_email(&email, first_name.as_deref(), &link, true);
             let expires = (chrono::Utc::now() + chrono::Duration::seconds(INVITE_TTL_SEC)).to_rfc3339();
             (StatusCode::OK, Json(json!({ "inviteToken": plain, "expiresAt": expires }))).into_response()
         }

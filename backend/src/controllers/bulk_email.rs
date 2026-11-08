@@ -3,9 +3,8 @@
 //!   POST /api/bulk-email — { projectId, subject, body } to every active
 //!                          reservation customer of the project.
 //!
-//! Simplification vs the original: instead of the old renderBulkEmail
-//! template + email-queue fan-out, each customer gets a small branded
-//! HTML/text message sent best-effort through EmailMailer::send (which
+//! Each customer gets the old renderBulkEmail template (project-branded),
+//! fanned out through the paced queue (`enqueue_mail`, best-effort, which
 //! honours the EMAIL_SENDING kill-switch internally).
 
 use axum::{
@@ -17,7 +16,6 @@ use loco_rs::prelude::*;
 use sea_orm::{ConnectionTrait, Statement};
 use serde_json::json;
 
-use crate::mailers::email::EmailMailer;
 use crate::middleware::auth::MaybeUser;
 use crate::middleware::auth::require_admin;
 
@@ -73,11 +71,11 @@ async fn send_bulk(
         let Some(p) = proj else {
             return Ok(err(StatusCode::NOT_FOUND, "Project not found"));
         };
-        let project_name: String = p
+        let project_name: Option<String> = p
             .try_get::<Option<String>>("", "name")
             .ok()
-            .flatten()
-            .unwrap_or_else(|| "Nexus".to_string());
+            .flatten();
+        let from_name = project_name.clone().unwrap_or_else(|| "Nexus".to_string());
         let customer_email: Option<String> =
             p.try_get("", "customer_email").ok().flatten();
         let domain_address: Option<String> =
@@ -106,32 +104,37 @@ async fn send_bulk(
         }
         let mut queued = 0i64;
         let mut skipped = 0i64;
-        let footer = match (&domain_address, &customer_email) {
-            (Some(d), Some(c)) => format!("<p>{d} — {c}</p>"),
-            (Some(d), None) => format!("<p>{d}</p>"),
-            (None, Some(c)) => format!("<p>{c}</p>"),
-            (None, None) => String::new(),
-        };
         for c in &customers {
             let to: Option<String> = c.try_get("", "email").ok().flatten();
             let Some(to) = to.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) else {
                 skipped += 1;
                 continue;
             };
-            // Plain-text body may contain newlines — escape for HTML.
-            let html_body = text_body
-                .replace('&', "&amp;")
-                .replace('<', "&lt;")
-                .replace('>', "&gt;")
-                .replace('\n', "<br>");
-            let html = format!(
-                "<div><h2>{project_name}</h2><p>{html_body}</p>{footer}</div>"
+
+            // Same template as the old bulk-email route (project-branded,
+            // admin freeform body, HU).
+            let rendered = crate::mailers::templates::render_bulk_email(
+                crate::mailers::templates::BulkEmailParams {
+                    project_name: project_name.as_deref(),
+                    domain_address: domain_address.as_deref(),
+                    customer_email: customer_email.as_deref(),
+                    subject: &subject,
+                    body: &text_body,
+                    locale: Some("hu"),
+                },
             );
-            let text = format!("{project_name}\n\n{text_body}");
-            // Best-effort: EmailMailer honours EMAIL_SENDING=false.
-            match EmailMailer::send(&to, &subject, &html, &text).await {
-                Ok(()) => queued += 1,
-                Err(_) => skipped += 1,
+            let (_, status) = crate::mailers::email::enqueue_mail(crate::mailers::email::EmailJob {
+                to,
+                subject: rendered.subject,
+                text: rendered.text,
+                html: rendered.html,
+                from_name: Some(from_name.clone()),
+                from_address: None,
+            });
+            if status == "queued" {
+                queued += 1;
+            } else {
+                skipped += 1;
             }
         }
         Ok((

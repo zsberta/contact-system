@@ -10,9 +10,9 @@
 //! Simplifications vs the original:
 //! - The dry-run accepts JSON `{ projectId, importType, csv }` (raw CSV text)
 //!   instead of a multipart file upload; the RFC4180 parser is ported 1:1.
-//! - E-mails go through EmailMailer::send (best-effort) rather than the old
-//!   notifySubmitter queue; the EMAIL_SENDING=false kill-switch is honoured
-//!   inside the mailer.
+//! - Confirmation e-mails use renderBookingAutoReply through the paced queue
+//!   (best-effort); the EMAIL_SENDING=false kill-switch is honoured inside
+//!   the mailer and reported via `emailsSending`.
 
 use std::sync::OnceLock;
 
@@ -26,7 +26,6 @@ use regex::Regex;
 use sea_orm::{ConnectionTrait, Statement};
 use serde_json::json;
 
-use crate::mailers::email::EmailMailer;
 use crate::middleware::auth::MaybeUser;
 use crate::middleware::auth::require_admin;
 
@@ -887,7 +886,7 @@ async fn bookings_import(
             .unwrap_or_else(|| "Europe/Budapest".to_string());
         let secret_token: Option<String> = rv.try_get("", "secret_token").ok().flatten();
         let services = list_services(&ctx.db, reservation_id).await?;
-        let sending = EmailMailer::sending_enabled();
+        let sending = crate::mailers::email::sending_enabled();
         let mut results = vec![];
         let mut emailed = 0i64;
         for (i, b) in bookings.iter().enumerate() {
@@ -1016,7 +1015,9 @@ async fn bookings_import(
             };
             let booking_id: i64 = row.try_get("", "id").unwrap_or(0);
             results.push(json!({ "rowNumber": row_no, "ok": true, "bookingId": booking_id }));
-            // Only confirmed future bookings get a confirmation e-mail.
+            // Only confirmed future bookings get a customer confirmation
+            // e-mail (same template/kind as the old notifySubmitter
+            // reservation path: renderBookingAutoReply, queued).
             if sending && status == "confirmed" {
                 let today = chrono::Utc::now().date_naive().to_string();
                 if starts_at.get(..10).map(|d| d >= today.as_str()).unwrap_or(false) {
@@ -1025,28 +1026,20 @@ async fn bookings_import(
                         .ok()
                         .flatten()
                         .unwrap_or_default();
-                    let link = secret_token
-                        .clone()
-                        .map(|_| {
-                            format!(
-                                "{}/manage?token={token}&booking={booking_id}",
-                                std::env::var("APP_PUBLIC_URL")
-                                    .unwrap_or_else(|_| "https://example.com".to_string()),
-                            )
-                        })
-                        .unwrap_or_default();
-                    let subject = format!("Foglalás megerősítve — {}", service.name);
-                    let html = format!(
-                        "<p>Kedves {first_name}! Foglalását rögzítettük: {} ({starts_at}). {link}</p>",
-                        service.name
-                    );
-                    let text = format!(
-                        "Foglalását rögzítettük: {} ({starts_at}). {link}",
-                        service.name
-                    );
-                    let _ = EmailMailer::send(&email, &subject, &html, &text).await;
+                    send_import_confirmation(
+                        &ctx.db,
+                        project_id,
+                        &token,
+                        secret_token.as_deref(),
+                        &timezone,
+                        &email,
+                        &service.name,
+                        &starts_at,
+                        &ends_at,
+                        booking_id,
+                    )
+                    .await;
                     emailed += 1;
-                    let _ = token;
                 }
             }
         }
@@ -1086,4 +1079,89 @@ pub fn routes() -> Routes {
         .add("/bookings/services", post(services_create))
         .add("/customers", post(customers_import))
         .add("/bookings", post(bookings_import))
+}
+
+/// Customer confirmation for an imported booking. Same template/kind as the
+/// old `notifySubmitter({ kind: "reservation", ... })` path in
+/// `old_backend/routes/imports.js`: `renderBookingAutoReply` (HU),
+/// project-branded From, queued (non-blocking, best-effort).
+#[allow(clippy::too_many_arguments)]
+async fn send_import_confirmation(
+    db: &sea_orm::DatabaseConnection,
+    project_id: i64,
+    booking_token: &str,
+    secret_token: Option<&str>,
+    timezone: &str,
+    email: &str,
+    service_name: &str,
+    starts_at: &str,
+    ends_at: &str,
+    booking_id: i64,
+) {
+    use crate::mailers::{
+        email::{EmailJob, enqueue_mail},
+        templates::{BookingAutoReplyParams, render_booking_auto_reply},
+    };
+    let proj = db
+        .query_one_raw(Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT name, domain_address, customer_email FROM projects WHERE id = $1",
+            vec![project_id.into()],
+        ))
+        .await
+        .ok()
+        .flatten();
+    let project_name: Option<String> = proj
+        .as_ref()
+        .and_then(|r| r.try_get::<Option<String>>("", "name").ok().flatten());
+    let domain_address: Option<String> = proj
+        .as_ref()
+        .and_then(|r| r.try_get::<Option<String>>("", "domain_address").ok().flatten());
+    let customer_email: Option<String> = proj
+        .as_ref()
+        .and_then(|r| r.try_get::<Option<String>>("", "customer_email").ok().flatten());
+    // Manage-link base: APP_PUBLIC_URL + embed secret (no buttons when the
+    // public URL is unset — same as the old `embedBaseUrl` null branch).
+    let app_url = std::env::var("APP_PUBLIC_URL")
+        .unwrap_or_default()
+        .trim_end_matches('/')
+        .to_string();
+    let embed_base_url: Option<String> =
+        match (app_url.is_empty(), secret_token.map(str::trim)) {
+            (false, Some(sec)) if !sec.is_empty() => {
+                Some(format!("{app_url}/embed/reservations/{sec}"))
+            }
+            _ => None,
+        };
+    let rendered = render_booking_auto_reply(BookingAutoReplyParams {
+        reservation_name: Some(service_name),
+        project_name: project_name.as_deref(),
+        domain_address: domain_address.as_deref(),
+        customer_email: customer_email.as_deref(),
+        starts_at: Some(starts_at),
+        ends_at: Some(ends_at),
+        booking_id: Some(booking_id),
+        service_name: Some(service_name),
+        worker_name: None,
+        locale: Some("hu"),
+        timezone: Some(timezone),
+        signer_name: None,
+        hide_reply_hint: false,
+        hide_sign_off: false,
+        booking_token: if booking_token.is_empty() {
+            None
+        } else {
+            Some(booking_token)
+        },
+        embed_base_url: embed_base_url.as_deref(),
+        cancelled: false,
+    });
+    enqueue_mail(EmailJob {
+        to: email.to_string(),
+        subject: rendered.subject,
+        text: rendered.text,
+        html: rendered.html,
+        from_name: project_name.filter(|s| !s.is_empty()),
+        from_address: None,
+    });
 }

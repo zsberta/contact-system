@@ -8,10 +8,9 @@
 //!   POST /api/notifications/subscribe   { endpoint, keys: { p256dh, auth }, deviceName? }
 //!   POST /api/notifications/unsubscribe { endpoint }
 //!
-//! Simplification vs the original: push delivery itself is not performed
-//! here — there is no web-push dependency in this workspace. send_push is a
-//! best-effort stub that logs and skips when VAPID keys are missing (which
-//! is the documented behaviour: "actual push delivery can log + skip").
+//! Browser-push fan-out lives centrally in crate::push::create_notification
+//! (port of lib/push.js), exactly like the old code — no route here sends
+//! push directly.
 
 use std::collections::HashMap;
 
@@ -28,23 +27,6 @@ use crate::middleware::auth::CurrentUser;
 
 fn err(status: StatusCode, msg: &str) -> Response {
     (status, Json(json!({ "errorMessage": msg }))).into_response()
-}
-
-/// Best-effort push fan-out stub (port of lib/push.js sendPushToUser).
-/// Logs + skips when VAPID keys are missing; without a web-push crate the
-/// delivery step itself is intentionally a no-op (documented simplification).
-pub async fn send_push_stub(user_id: i64, title: &str) {
-    let has_keys = std::env::var("VAPID_PUBLIC_KEY")
-        .map(|v| !v.is_empty())
-        .unwrap_or(false)
-        && std::env::var("VAPID_PRIVATE_KEY")
-            .map(|v| !v.is_empty())
-            .unwrap_or(false);
-    if !has_keys {
-        tracing::info!("[push] VAPID keys missing, skipping delivery for user {user_id}");
-        return;
-    }
-    tracing::info!("[push] delivery skipped (no web-push backend) user={user_id} title={title}");
 }
 
 fn notif_dto(row: &sea_orm::QueryResult) -> serde_json::Value {

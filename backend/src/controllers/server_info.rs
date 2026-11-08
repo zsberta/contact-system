@@ -20,18 +20,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use crate::middleware::auth::{require_admin, MaybeUser};
-
-const DOCKER_TIMEOUT_SECS: u64 = 5;
-
-fn proxy_base() -> Option<String> {
-    let raw = std::env::var("DOCKER_PROXY_URL").unwrap_or_default();
-    let trimmed = raw.trim().trim_end_matches('/').to_string();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed)
-    }
-}
+use crate::workers::server_info as server_info_worker;
 
 fn is_secret_key(key: &str) -> bool {
     let upper = key.to_uppercase();
@@ -96,124 +85,6 @@ fn redact_inspect(mut raw: serde_json::Value) -> serde_json::Value {
     raw
 }
 
-async fn docker_get(base: &str, path: &str) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(DOCKER_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| e.to_string())?;
-    let res = client
-        .get(format!("{base}{path}"))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !res.status().is_success() {
-        return Err(format!("docker {path} → HTTP {}", res.status()));
-    }
-    res.json::<serde_json::Value>().await.map_err(|e| e.to_string())
-}
-
-fn size_or_null(v: &serde_json::Value) -> serde_json::Value {
-    match v.as_i64() {
-        Some(n) => json!(n),
-        None => match v.as_u64() {
-            Some(n) if n <= i64::MAX as u64 => json!(n as i64),
-            _ => json!(null),
-        },
-    }
-}
-
-fn map_containers(list: &serde_json::Value) -> Vec<serde_json::Value> {
-    match list.as_array() {
-        None => vec![],
-        Some(items) => items
-            .iter()
-            .map(|c| {
-                let id = c.get("Id").and_then(|v| v.as_str()).unwrap_or("");
-                let created = c.get("Created").and_then(|v| v.as_i64()).map(|ts| {
-                    chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
-                        .map(|t| t.to_rfc3339())
-                        .unwrap_or_default()
-                });
-                json!({
-                    "id": id.get(..12).unwrap_or(id),
-                    "names": c.get("Names").and_then(|v| v.as_array()).map(|ns| {
-                        ns.iter().map(|n| n.as_str().unwrap_or("").trim_start_matches('/').to_string()).collect::<Vec<_>>()
-                    }).unwrap_or_default(),
-                    "image": c.get("Image").and_then(|v| v.as_str()).unwrap_or(""),
-                    "state": c.get("State").and_then(|v| v.as_str()).unwrap_or("unknown"),
-                    "status": c.get("Status").and_then(|v| v.as_str()).unwrap_or(""),
-                    "createdAt": created,
-                    "sizeRwBytes": c.get("SizeRw").map(size_or_null).unwrap_or(json!(null)),
-                    "sizeRootFsBytes": c.get("SizeRootFs").map(size_or_null).unwrap_or(json!(null)),
-                })
-            })
-            .collect(),
-    }
-}
-
-fn num_or_null(v: Option<&serde_json::Value>) -> serde_json::Value {
-    match v {
-        Some(x) if x.is_number() => x.clone(),
-        _ => json!(null),
-    }
-}
-
-fn map_engine_info(info: &serde_json::Value) -> serde_json::Value {
-    json!({
-        "serverVersion": info.get("ServerVersion").cloned().unwrap_or(json!(null)),
-        "operatingSystem": info.get("OperatingSystem").cloned().unwrap_or(json!(null)),
-        "architecture": info.get("Architecture").cloned().unwrap_or(json!(null)),
-        "kernelVersion": info.get("KernelVersion").cloned().unwrap_or(json!(null)),
-        "osType": info.get("OSType").cloned().unwrap_or(json!(null)),
-        "ncpu": num_or_null(info.get("NCPU")),
-        "memTotalBytes": num_or_null(info.get("MemTotal")),
-        "containersTotal": num_or_null(info.get("Containers")),
-        "containersRunning": num_or_null(info.get("ContainersRunning")),
-        "containersPaused": num_or_null(info.get("ContainersPaused")),
-        "containersStopped": num_or_null(info.get("ContainersStopped")),
-        "imagesTotal": num_or_null(info.get("Images")),
-    })
-}
-
-fn sum_size(items: Option<&Vec<serde_json::Value>>, pick: impl Fn(&serde_json::Value) -> Option<i64>) -> serde_json::Value {
-    let mut total: i64 = 0;
-    let mut count = 0i64;
-    if let Some(arr) = items {
-        for it in arr {
-            count += 1;
-            if let Some(v) = pick(it) {
-                total = total.saturating_add(v);
-            }
-        }
-    }
-    json!({ "count": count, "totalBytes": total })
-}
-
-fn as_i64(v: Option<&serde_json::Value>) -> Option<i64> {
-    v.and_then(|x| x.as_i64().or_else(|| x.as_u64().and_then(|n| i64::try_from(n).ok())))
-}
-
-fn map_disk_usage(df: &serde_json::Value) -> serde_json::Value {
-    let arr = |k: &str| df.get(k).and_then(|v| v.as_array());
-    let mut reclaimable: i64 = 0;
-    if let Some(images) = arr("Images") {
-        for i in images {
-            if as_i64(i.get("Containers")) == Some(0) {
-                if let Some(s) = as_i64(i.get("Size")) {
-                    reclaimable = reclaimable.saturating_add(s);
-                }
-            }
-        }
-    }
-    json!({
-        "images": sum_size(arr("Images"), |i| as_i64(i.get("Size"))),
-        "containers": sum_size(arr("Containers"), |c| as_i64(c.get("SizeRw"))),
-        "volumes": sum_size(arr("Volumes"), |v| as_i64(v.get("UsageData").and_then(|u| u.get("Size")))),
-        "buildCache": sum_size(arr("BuildCache"), |b| as_i64(b.get("Size"))),
-        "reclaimableBytes": reclaimable,
-    })
-}
-
 fn uploads_usage() -> serde_json::Value {
     let dir = std::env::var("UPLOADS_DIR").unwrap_or_else(|_| "/app/uploads".to_string());
     const MAX_FILES: usize = 50_000;
@@ -274,8 +145,6 @@ async fn snapshot(State(ctx): State<AppContext>, MaybeUser(u): MaybeUser, Query(
     if let Err(r) = require_admin(&u) {
         return r;
     }
-    let _ = q.get("refresh"); // accepted for compat; this port polls live on every request.
-
     // DB latency + pool-less health flag.
     let t0 = Instant::now();
     let db_ok = ctx
@@ -384,44 +253,17 @@ async fn snapshot(State(ctx): State<AppContext>, MaybeUser(u): MaybeUser, Query(
         })
         .unwrap_or_default();
 
-    // Docker host (read-only proxy). Nulls when unconfigured, like the old snapshot.
-    let (docker_configured, docker_snapshot) = match proxy_base() {
-        None => (
-            false,
-            json!({ "configured": false, "lastPollAt": null, "lastError": null,
-                    "containers": null, "engine": null, "diskUsage": null }),
-        ),
-        Some(base) => {
-            let (list, info, df) = tokio::join!(
-                docker_get(&base, "/containers/json?all=1&size=1"),
-                docker_get(&base, "/info"),
-                docker_get(&base, "/system/df"),
-            );
-            match (list, info, df) {
-                (Ok(l), Ok(i), Ok(d)) => (
-                    true,
-                    json!({
-                        "configured": true,
-                        "lastPollAt": chrono::Utc::now().to_rfc3339(),
-                        "lastError": null,
-                        "containers": map_containers(&l),
-                        "engine": map_engine_info(&i),
-                        "diskUsage": map_disk_usage(&d),
-                    }),
-                ),
-                (l, i, d) => {
-                    let err = l.err().or(i.err()).or(d.err()).unwrap_or_default();
-                    tracing::error!("[server-info] docker poll failed: {err}");
-                    (
-                        true,
-                        json!({ "configured": true, "lastPollAt": null, "lastError": err,
-                                "containers": null, "engine": null, "diskUsage": null }),
-                    )
-                }
-            }
-        }
+    // Docker host (read-only proxy). Served from the cached snapshot in
+    // workers::server_info (port of lib/server-info.js docker caching:
+    // SERVER_INFO_POLL_MS cadence, ?refresh=1 forces a re-poll subject to a
+    // 10s floor, last-good snapshot kept on error). Same response shapes as
+    // the old live-polling code.
+    let force_refresh = q.get("refresh").map(|v| v == "1").unwrap_or(false);
+    let docker_snapshot = if force_refresh {
+        server_info_worker::refresh_docker_snapshot().await
+    } else {
+        server_info_worker::docker_snapshot().await
     };
-    let _ = docker_configured;
 
     (
         StatusCode::OK,
@@ -468,15 +310,16 @@ async fn inspect(State(_ctx): State<AppContext>, MaybeUser(u): MaybeUser, Path(i
     if let Err(r) = require_admin(&u) {
         return r;
     }
-    let base = match proxy_base() {
-        Some(b) => b,
-        None => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({ "errorMessage": "Docker host monitoring is not configured" })),
-            )
-                .into_response();
-        }
+    let proxy_raw = std::env::var("DOCKER_PROXY_URL").unwrap_or_default();
+    let proxy_trimmed = proxy_raw.trim().trim_end_matches('/').to_string();
+    let base = if proxy_trimmed.is_empty() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "errorMessage": "Docker host monitoring is not configured" })),
+        )
+            .into_response();
+    } else {
+        proxy_trimmed
     };
     let valid = id.len() >= 12 && id.len() <= 64 && id.chars().all(|c| c.is_ascii_hexdigit());
     if !valid {
@@ -487,7 +330,7 @@ async fn inspect(State(_ctx): State<AppContext>, MaybeUser(u): MaybeUser, Path(i
             .into_response();
     }
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(DOCKER_TIMEOUT_SECS))
+        .timeout(std::time::Duration::from_secs(5))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
     match client
