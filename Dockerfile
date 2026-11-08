@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock* ./
 COPY backend ./backend
+COPY public ./public
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/build/target \
     cargo build --release -p contact-system \
