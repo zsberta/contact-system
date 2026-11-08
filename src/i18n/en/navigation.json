@@ -34,5 +34,6 @@
   "chat_sessions": "Chat Sessions",
   "stats": "Stats",
   "select_module": "Select module",
-  "settings": "Settings"
+  "settings": "Settings",
+  "gateway": "Billing"
 }

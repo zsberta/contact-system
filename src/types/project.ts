@@ -41,6 +41,8 @@ export interface ProjectDTO {
   // Brand color in HSL space (e.g. "212 73% 18%"). Used for blog
   // post theming and landing page accent colors.
   brandColor: string | null;
+  // nexus-gateway merchant id when onboarded for gateway billing.
+  gatewayMerchantId: string | null;
 }
 
 export interface ProjectAttachmentDTO {
@@ -75,6 +77,8 @@ export interface ProjectCreateUpdateDTO {
   landingDistPath?: string | null;
   landingEnabled?: boolean;
   brandColor?: string | null;
+  // Link/unlink gateway billing (merchant id from the credentials sync).
+  gatewayMerchantId?: string | null;
 }
 
 export type PageProjectDTO = Page<ProjectDTO>;

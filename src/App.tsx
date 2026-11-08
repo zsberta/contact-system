@@ -75,6 +75,7 @@ import AiAssistantSessionsPage from "./pages/AiAssistantSessionsPage";
 import BulkEmailPage from "./pages/BulkEmailPage";
 import LogsPage from "./pages/LogsPage";
 import ServerInfoPage from "./pages/ServerInfoPage";
+import GatewayPage from "./pages/GatewayPage";
 import SettingsPage from "./pages/SettingsPage";
 import SetPasswordPage from "./pages/SetPasswordPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
@@ -133,6 +134,7 @@ const App = () => (
                     <Route path="/bulk-email" element={<BulkEmailPage />} />
                     <Route path="/logs" element={<LogsPage />} />
                     <Route path="/server-info" element={<ServerInfoPage />} />
+                    <Route path="/gateway" element={<GatewayPage />} />
                     <Route path="/users/create" element={<UserCreatePage />} />
                     <Route path="/users/view/:id" element={<UserViewPage />} />
                     <Route path="/users/edit/:id" element={<UserEditPage />} />

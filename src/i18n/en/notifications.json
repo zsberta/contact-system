@@ -11,5 +11,8 @@
   "booking_message": "{{customerName}} booked {{serviceName}} — {{date}}",
   "booking_cancelled": "Booking Cancelled",
   "booking_cancelled_message": "{{customerName}} cancelled {{serviceName}} — {{date}}",
+  "gateway_payment_paid": "Successful payment",
+  "gateway_payment_failed": "Failed payment",
+  "gateway_payment_refunded": "Refunded payment",
   "system": "System"
 }

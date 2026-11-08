@@ -123,7 +123,42 @@ router.post("/opened", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/notifications/push-status?endpoint=<url-encoded endpoint>
+// Reports whether THIS user has push enabled for the given browser endpoint.
+// The browser PushSubscription is per browser profile, but the server mapping
+// is per (user, endpoint) — so after switching accounts the same browser can
+// be subscribed for one account and not the other. The bell uses this to
+// show per-account state instead of the browser-wide subscription.
+// ---------------------------------------------------------------------------
+router.get("/push-status", async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ errorMessage: "Unauthorized" });
+
+    const { endpoint } = req.query;
+    if (!endpoint) {
+      return res.status(400).json({ errorMessage: "Missing endpoint" });
+    }
+
+    const { rows } = await pool.query(
+      "SELECT 1 FROM push_subscriptions WHERE user_id = $1 AND endpoint = $2",
+      [userId, endpoint],
+    );
+    res.json({ subscribed: rows.length > 0 });
+  } catch (err) {
+    console.error("[notifications/push-status]", err.message);
+    res.status(500).json({ errorMessage: "Failed to check subscription" });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/notifications/subscribe — save a push subscription
+// One browser endpoint may serve several accounts on the same browser
+// profile: uniqueness is (user_id, endpoint), so subscribing as account B
+// ADDS a mapping instead of stealing the endpoint from account A.
+// Keys belong to the endpoint (not the user), so they are refreshed on all
+// sibling rows sharing the endpoint (e.g. after a VAPID rotation).
+// Idempotent — safe to call on every login to heal account switches.
 // ---------------------------------------------------------------------------
 router.post("/subscribe", async (req, res) => {
   try {
@@ -138,13 +173,20 @@ router.post("/subscribe", async (req, res) => {
     await pool.query(
       `INSERT INTO push_subscriptions (user_id, endpoint, keys_p256dh, keys_auth, device_name)
        VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (endpoint) DO UPDATE
+       ON CONFLICT (user_id, endpoint) DO UPDATE
          SET keys_p256dh = EXCLUDED.keys_p256dh,
              keys_auth = EXCLUDED.keys_auth,
              device_name = EXCLUDED.device_name,
-             user_id = EXCLUDED.user_id,
              updated_at = NOW()`,
       [userId, endpoint, keys.p256dh, keys.auth, deviceName || "Unknown Device"],
+    );
+
+    // Same browser subscription, other accounts: keep their keys in sync.
+    await pool.query(
+      `UPDATE push_subscriptions
+          SET keys_p256dh = $2, keys_auth = $3, updated_at = NOW()
+        WHERE endpoint = $1 AND user_id <> $4`,
+      [endpoint, keys.p256dh, keys.auth, userId],
     );
 
     logActivity({
@@ -168,6 +210,10 @@ router.post("/subscribe", async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // POST /api/notifications/unsubscribe — remove a push subscription
+// Removes only THIS user's mapping for the endpoint. The browser
+// subscription itself is torn down by the client, and only when no other
+// account still uses the endpoint (see `remaining` below) — otherwise
+// disabling push for one account would silently kill it for the others.
 // ---------------------------------------------------------------------------
 router.post("/unsubscribe", async (req, res) => {
   try {
@@ -184,6 +230,11 @@ router.post("/unsubscribe", async (req, res) => {
       [endpoint, userId],
     );
 
+    const { rows } = await pool.query(
+      "SELECT COUNT(*)::int AS remaining FROM push_subscriptions WHERE endpoint = $1",
+      [endpoint],
+    );
+
     logActivity({
       req,
       action: "push.unsubscribe",
@@ -196,7 +247,7 @@ router.post("/unsubscribe", async (req, res) => {
       ok: true,
       metadata: { deleted: { id: null, label: "push subscription" } },
     });
-    res.json({ status: "unsubscribed" });
+    res.json({ status: "unsubscribed", remaining: rows[0]?.remaining ?? 0 });
   } catch (err) {
     console.error("[notifications/unsubscribe]", err.message);
     res.status(500).json({ errorMessage: "Failed to remove subscription" });

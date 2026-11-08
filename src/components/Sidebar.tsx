@@ -16,6 +16,7 @@ import {
   MessageSquare,
   Settings,
   CalendarDays,
+  CreditCard,
   Lock,
   List,
   Upload,
@@ -185,6 +186,10 @@ const Sidebar = ({ onClose }: SidebarProps = {}) => {
           <NavLink to="/server-info" onClick={() => onClose?.()} className={linkClass}>
             <Server className="h-4 w-4" />
             <span>{t("navigation:server_info")}</span>
+          </NavLink>
+          <NavLink to="/gateway" onClick={() => onClose?.()} className={linkClass}>
+            <CreditCard className="h-4 w-4" />
+            <span>{t("navigation:gateway")}</span>
           </NavLink>
           <NavLink to="/settings" onClick={() => onClose?.()} className={linkClass}>
             <Settings className="h-4 w-4" />

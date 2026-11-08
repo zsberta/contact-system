@@ -24,6 +24,7 @@ import enLogs from "./i18n/en/logs.json";
 import enNotifications from "./i18n/en/notifications.json";
 import enSettings from "./i18n/en/settings.json";
 import enServerInfo from "./i18n/en/server-info.json";
+import enGateway from "./i18n/en/gateway.json";
 
 import huAuth from "./i18n/hu/auth.json";
 import huCommon from "./i18n/hu/common.json";
@@ -48,6 +49,7 @@ import huLogs from "./i18n/hu/logs.json";
 import huNotifications from "./i18n/hu/notifications.json";
 import huSettings from "./i18n/hu/settings.json";
 import huServerInfo from "./i18n/hu/server-info.json";
+import huGateway from "./i18n/hu/gateway.json";
 
 const resources = {
   en: {
@@ -74,6 +76,7 @@ const resources = {
     notifications: enNotifications,
     settings: enSettings,
     "server-info": enServerInfo,
+    gateway: enGateway,
   },
   hu: {
     auth: huAuth,
@@ -99,6 +102,7 @@ const resources = {
     notifications: huNotifications,
     settings: huSettings,
     "server-info": huServerInfo,
+    gateway: huGateway,
   },
 
 };
@@ -131,6 +135,7 @@ i18n.use(initReactI18next).init({
     "notifications",
     "settings",
     "server-info",
+    "gateway",
   ],
   interpolation: { escapeValue: false },
 });

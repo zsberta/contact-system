@@ -70,6 +70,10 @@ services:
       BCRYPT_COST: "12"
       # Read-only Docker Engine API proxy (socket-proxy service above).
       DOCKER_PROXY_URL: http://socket-proxy:2375
+      # nexus-gateway billing API (admin Billing page proxy). Token comes
+      # from the gateway's `gateway:client-create`; the browser never sees it.
+      GATEWAY_API_URL: ${GATEWAY_API_URL:-http://host.docker.internal:9006/api/v1}
+      GATEWAY_API_TOKEN: ${GATEWAY_API_TOKEN:-}
     env_file:
       - .env
     # Persistent storage for blog cover/inline images. Without this

@@ -11,5 +11,8 @@
   "booking_message": "{{customerName}} foglalt: {{serviceName}} — {{date}}",
   "booking_cancelled": "Foglalás lemondva",
   "booking_cancelled_message": "{{customerName}} lemondta: {{serviceName}} — {{date}}",
+  "gateway_payment_paid": "Sikeres fizetés",
+  "gateway_payment_failed": "Sikertelen fizetés",
+  "gateway_payment_refunded": "Visszatérített fizetés",
   "system": "Rendszer"
 }

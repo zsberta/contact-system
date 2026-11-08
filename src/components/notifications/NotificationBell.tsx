@@ -16,15 +16,25 @@ import {
   markNotificationsOpened,
   subscribePush,
   unsubscribePush,
+  getPushStatus,
   getVapidPublicKey,
 } from "@/lib/notifications";
 import { urlBase64ToUint8Array } from "@/lib/vapid";
+import { useAuth } from "@/context/AuthContext";
 import type { Notification } from "@/types/notification";
 
 const STORAGE_KEY = "nexus_notifications_last_opened";
 
+function deviceLabel(): string {
+  return (
+    navigator.userAgentData?.platform || navigator.platform || "Unknown"
+  );
+}
+
 export const NotificationBell: React.FC = () => {
   const { t, i18n } = useTranslation(["notifications"]);
+  const { user } = useAuth();
+  const userId = user?.id;
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -118,18 +128,51 @@ export const NotificationBell: React.FC = () => {
     };
   }, [fetchInitial]);
 
-  // ── Check push support ───────────────────────────────────────────────────
+  // ── Check push support + sync this account's server mapping ────────────
+  // The browser PushSubscription is per browser profile, but the server
+  // mapping is per (user, endpoint). After switching accounts the same
+  // browser may be subscribed for the previous account and not this one,
+  // so: if a browser subscription exists and permission is granted, silently
+  // (re-)attach it to the current user — no manual disable/resubscribe.
   useEffect(() => {
-    if ("serviceWorker" in navigator && "PushManager" in window) {
+    if (!userId) return;
+    let cancelled = false;
+    (async () => {
+      if (!("serviceWorker" in navigator && "PushManager" in window)) {
+        return;
+      }
       setPushSupported(true);
-      navigator.serviceWorker.ready.then((reg) => {
-        reg.pushManager.getSubscription().then((sub) => {
-          setIsPushSubscribed(!!sub);
-        });
-      });
       setPushPermission(Notification.permission);
-    }
-  }, []);
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (!sub) {
+          if (!cancelled) setIsPushSubscribed(false);
+          return;
+        }
+        if (Notification.permission === "granted") {
+          try {
+            await subscribePush(sub, deviceLabel());
+          } catch {
+            // Best-effort heal — the status check below still reports truth.
+          }
+          try {
+            const { subscribed } = await getPushStatus(sub.endpoint);
+            if (!cancelled) setIsPushSubscribed(subscribed);
+            return;
+          } catch {
+            // Fall through: browser has a subscription, assume active.
+          }
+        }
+        if (!cancelled) setIsPushSubscribed(Notification.permission === "granted");
+      } catch {
+        // Push state stays as-is on unexpected errors.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   // ── Handle popover open ──────────────────────────────────────────────────
   const handleOpenChange = async (nextOpen: boolean) => {
@@ -163,8 +206,7 @@ export const NotificationBell: React.FC = () => {
         applicationServerKey: urlBase64ToUint8Array(vapidRes.publicKey),
       });
 
-      const deviceName =
-        navigator.userAgentData?.platform || navigator.platform || "Unknown";
+      const deviceName = deviceLabel();
       await subscribePush(subscription, deviceName);
       setIsPushSubscribed(true);
     } catch (err) {
@@ -175,14 +217,25 @@ export const NotificationBell: React.FC = () => {
   };
 
   // ── Push unsubscribe ─────────────────────────────────────────────────────
+  // Removes only this account's server mapping. The browser subscription is
+  // torn down only when no other account still uses this browser endpoint —
+  // otherwise disabling push for one account would kill it for the others.
   const handleUnsubscribe = async () => {
     setPushLoading(true);
     try {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
       if (sub) {
-        await unsubscribePush(sub.endpoint);
-        await sub.unsubscribe();
+        let remaining = 0;
+        try {
+          ({ remaining } = await unsubscribePush(sub.endpoint));
+        } catch {
+          // Server mapping may already be gone (e.g. purged 410/404) —
+          // still tear down the browser subscription below.
+        }
+        if (remaining === 0) {
+          await sub.unsubscribe();
+        }
       }
       setIsPushSubscribed(false);
     } catch (err) {
@@ -243,7 +296,13 @@ export const NotificationBell: React.FC = () => {
                     ? "notifications:booking_created"
                     : n.type === "BOOKING_CANCELLED"
                       ? "notifications:booking_cancelled"
-                      : "notifications:system";
+                      : n.type === "GATEWAY_PAYMENT_PAID"
+                        ? "notifications:gateway_payment_paid"
+                        : n.type === "GATEWAY_PAYMENT_FAILED"
+                          ? "notifications:gateway_payment_failed"
+                          : n.type === "GATEWAY_PAYMENT_REFUNDED"
+                            ? "notifications:gateway_payment_refunded"
+                            : "notifications:system";
                   let displayMessage = n.message;
                   if (n.metadata?.customerName && n.metadata?.serviceName) {
                     const notifLocale = (n.metadata.locale as string) || "hu";

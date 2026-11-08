@@ -34,5 +34,6 @@
   "chat_sessions": "Csevegési munkamenetek",
   "stats": "Statisztikák",
   "select_module": "Modul kiválasztása",
-  "settings": "Beállítások"
+  "settings": "Beállítások",
+  "gateway": "Számlázás"
 }

@@ -1,4 +1,10 @@
-export type NotificationType = "BOOKING_CREATED" | "BOOKING_CANCELLED" | "SYSTEM";
+export type NotificationType =
+  | "BOOKING_CREATED"
+  | "BOOKING_CANCELLED"
+  | "GATEWAY_PAYMENT_PAID"
+  | "GATEWAY_PAYMENT_FAILED"
+  | "GATEWAY_PAYMENT_REFUNDED"
+  | "SYSTEM";
 
 export interface Notification {
   id: number;

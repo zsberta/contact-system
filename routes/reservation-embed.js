@@ -41,7 +41,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { pool } from "../db/pool.js";
 import { notifySubmitter } from "../lib/email.js";
-import { createNotification, sendPushToUser } from "../lib/push.js";
+import { createNotification } from "../lib/push.js";
 import { notifyBookingCancelled } from "../lib/reservation-cancellation-notifications.js";
 import { t, formatDate } from "../lib/notifications-i18n.js";
 import { checkSlotAvailability, getServiceAvailability, getScheduleWindowStartMin } from "../lib/reservation-availability.js";
@@ -700,16 +700,15 @@ router.post(
         audit: { kind: "confirmation", entityType: "booking", entityId: bookingId, entityLabel: `booking #${bookingId}`, projectId: reservation.project_id, actor: { actor_type: "public", actor_email: contactResult.value.email } },
       }).catch(() => {});
 
-      // Fetch worker notification settings once (email + push + in-app)
+      // Fetch worker notification settings once (email + in-app).
+      // Browser push fan-out lives centrally in createNotification.
       let workerEmailEnabled = true;
-      let workerPushEnabled = true;
       try {
         const settingsRows = await pool.query(
           "SELECT key, value FROM system_settings WHERE key IN ('worker_email_notifications', 'worker_push_notifications')"
         );
         for (const row of settingsRows.rows) {
           if (row.key === "worker_email_notifications") workerEmailEnabled = row.value !== false;
-          if (row.key === "worker_push_notifications") workerPushEnabled = row.value !== false;
         }
       } catch { /* default both to enabled */ }
 
@@ -749,17 +748,7 @@ router.post(
             metadata: { serviceName: serviceRow.name, customerName, startsAt, endsAt, locale: notifLocale, timezone: reservation.timezone || "UTC" },
             audit: { entityLabel: `booking #${bookingId}`, projectId: reservation.project_id, actor: { actor_type: "public", actor_email: contactResult.value.email } },
           });
-
-          if (workerPushEnabled) {
-            await sendPushToUser(serviceRow.worker_user_id, {
-              title: t(notifLocale, "push_title", { customerName }),
-              body: t(notifLocale, "push_body", {
-                serviceName: serviceRow.name,
-                date: formatDate(startsAt, notifLocale, reservation.timezone || "UTC"),
-              }),
-              url: "/",
-            }, { entityType: "booking", entityId: bookingId, entityLabel: `booking #${bookingId}`, projectId: reservation.project_id, actor: { actor_type: "public", actor_email: contactResult.value.email } });
-          }
+          // Browser push fan-out lives centrally in createNotification.
         } catch (err) {
           console.error("[notifications] worker push/in-app failed:", err.message);
         }

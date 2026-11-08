@@ -41,7 +41,7 @@ import {
 } from "../lib/reservation-booking.js";
 import { getServiceAvailability } from "../lib/reservation-availability.js";
 import { notifySubmitter } from "../lib/email.js";
-import { createNotification, sendPushToUser } from "../lib/push.js";
+import { createNotification } from "../lib/push.js";
 import { notifyBookingCancelled } from "../lib/reservation-cancellation-notifications.js";
 import { t, formatDate } from "../lib/notifications-i18n.js";
 import multer from "multer";
@@ -3448,16 +3448,15 @@ router.post("/:id/bookings", async (req, res, next) => {
       audit: { kind: "confirmation", ...bookingAudit },
     }).catch(() => {});
 
-    // Fetch worker notification settings once (email + push + in-app)
+    // Fetch worker notification settings once (email + in-app).
+    // Browser push fan-out lives centrally in createNotification.
     let workerEmailEnabled = true;
-    let workerPushEnabled = true;
     try {
       const settingsRows = await pool.query(
         "SELECT key, value FROM system_settings WHERE key IN ('worker_email_notifications', 'worker_push_notifications')"
       );
       for (const row of settingsRows.rows) {
         if (row.key === "worker_email_notifications") workerEmailEnabled = row.value !== false;
-        if (row.key === "worker_push_notifications") workerPushEnabled = row.value !== false;
       }
     } catch { /* default both to enabled */ }
 
@@ -3497,17 +3496,7 @@ router.post("/:id/bookings", async (req, res, next) => {
           metadata: { serviceName: serviceRow.name, customerName, startsAt: v.startsAtIso, endsAt: v.endsAtIso, locale: notifLocale, timezone: reservation.timezone || "UTC" },
           audit: bookingAudit,
         });
-
-        if (workerPushEnabled) {
-          await sendPushToUser(serviceRow.worker_user_id, {
-            title: t(notifLocale, "push_title", { customerName }),
-            body: t(notifLocale, "push_body", {
-              serviceName: serviceRow.name,
-              date: formatDate(v.startsAtIso, notifLocale, reservation.timezone || "UTC"),
-            }),
-            url: "/",
-          }, bookingAudit);
-        }
+        // Browser push fan-out lives centrally in createNotification.
       } catch (err) {
         console.error("[notifications] worker push/in-app failed:", err.message);
       }

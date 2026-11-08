@@ -106,6 +106,7 @@ function rowToProjectDTO(row) {
     landingLastBuildStatus: row.landing_last_build_status ?? null,
     landingLastBuildLog: row.landing_last_build_log ?? null,
     brandColor: row.brand_color ?? null,
+    gatewayMerchantId: row.gateway_merchant_id ?? null,
   };
 }
 
@@ -473,6 +474,18 @@ function validateProjectBody(body, { partial = false } = {}) {
     }
   }
 
+  // ---- Gateway billing link (nexus-gateway merchant id) ----
+  // Set when the project is onboarded for gateway billing; null unlinks.
+  if (body.gatewayMerchantId !== undefined || body.gateway_merchant_id !== undefined) {
+    const raw = body.gatewayMerchantId ?? body.gateway_merchant_id;
+    const v = emptyToNull(raw);
+    if (v !== null && (typeof v !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v))) {
+      errors.push("gatewayMerchantId must be a UUID or null");
+    } else {
+      out.gateway_merchant_id = v;
+    }
+  }
+
   if (errors.length > 0) {
     return { ok: false, error: errors.join("; ") };
   }
@@ -550,6 +563,7 @@ router.get("/", requireAuth, async (req, res) => {
     const dataSqlFinal = `SELECT id, name, domain_address, price, fordulonap,
                                  billing_period, status, comment, customer_name,
                                  customer_phone, customer_email, brand_color,
+                                 gateway_merchant_id,
                                  created_at,
                                  updated_at, last_status_change_at
                           FROM projects
@@ -617,7 +631,7 @@ router.get("/:id", requireAuth, async (req, res) => {
               landing_repo_dir, landing_build_command, landing_build_env,
               landing_dist_path, landing_enabled, landing_last_build_at,
               landing_last_build_status, landing_last_build_log,
-              brand_color,
+              brand_color, gateway_merchant_id,
               created_at, updated_at, last_status_change_at
        FROM projects WHERE id = $1`,
       [projectId],
@@ -650,15 +664,15 @@ router.post("/", requireAuth, async (req, res) => {
         (name, domain_address, price, fordulonap, billing_period,
          status, comment, customer_name, customer_phone, customer_email,
          landing_repo_dir, landing_build_command, landing_build_env,
-         landing_dist_path, landing_enabled, brand_color)
+         landing_dist_path, landing_enabled, brand_color, gateway_merchant_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-               $11, $12, $13, $14, $15, $16)
+               $11, $12, $13, $14, $15, $16, $17)
        RETURNING id, name, domain_address, price, fordulonap, billing_period,
                  status, comment, customer_name, customer_phone, customer_email,
                  landing_repo_dir, landing_build_command, landing_build_env,
                  landing_dist_path, landing_enabled, landing_last_build_at,
                  landing_last_build_status, landing_last_build_log,
-                 brand_color,
+                 brand_color, gateway_merchant_id,
                  created_at, updated_at, last_status_change_at`,
       [
         v.name,
@@ -677,6 +691,7 @@ router.post("/", requireAuth, async (req, res) => {
         v.landing_dist_path ?? null,
         v.landing_enabled === true,
         v.brand_color ?? null,
+        v.gateway_merchant_id ?? null,
       ],
     );
     const created = rowToProjectDTO(rows[0]);
@@ -756,7 +771,7 @@ router.put("/:id", requireAuth, async (req, res) => {
                            landing_build_env, landing_dist_path,
                            landing_enabled, landing_last_build_at,
                            landing_last_build_status, landing_last_build_log,
-                           brand_color,
+                           brand_color, gateway_merchant_id,
                            created_at, updated_at, last_status_change_at`;
     const { rows, rowCount } = await pool.query(sql, params);
     if (rowCount === 0) {

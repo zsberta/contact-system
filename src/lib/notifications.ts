@@ -33,12 +33,19 @@ export function subscribePush(subscription: PushSubscription, deviceName: string
   });
 }
 
-export function unsubscribePush(endpoint: string) {
+export function unsubscribePush(endpoint: string): Promise<{
+  status: string;
+  remaining: number;
+}> {
   return apiFetch("/notifications/unsubscribe", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ endpoint }),
   });
+}
+
+export function getPushStatus(endpoint: string): Promise<{ subscribed: boolean }> {
+  return apiFetch(`/notifications/push-status?endpoint=${encodeURIComponent(endpoint)}`);
 }
 
 export function getVapidPublicKey(): Promise<{ publicKey: string }> {
