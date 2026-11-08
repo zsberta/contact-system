@@ -83,3 +83,7 @@ docker-compose.yml
 .opencode
 .playwright-cli
 .landing-flags/
+
+# Rust
+/target/
+backend/target/
