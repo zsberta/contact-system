@@ -2559,7 +2559,7 @@ async fn create_service(
             .db
             .query_one_raw(Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Postgres,
-                "INSERT INTO reservation_services (reservation_id, status, sort_order, duration_minutes, price_amount, currency, capacity, worker_user_id, granularity, slot_duration_minutes, lead_time_minutes, max_advance_days) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id, reservation_id, status, sort_order, duration_minutes, price_amount::text AS price_amount, currency, capacity, granularity, slot_duration_minutes, lead_time_minutes, max_advance_days, worker_user_id, created_at, updated_at",
+                "INSERT INTO reservation_services (reservation_id, status, sort_order, duration_minutes, price_amount, currency, capacity, worker_user_id, granularity, slot_duration_minutes, lead_time_minutes, max_advance_days) VALUES ($1,$2,$3,$4,$5::numeric,$6,$7,$8,$9,$10,$11,$12) RETURNING id, reservation_id, status, sort_order, duration_minutes, price_amount::text AS price_amount, currency, capacity, granularity, slot_duration_minutes, lead_time_minutes, max_advance_days, worker_user_id, created_at, updated_at",
                 vec![
                     reservation_id.into(),
                     status.into(),
@@ -3789,7 +3789,7 @@ async fn create_booking_txn(
         let row = txn
             .query_one_raw(Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Postgres,
-                "INSERT INTO reservation_bookings (reservation_id, service_id, starts_at, ends_at, first_name, last_name, email, phone, comment, customer_id, created_by_user_id, worker_user_id, service_name_snapshot, duration_minutes_snapshot, price_amount_snapshot, currency_snapshot, timezone, status, source, locale, data, ip_address, user_agent) VALUES ($1,$2,$3::timestamptz,$4::timestamptz,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'confirmed',$18,$19,$20::jsonb,$21::inet,$22) RETURNING id, booked_at, booking_token",
+                "INSERT INTO reservation_bookings (reservation_id, service_id, starts_at, ends_at, first_name, last_name, email, phone, comment, customer_id, created_by_user_id, worker_user_id, service_name_snapshot, duration_minutes_snapshot, price_amount_snapshot, currency_snapshot, timezone, status, source, locale, data, ip_address, user_agent) VALUES ($1,$2,$3::timestamptz,$4::timestamptz,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::numeric,$15,$16,$17,'confirmed',$18,$19,$20::jsonb,$21::inet,$22) RETURNING id, booked_at, booking_token",
                 vec![
                     reservation_id.into(),
                     svc.id.into(),

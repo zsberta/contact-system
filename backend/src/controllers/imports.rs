@@ -731,7 +731,7 @@ async fn services_create(
                     "INSERT INTO reservation_services
                        (reservation_id, status, sort_order, duration_minutes, price_amount, currency, capacity,
                         granularity, lead_time_minutes, max_advance_days)
-                     VALUES ($1, 'active', $2, $3, $4, $5, $6, 'hour', 0, 365)
+                     VALUES ($1, 'active', $2::int, $3::int, $4::numeric, $5, $6::int, 'hour', 0, 365)
                      RETURNING id",
                     vec![
                         reservation_id.into(),
@@ -984,7 +984,7 @@ async fn bookings_import(
                        price_amount_snapshot, currency_snapshot, timezone,
                        status, source, locale
                      ) VALUES (
-                       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'import', 'hu'
+                       $1, $2, $3::timestamptz, $4::timestamptz, $5, $6, $7, $8, $9, $10, $11, $12::numeric, $13, $14, $15, 'import', 'hu'
                      )
                      RETURNING id, booking_token",
                     vec![
