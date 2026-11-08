@@ -45,7 +45,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
  && mkdir -p /app/uploads /app/dist /app/backend/config \
  && chown -R appuser:appuser /app
 COPY --from=backend-builder /tmp/contact-system-cli /app/contact-system-cli
-COPY backend/config ./backend/config
+# Loco loads config/<env>.yaml relative to the working directory (/app).
+COPY backend/config ./config
 COPY backend/entrypoint.sh ./entrypoint.sh
 COPY --from=frontend-builder /fe/dist ./dist
 RUN chmod +x /app/entrypoint.sh /app/contact-system-cli \
