@@ -1,5 +1,7 @@
 node_modules
 dist
+target
+backend/target
 .git
 .env
 .env.local
@@ -7,3 +9,7 @@ dist
 coverage
 .vscode
 .idea
+uploads/
+old_backend/
+playwright/
+.landing-flags/
