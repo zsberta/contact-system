@@ -329,12 +329,34 @@ export default function ReservationEmbedPage() {
 
     publicResolveReservationCustomerProfiles(secretToken, tokens)
       .then((res) => {
-        setSavedProfiles(res.profiles || []);
+        // Guard: only prune when the server actually returned a profile list.
+        // Error shapes ({ errorMessage }) have no `profiles` — treating those
+        // as "nothing resolved" would wipe the entire browser list.
+        if (!res || !Array.isArray(res.profiles)) return;
+        setSavedProfiles(res.profiles);
         // Remove stale tokens that didn't resolve
-        const resolvedTokens = (res.profiles || []).map((p) => p.profileToken);
+        const resolvedTokens = res.profiles.map((p) => p.profileToken);
         const staleTokens = tokens.filter((t) => !resolvedTokens.includes(t));
         if (staleTokens.length > 0) {
           for (const t of staleTokens) removeReservationProfileToken(secretToken, t);
+        }
+        // Auto-fill the first saved profile so returning visitors can book
+        // without an extra click. "Enter new details" still lets them opt out.
+        if (res.profiles.length > 0) {
+          const first = res.profiles[0];
+          setSelectedProfileToken((prev) => prev ?? first.profileToken);
+          setRememberCustomer(true);
+          setContact((prev) => {
+            // Don't clobber anything the visitor already typed.
+            if (prev.firstName || prev.lastName || prev.email || prev.phone) return prev;
+            return {
+              firstName: first.firstName,
+              lastName: first.lastName,
+              email: first.email,
+              phone: first.phone,
+              comment: prev.comment,
+            };
+          });
         }
       })
       .catch(() => {
@@ -727,7 +749,7 @@ export default function ReservationEmbedPage() {
                           className={`rounded-lg border p-3 text-center text-sm transition-colors ${isSelected ? "border-transparent text-white" : "border-border hover:border-primary/50"} ${!hasSeats || isPast ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
                           disabled={!hasSeats || isPast}
                           style={isSelected && catalog?.reservation.brandColor ? { backgroundColor: catalog.reservation.brandColor, borderColor: catalog.reservation.brandColor } : undefined}
-                          onClick={() => { setSelectedSlot(slot); setView(manageBooking ? "modify" : "contact"); setSelectedProfileToken(null); setRememberCustomer(false); }}
+                          onClick={() => { setSelectedSlot(slot); setView(manageBooking ? "modify" : "contact"); }}
                         >
                           <p className="font-medium">{slot.startTime}</p>
                           <p className={`text-xs mt-1 ${isSelected ? "text-white/80" : "text-muted-foreground"}`}>
@@ -919,11 +941,21 @@ export default function ReservationEmbedPage() {
               setSelectedService(null);
               setSelectedSlot(null);
               setBookingId(null);
-              setContact({ firstName: "", lastName: "", email: "", phone: "", comment: "" });
+              // Start the next booking with the most recently used saved
+              // profile (handleSubmit prepends it), so returning visitors
+              // don't face an empty form. Falls back to a blank form.
+              const nextProfile = savedProfiles.length > 0 ? savedProfiles[0] : null;
+              if (nextProfile) {
+                setContact({ firstName: nextProfile.firstName, lastName: nextProfile.lastName, email: nextProfile.email, phone: nextProfile.phone, comment: "" });
+                setSelectedProfileToken(nextProfile.profileToken);
+                setRememberCustomer(true);
+              } else {
+                setContact({ firstName: "", lastName: "", email: "", phone: "", comment: "" });
+                setSelectedProfileToken(null);
+                setRememberCustomer(false);
+              }
               setCustomFields({});
               setError(null);
-              setSelectedProfileToken(null);
-              setRememberCustomer(false);
               setConsentAccepted(false);
               setManageError(null);
               setView(bookingToken ? "manage" : "catalog");

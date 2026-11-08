@@ -731,7 +731,7 @@ export async function publicResolveReservationCustomerProfiles(
   secretToken: string,
   profileTokens: string[],
 ): Promise<ReservationCustomerProfilesResponse> {
-  return fetch(
+  const res = await fetch(
     `/api/public/reservations/${encodeURIComponent(secretToken)}/customer-profiles/resolve`,
     {
       method: "POST",
@@ -739,7 +739,18 @@ export async function publicResolveReservationCustomerProfiles(
       credentials: "omit",
       body: JSON.stringify({ profileTokens }),
     },
-  ).then((r) => r.json());
+  );
+  if (!res.ok) {
+    let msg = "Profile resolution failed";
+    try {
+      const errBody = await res.json();
+      if (errBody && typeof errBody === "object" && errBody.errorMessage) {
+        msg = errBody.errorMessage;
+      }
+    } catch { /* ignore parse errors */ }
+    throw new Error(msg);
+  }
+  return res.json();
 }
 
 
