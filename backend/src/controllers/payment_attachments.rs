@@ -1,10 +1,10 @@
 //! File attachments for payment records. Port of old_backend/routes/payment-attachments.js.
 //!
 //! Routes (under /api/payments, auth required):
-//!   GET    /api/payments/:paymentId/attachments                       - list (endusers scoped)
-//!   POST   /api/payments/:paymentId/attachments                       - multipart upload, field "file" (admin only)
-//!   GET    /api/payments/:paymentId/attachments/:attId/download        - download as attachment (endusers scoped)
-//!   DELETE /api/payments/:paymentId/attachments/:attId                - delete row + file (admin only)
+//!   GET    /api/payments/{paymentId}/attachments                       - list (endusers scoped)
+//!   POST   /api/payments/{paymentId}/attachments                       - multipart upload, field "file" (admin only)
+//!   GET    /api/payments/{paymentId}/attachments/{attId}/download        - download as attachment (endusers scoped)
+//!   DELETE /api/payments/{paymentId}/attachments/{attId}                - delete row + file (admin only)
 //!
 //! Upload policy: 100 MB cap, server-side magic-byte sniff (never trust
 //! the client Content-Type). Accepted: pdf, png, jpeg, xls, xlsx, csv,
@@ -425,11 +425,11 @@ async fn delete_one(
 pub fn routes() -> Routes {
     Routes::new()
         .prefix("/api/payments")
-        .add("/:paymentId/attachments", get(list))
-        .add("/:paymentId/attachments", post(upload))
+        .add("/{paymentId}/attachments", get(list))
+        .add("/{paymentId}/attachments", post(upload))
         .add(
-            "/:paymentId/attachments/:attId/download",
+            "/{paymentId}/attachments/{attId}/download",
             get(download),
         )
-        .add("/:paymentId/attachments/:attId", delete(delete_one))
+        .add("/{paymentId}/attachments/{attId}", delete(delete_one))
 }

@@ -315,6 +315,6 @@ async fn delete_cover(
 pub fn routes() -> Routes {
     Routes::new()
         .prefix("/api/blog")
-        .add("/:id/cover", post(upload_cover))
-        .add("/:id/cover", delete(delete_cover))
+        .add("/{id}/cover", post(upload_cover))
+        .add("/{id}/cover", delete(delete_cover))
 }

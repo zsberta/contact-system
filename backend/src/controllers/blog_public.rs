@@ -588,8 +588,8 @@ async fn serve_attachment(
 pub fn routes() -> Routes {
     Routes::new()
         .prefix("/api/public/blog")
-        .add("/by-domain/:domain/posts", get(list_posts))
-        .add("/by-domain/:domain/posts/slugs", get(list_slugs))
-        .add("/by-domain/:domain/posts/:slug", get(get_post))
-        .add("/attachments/:filename", get(serve_attachment))
+        .add("/by-domain/{domain}/posts", get(list_posts))
+        .add("/by-domain/{domain}/posts/slugs", get(list_slugs))
+        .add("/by-domain/{domain}/posts/{slug}", get(get_post))
+        .add("/attachments/{filename}", get(serve_attachment))
 }

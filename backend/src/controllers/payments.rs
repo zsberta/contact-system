@@ -615,7 +615,7 @@ pub fn routes() -> Routes {
         .prefix("/api/payments")
         .add("/", get(list))
         .add("/", post(create))
-        .add("/:id", get(get_one))
-        .add("/:id", put(update))
-        .add("/:id", delete(delete_one))
+        .add("/{id}", get(get_one))
+        .add("/{id}", put(update))
+        .add("/{id}", delete(delete_one))
 }

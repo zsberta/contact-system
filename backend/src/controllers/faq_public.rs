@@ -123,5 +123,5 @@ async fn items(
 pub fn routes() -> Routes {
     Routes::new()
         .prefix("/api/public/faq")
-        .add("/by-domain/:domain/items", get(items))
+        .add("/by-domain/{domain}/items", get(items))
 }
