@@ -437,46 +437,79 @@ pub struct ForgotParams {
     pub email: Option<String>,
 }
 
-async fn forgot_password(State(ctx): State<AppContext>, Json(p): Json<ForgotParams>) -> impl IntoResponse {
+async fn forgot_password(
+    State(ctx): State<AppContext>,
+    headers: axum::http::HeaderMap,
+    Json(p): Json<ForgotParams>,
+) -> impl IntoResponse {
     let generic = Json(json!({"success": true, "message": "If an account exists for that email, a password-reset link has been sent."}));
     let Some(email) = p.email else { return (axum::http::StatusCode::OK, generic).into_response() };
     if !email.contains('@') || email.len() > 255 {
         return (axum::http::StatusCode::OK, generic).into_response();
     }
     let lowered = email.to_lowercase();
-    let row = ctx.db.query_one_raw(Statement::from_sql_and_values(
-        sea_orm::DatabaseBackend::Postgres,
-        "SELECT id, email, first_name FROM users WHERE email = $1",
-        vec![lowered.into()],
-    )).await.ok().flatten();
-    if let Some(r) = row {
-        let enabled: bool = r.try_get("", "enabled").unwrap_or(false);
-        // NOTE: column name in SELECT above omits enabled; fetch it.
-        let full = ctx.db.query_one_raw(Statement::from_sql_and_values(
+    let row = ctx
+        .db
+        .query_one_raw(Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Postgres,
             "SELECT id, email, first_name, enabled FROM users WHERE email = $1",
-            vec![r.try_get::<String>("", "email").unwrap_or_default().into()],
-        )).await.ok().flatten();
-        if let Some(u) = full {
-            let en: bool = u.try_get("", "enabled").unwrap_or(false);
-            if en {
-                let uid: i64 = u.try_get("", "id").unwrap_or(0);
-                let plain = rand_hex(32);
-                let thash = sha256_hex(&plain);
-                let _ = ctx.db.execute_raw(Statement::from_sql_and_values(
+            vec![lowered.into()],
+        ))
+        .await
+        .ok()
+        .flatten();
+    if let Some(u) = row {
+        let enabled: bool = u.try_get("", "enabled").unwrap_or(false);
+        if enabled {
+            let uid: i64 = u.try_get("", "id").unwrap_or(0);
+            let addr: String = u.try_get("", "email").unwrap_or_default();
+            let first: Option<String> = u.try_get("", "first_name").ok().flatten();
+            let plain = rand_hex(32);
+            let thash = sha256_hex(&plain);
+            let _ = ctx
+                .db
+                .execute_raw(Statement::from_sql_and_values(
                     sea_orm::DatabaseBackend::Postgres,
                     "DELETE FROM password_reset_tokens WHERE user_id = $1",
                     vec![uid.into()],
-                )).await;
-                let _ = ctx.db.execute_raw(Statement::from_sql_and_values(
+                ))
+                .await;
+            let _ = ctx
+                .db
+                .execute_raw(Statement::from_sql_and_values(
                     sea_orm::DatabaseBackend::Postgres,
                     "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, now() + ($3 || ' seconds')::interval)",
                     vec![uid.into(), thash.into(), 900.to_string().into()],
-                )).await;
-                let _ = enabled;
-                // Email dispatch is best-effort via the mailer worker; the
-                // reset link itself is never logged.
-                let _ = plain;
+                ))
+                .await;
+            // Best-effort reset email (never fails the request; the token
+            // itself is never logged). Mirrors renderForgotPassword (hu).
+            // Base URL: APP_PUBLIC_URL, else the request Host (same
+            // fallback as the old resolvePublicUrl).
+            let mut base = std::env::var("APP_PUBLIC_URL").unwrap_or_default();
+            if base.is_empty() {
+                if let Some(host) = headers.get("host").and_then(|v| v.to_str().ok()) {
+                    base = format!("http://{host}");
+                }
+            }
+            if !base.is_empty() && uid > 0 && !addr.is_empty() {
+                let link = format!(
+                    "{}/reset-password?token={}",
+                    base.trim_end_matches('/'),
+                    plain
+                );
+                let greeting = match first {
+                    Some(n) if !n.is_empty() => format!("Szia {n}!"),
+                    _ => "Szia!".to_string(),
+                };
+                let subject = "Jelszó visszaállítása — Nexus";
+                let text = format!(
+                    "{greeting}\n\nJelszó visszaállítása\n\nKérés érkezett a jelszavad visszaállítására. Új jelszó beállítása: {link}\n\nEz a link 15 percig érvényes.\n\nHa nem te kérted, nyugodtan hagyd figyelmen kívül."
+                );
+                let html = format!(
+                    "<p>{greeting}</p><p>Kérés érkezett a jelszavad visszaállítására. Kattints az alábbi gombra, hogy új jelszót állíthass be:</p><p><a href=\"{link}\">Új jelszó beállítása →</a></p><p>Ez a link 15 percig érvényes.</p><p>Ha nem te kérted, nyugodtan hagyd figyelmen kívül.</p>"
+                );
+                crate::mailers::email::EmailMailer::send(&addr, subject, &html, &text).await.ok();
             }
         }
     }
