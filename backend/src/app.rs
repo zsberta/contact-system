@@ -46,11 +46,16 @@ impl Hooks for App {
         _ctx: &AppContext,
     ) -> Result<axum::Router> {
         use axum::middleware;
-        // Global parity layers (mirror old_backend/server.js):
-        // Origin/Referer check, then double-submit CSRF check.
+        // Global parity layers (mirror old_backend/server.js mounting order):
+        // Origin/Referer check, then rate limiting, then double-submit
+        // CSRF check. Layers run last-added-first, so they are added in
+        // reverse execution order.
         let router = router
-            .layer(middleware::from_fn(crate::middleware::csrf::origin_check))
-            .layer(middleware::from_fn(crate::middleware::csrf::csrf_protection));
+            .layer(middleware::from_fn(crate::middleware::csrf::csrf_protection))
+            .layer(middleware::from_fn(
+                crate::middleware::rate_limit::limit_all,
+            ))
+            .layer(middleware::from_fn(crate::middleware::csrf::origin_check));
         // SPA fallback: serve the Vite build (dist/) for non-API GETs.
         // The Docker image copies the frontend build to ./dist.
         let dist = std::env::var("FRONTEND_DIST").unwrap_or_else(|_| "dist".to_string());
