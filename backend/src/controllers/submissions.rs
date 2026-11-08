@@ -722,7 +722,7 @@ async fn booking_create(
             .query_one_raw(Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Postgres,
                 "SELECT 1 AS one FROM reservation_bookings
-                 WHERE reservation_id = $1 AND starts_at < $2 AND ends_at > $3 LIMIT 1",
+                 WHERE reservation_id = $1 AND starts_at < $2::timestamptz AND ends_at > $3::timestamptz LIMIT 1",
                 vec![
                     reservation_id.into(),
                     ends.to_rfc3339_opts(chrono::SecondsFormat::Millis, true).into(),
