@@ -80,11 +80,27 @@ impl MigrationTrait for Migration {
         )
         .await?;
         // Legacy node-pg-migrate bookkeeping table (name varies by version).
+        // NOTE: never SELECT a possibly-missing table directly — inside the
+        // migrator's transaction a failed statement aborts the whole txn
+        // (25P02). Probe existence via to_regclass() first (never errors).
         let legacy: Vec<String> = {
             use sea_orm_migration::sea_orm::ConnectionTrait;
             use sea_orm_migration::sea_orm::Statement;
             let mut out = Vec::new();
             for tbl in ["pgmigrations", "pgmigrate"] {
+                let exists: bool = db
+                    .query_one_raw(Statement::from_string(
+                        sea_orm_migration::sea_orm::DatabaseBackend::Postgres,
+                        format!("SELECT to_regclass('public.{tbl}') IS NOT NULL AS present"),
+                    ))
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|r| r.try_get::<bool>("", "present").ok())
+                    .unwrap_or(false);
+                if !exists {
+                    continue;
+                }
                 let rows = db
                     .query_all_raw(Statement::from_string(
                         sea_orm_migration::sea_orm::DatabaseBackend::Postgres,
