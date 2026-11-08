@@ -18,7 +18,7 @@ COPY public ./public
 COPY src ./src
 COPY scripts ./scripts
 COPY index.html vite.config.ts tailwind.config.ts postcss.config.js components.json ./
-COPY tsconfig.json tsconfig.app.json ./
+COPY tsconfig.json tsconfig.app.json tsconfig.node.json ./
 RUN npm run build
 
 # ---------- backend ----------

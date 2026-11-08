@@ -16,8 +16,9 @@
 //!   - body_html sanitization is a hand-rolled allowlist sanitizer
 //!     (same tag/attribute policy as lib/sanitize.js); DOMPurify-equivalent
 //!     fidelity would need an extra crate (e.g. ammonia).
-//!   - Mutations are admin-only (require_admin -> 401/403). The old code
-//!     allowed scoped enduser writes; reads stay scoped to assigned projects.
+//!   - Mutations allow scoped enduser writes (mirrors requireAuth +
+//!     requireProjectAccess): admins bypass; endusers need the target
+//!     project in their assignments else 403 "Access denied to this project".
 //!   - Landing rebuild flags are written synchronously best-effort
 //!     (never fail the request).
 
@@ -32,7 +33,7 @@ use loco_rs::prelude::*;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::json;
 
-use crate::middleware::auth::{CurrentUser, MaybeUser, require_admin, scoped_project_ids};
+use crate::middleware::auth::{CurrentUser, scoped_project_ids};
 
 // ---------------------------------------------------------------------------
 // Small response helpers
@@ -824,6 +825,19 @@ fn is_unique_violation(e: &sea_orm::DbErr) -> bool {
     format!("{e:?}").contains("23505")
 }
 
+/// Enduser project gate (mirrors requireProjectAccess in blog.js):
+/// admins bypass; endusers must hold the project in their JWT assignments.
+fn deny_unscoped(user: &CurrentUser, project_id: i64) -> Option<Response> {
+    if user.role != "admin" && !user.project_ids.contains(&project_id) {
+        Some(err(
+            StatusCode::FORBIDDEN,
+            "Access denied to this project",
+        ))
+    } else {
+        None
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -1052,19 +1066,18 @@ async fn get_one(
 
 async fn create(
     State(ctx): State<AppContext>,
-    MaybeUser(u): MaybeUser,
+    user: CurrentUser,
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let admin = match require_admin(&u) {
-        Ok(a) => a,
-        Err(r) => return r,
-    };
     let body = if body.is_object() { body } else { json!({}) };
     let v = match validate_post(&body, false) {
         Ok(v) => v,
         Err(e) => return bad(e),
     };
     let project_id = v.fields["project_id"].as_i64().unwrap();
+    if let Some(r) = deny_unscoped(&user, project_id) {
+        return r;
+    }
 
     match ctx
         .db
@@ -1179,7 +1192,7 @@ async fn create(
             str_or_null("og_image_url"),
             str_or_null("canonical_url"),
             published_at,
-            admin.id.into(),
+            user.id.into(),
             group.map(|s| s.into()).unwrap_or(sea_orm::Value::String(None)),
         ],
     );
@@ -1205,22 +1218,18 @@ async fn create(
 
 async fn update(
     State(ctx): State<AppContext>,
-    MaybeUser(u): MaybeUser,
+    user: CurrentUser,
     Path(id): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let _admin = match require_admin(&u) {
-        Ok(a) => a,
-        Err(r) => return r,
-    };
     let Some(post_id) = parse_id(&id) else {
         return bad("Invalid id");
     };
-    let exists = match ctx
+    let existing = match ctx
         .db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT id FROM blog_posts WHERE id = $1",
+            "SELECT project_id FROM blog_posts WHERE id = $1",
             vec![post_id.into()],
         ))
         .await
@@ -1228,8 +1237,12 @@ async fn update(
         Ok(r) => r,
         Err(e) => return internal("update", e),
     };
-    if exists.is_none() {
+    let Some(prev) = existing else {
         return err(StatusCode::NOT_FOUND, "Blog post not found");
+    };
+    let row_project: i64 = prev.try_get("", "project_id").unwrap_or(0);
+    if let Some(r) = deny_unscoped(&user, row_project) {
+        return r;
     }
     let body = if body.is_object() { body } else { json!({}) };
     let v = match validate_post(&body, true) {
@@ -1379,15 +1392,28 @@ async fn update(
 
 async fn publish(
     State(ctx): State<AppContext>,
-    MaybeUser(u): MaybeUser,
+    user: CurrentUser,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let _admin = match require_admin(&u) {
-        Ok(a) => a,
-        Err(r) => return r,
-    };
     let Some(post_id) = parse_id(&id) else {
         return bad("Invalid id");
+    };
+    let row_project: Option<i64> = ctx
+        .db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT project_id FROM blog_posts WHERE id = $1",
+            vec![post_id.into()],
+        ))
+        .await
+        .ok()
+        .flatten()
+        .and_then(|r| r.try_get("", "project_id").ok());
+    let Some(row_project) = row_project else {
+        return err(StatusCode::NOT_FOUND, "Blog post not found");
+    };
+    if let Some(r) = deny_unscoped(&user, row_project) {
+        return r;
     };
     let stmt = Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
@@ -1417,15 +1443,28 @@ async fn publish(
 
 async fn unpublish(
     State(ctx): State<AppContext>,
-    MaybeUser(u): MaybeUser,
+    user: CurrentUser,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let _admin = match require_admin(&u) {
-        Ok(a) => a,
-        Err(r) => return r,
-    };
     let Some(post_id) = parse_id(&id) else {
         return bad("Invalid id");
+    };
+    let row_project: Option<i64> = ctx
+        .db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT project_id FROM blog_posts WHERE id = $1",
+            vec![post_id.into()],
+        ))
+        .await
+        .ok()
+        .flatten()
+        .and_then(|r| r.try_get("", "project_id").ok());
+    let Some(row_project) = row_project else {
+        return err(StatusCode::NOT_FOUND, "Blog post not found");
+    };
+    if let Some(r) = deny_unscoped(&user, row_project) {
+        return r;
     };
     match ctx
         .db
@@ -1472,13 +1511,9 @@ async fn unpublish(
 
 async fn delete_one(
     State(ctx): State<AppContext>,
-    MaybeUser(u): MaybeUser,
+    user: CurrentUser,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let _admin = match require_admin(&u) {
-        Ok(a) => a,
-        Err(r) => return r,
-    };
     let Some(post_id) = parse_id(&id) else {
         return bad("Invalid id");
     };
@@ -1496,6 +1531,10 @@ async fn delete_one(
         Err(e) => return internal("delete", e),
     };
     let module_id: Option<i64> = meta.try_get("", "module_id").ok().flatten();
+    let row_project: i64 = meta.try_get("", "project_id").unwrap_or(0);
+    if let Some(r) = deny_unscoped(&user, row_project) {
+        return r;
+    }
     let slug: String = meta.try_get("", "slug").unwrap_or_default();
     let domain: String = meta.try_get("", "domain_address").unwrap_or_default();
     let enabled: bool = meta.try_get("", "landing_enabled").unwrap_or(false);

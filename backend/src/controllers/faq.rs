@@ -14,8 +14,9 @@
 //!   - Public-cache invalidation is a no-op: the Rust public surface
 //!     (faq_public.rs) carries no in-memory cache, so there is nothing
 //!     to invalidate.
-//!   - Mutations are admin-only (require_admin -> 401/403); reads stay
-//!     scoped to assigned projects.
+//!   - Mutations allow scoped enduser writes (mirrors requireAuth +
+//!     requireProjectAccess): admins bypass; endusers need the target
+//!     project in their assignments else 403 "Access denied to this project".
 
 use std::collections::HashMap;
 
@@ -28,7 +29,19 @@ use loco_rs::prelude::*;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::json;
 
-use crate::middleware::auth::{CurrentUser, MaybeUser, require_admin, scoped_project_ids};
+use crate::middleware::auth::{CurrentUser, scoped_project_ids};
+
+/// Enduser project gate (mirrors requireProjectAccess in faq.js).
+fn deny_unscoped(user: &CurrentUser, project_id: i64) -> Option<Response> {
+    if user.role != "admin" && !user.project_ids.contains(&project_id) {
+        Some(err(
+            StatusCode::FORBIDDEN,
+            "Access denied to this project",
+        ))
+    } else {
+        None
+    }
+}
 
 fn err(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, Json(json!({ "errorMessage": msg.into() }))).into_response()
@@ -407,19 +420,18 @@ async fn get_one(
 
 async fn create(
     State(ctx): State<AppContext>,
-    MaybeUser(u): MaybeUser,
+    user: CurrentUser,
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let admin = match require_admin(&u) {
-        Ok(a) => a,
-        Err(r) => return r,
-    };
     let body = if body.is_object() { body } else { json!({}) };
     let v = match validate_faq(&body, false) {
         Ok(v) => v,
         Err(e) => return bad(e),
     };
     let project_id = v.out["project_id"].as_i64().unwrap();
+    if let Some(r) = deny_unscoped(&user, project_id) {
+        return r;
+    }
     let module_id = match ensure_module(&ctx.db, project_id).await {
         Ok(m) => m,
         Err(e) => return internal("create", e),
@@ -446,7 +458,7 @@ async fn create(
                 str_val("answer_en"),
                 (v.out.get("sort_order").and_then(|x| x.as_i64()).unwrap_or(0) as i32).into(),
                 v.out.get("status").and_then(|x| x.as_str()).unwrap_or("draft").to_string().into(),
-                admin.id.into(),
+                user.id.into(),
             ],
         ))
         .await
@@ -464,13 +476,10 @@ async fn create(
 
 async fn update(
     State(ctx): State<AppContext>,
-    MaybeUser(u): MaybeUser,
+    user: CurrentUser,
     Path(id): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    if let Err(r) = require_admin(&u) {
-        return r;
-    }
     let Some(fid) = parse_id(&id) else {
         return bad("Invalid id");
     };
@@ -498,6 +507,9 @@ async fn update(
         return err(StatusCode::NOT_FOUND, "FAQ item not found");
     };
     let project_id: i64 = prev.try_get("", "project_id").unwrap_or(0);
+    if let Some(r) = deny_unscoped(&user, project_id) {
+        return r;
+    }
     let cols = ["question_hu", "answer_hu", "question_en", "answer_en", "sort_order", "status"];
     let mut sets: Vec<String> = vec![];
     let mut params: Vec<sea_orm::Value> = vec![];
@@ -536,12 +548,9 @@ async fn update(
 
 async fn delete_one(
     State(ctx): State<AppContext>,
-    MaybeUser(u): MaybeUser,
+    user: CurrentUser,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    if let Err(r) = require_admin(&u) {
-        return r;
-    }
     let Some(fid) = parse_id(&id) else {
         return bad("Invalid id");
     };
@@ -561,6 +570,9 @@ async fn delete_one(
         return err(StatusCode::NOT_FOUND, "FAQ item not found");
     };
     let project_id: i64 = prev.try_get("", "project_id").unwrap_or(0);
+    if let Some(r) = deny_unscoped(&user, project_id) {
+        return r;
+    }
     let module_id: Option<i64> = prev.try_get("", "module_id").ok().flatten();
     match ctx
         .db
@@ -622,12 +634,9 @@ async fn set_status(
 
 async fn publish(
     State(ctx): State<AppContext>,
-    MaybeUser(u): MaybeUser,
+    user: CurrentUser,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    if let Err(r) = require_admin(&u) {
-        return r;
-    }
     let Some(fid) = parse_id(&id) else {
         return bad("Invalid id");
     };
@@ -644,6 +653,9 @@ async fn publish(
         .and_then(|r| r.try_get("", "project_id").ok());
     let Some(project_id) = proj else {
         return err(StatusCode::NOT_FOUND, "FAQ item not found");
+    };
+    if let Some(r) = deny_unscoped(&user, project_id) {
+        return r;
     };
     match set_status(&ctx, fid, "published").await {
         Ok(r) => {
@@ -662,12 +674,9 @@ async fn publish(
 
 async fn unpublish(
     State(ctx): State<AppContext>,
-    MaybeUser(u): MaybeUser,
+    user: CurrentUser,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    if let Err(r) = require_admin(&u) {
-        return r;
-    }
     let Some(fid) = parse_id(&id) else {
         return bad("Invalid id");
     };
@@ -684,6 +693,9 @@ async fn unpublish(
         .and_then(|r| r.try_get("", "project_id").ok());
     let Some(project_id) = proj else {
         return err(StatusCode::NOT_FOUND, "FAQ item not found");
+    };
+    if let Some(r) = deny_unscoped(&user, project_id) {
+        return r;
     };
     match set_status(&ctx, fid, "draft").await {
         Ok(r) => {
