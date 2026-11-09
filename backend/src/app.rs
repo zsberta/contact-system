@@ -62,15 +62,23 @@ impl Hooks for App {
     ) -> Result<axum::Router> {
         use axum::middleware;
         // Global layers:
-        // Origin/Referer check, then rate limiting, then double-submit
-        // CSRF check. Layers run last-added-first, so they are added in
-        // reverse execution order.
+        // CORS for /api/public/* first (outermost), then Origin/Referer
+        // check, then rate limiting, then double-submit CSRF check.
+        // Layers run last-added-first, so they are added in reverse
+        // execution order.
+        // NOTE: cors_public only adds `Access-Control-Allow-Origin` /
+        // preflight handling so browsers can *read* public responses
+        // cross-origin. It does NOT bypass the per-resource
+        // `allowed_origins` gates inside each public controller
+        // (mismatched origins still get an indistinguishable 404 body)
+        // and origin_check below still guards every non-public route.
         Ok(router
             .layer(middleware::from_fn(crate::middleware::csrf::csrf_protection))
             .layer(middleware::from_fn(
                 crate::middleware::rate_limit::limit_all,
             ))
-            .layer(middleware::from_fn(crate::middleware::csrf::origin_check)))
+            .layer(middleware::from_fn(crate::middleware::csrf::origin_check))
+            .layer(middleware::from_fn(crate::middleware::cors::cors_public)))
         // NOTE: no fallback_service here on purpose — the SPA is served by
         // the explicit controllers::spa routes (registered last in routes()
         // so API mounts win). A fallback_service would be silently replaced
