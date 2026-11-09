@@ -142,7 +142,7 @@ test.describe("frontend-driven E2E", () => {
     faq: [] as number[],
     services: [] as number[],
     users: [] as number[],
-    bookings: [] as string[], // booking tokens
+    bookings: [] as { token: string; id: number }[],
     customers: [] as number[],
     aiConfigs: [] as { projectId: number; id: number; preExisting: boolean }[],
     analyticsConfigs: [] as { projectId: number; id: number; preExisting: boolean }[],
@@ -343,11 +343,11 @@ test.describe("frontend-driven E2E", () => {
       });
       if (!book.ok) return `BOOKFAIL:${book.status}:${(await book.text()).slice(0, 200)}`;
       const j = await book.json();
-      return j.bookingToken as string;
+      return JSON.stringify({ token: j.bookingToken, id: j.id });
     }, RESERVATION_TOKEN);
     expect(token, "booking token").toBeTruthy();
     expect(String(token).startsWith("BOOKFAIL")).toBe(false);
-    created.bookings.push(token as string);
+    created.bookings.push(JSON.parse(token as string));
   });
 
   test("08 analytics collect + script (test path only)", async ({ }, testInfo) => {
@@ -414,26 +414,20 @@ test.describe("frontend-driven E2E", () => {
 
   test("10 teardown: cancel bookings, delete everything created", async ({ }, testInfo) => {
     const page = pg(testInfo);
-    // cancel public bookings by token (same flow as the manage page)
-    for (const tok of created.bookings) {
+    // cancel public bookings by token (same flow as the manage page),
+    // then admin-delete them (proper API flow) so no rows remain
+    for (const b of created.bookings) {
       const res = await page.evaluate(async ({ secret, tok }) => {
         const r = await fetch(`/api/public/reservations/${secret}/bookings/by-token/${tok}`, { method: "DELETE" });
         return r.status;
-      }, { secret: RESERVATION_TOKEN, tok });
+      }, { secret: RESERVATION_TOKEN, tok: b.token });
       expect([200, 404, 410]).toContain(res);
+      const r = await api(page, "DELETE", `/api/reservations/1/bookings/${b.id}`);
+      expect([200, 204, 404]).toContain(r.status);
     }
-    // admin-delete the cancelled test bookings (proper API flow), so no
-    // booking rows remain; notifications/customer rows have no delete
-    // endpoint and are removed via SQL after the run (see runbook note).
-    for (const tok of created.bookings) {
-      const info = await api(page, "GET", `/api/public/reservations/${RESERVATION_TOKEN}/bookings/by-token/${tok}`);
-      const bid = info.json?.id;
-      const rid = info.json?.reservationId ?? 1;
-      if (bid) {
-        const r = await api(page, "DELETE", `/api/reservations/${rid}/bookings/${bid}`);
-        expect([200, 204, 404]).toContain(r.status);
-      }
-    }
+    // NOTE: notification + reservation_customer rows have no delete
+    // endpoint; the runbook removes the e2e-tagged rows via SQL after
+    // the run and diffs the DB to prove zero residue.
     // delete nested entities (children before parents)
     for (const id of created.submissions) {
       await api(page, "DELETE", `/api/submissions/${id}`).catch(() => {});
