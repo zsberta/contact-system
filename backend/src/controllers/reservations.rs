@@ -2708,7 +2708,7 @@ async fn update_service(
             vals.push((n as i32).into());
         }
         if let Some(n) = body.get("priceAmount").and_then(|v| v.as_f64()) {
-            sets.push(format!("price_amount = ${ph}"));
+            sets.push(format!("price_amount = ${ph}::numeric"));
             ph += 1;
             vals.push(n.to_string().into());
         }
