@@ -68,7 +68,8 @@ async function login(page: Page) {
   await page.getByPlaceholder(/email/i).or(page.locator('input[type="text"]').first()).fill(ADMIN_EMAIL);
   await page.locator('input[type="password"]').fill(ADMIN_PASSWORD);
   await page.locator('button[type="submit"]').click();
-  await expect(page).toHaveURL(/\/(dashboard)?$/, { timeout: 20000 });
+  // the app lands on the workspace (project overview), not /dashboard
+  await expect(page).not.toHaveURL(/\/login$/, { timeout: 20000 });
 }
 
 async function gotoOk(page: Page, path: string) {
@@ -161,6 +162,7 @@ test.describe("frontend-driven E2E", () => {
     const context = await browser.newContext({ storageState: "e2e/.auth.json" });
     const page = await context.newPage();
     watch(page, testInfo.title);
+    await page.goto("/"); // give document an origin so document.cookie works
     (testInfo as any).e2ePage = page;
     (testInfo as any).e2eContext = context;
   });

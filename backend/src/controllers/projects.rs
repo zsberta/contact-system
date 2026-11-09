@@ -575,7 +575,7 @@ async fn create(State(ctx): State<AppContext>, user: CurrentUser, Json(b): Json<
            landing_repo_dir, landing_build_command, landing_build_env,
            landing_dist_path, landing_enabled, brand_color, gateway_merchant_id)
          VALUES ($1, $2, $3::numeric, $4, $5::billing_period, $6::project_status, $7, $8, $9, $10,
-                 $11, $12, $13::jsonb, $14, $15, $16, $17)
+                 $11, $12, $13::jsonb, $14, $15, $16, $17::uuid)
          RETURNING {PROJECT_COLS}"
     );
     // Re-select with display casts so price/env come back DTO-ready.
@@ -676,6 +676,9 @@ async fn update(State(ctx): State<AppContext>, user: CurrentUser, Path(id): Path
             params.push(bind_or_null(val));
         } else if *col == "status" {
             sets.push(format!("{col} = ${idx}::project_status"));
+            params.push(bind_or_null(val));
+        } else if *col == "gateway_merchant_id" {
+            sets.push(format!("{col} = ${idx}::uuid"));
             params.push(bind_or_null(val));
         } else {
             sets.push(format!("{col} = ${idx}"));
