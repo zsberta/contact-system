@@ -1,15 +1,14 @@
-//! Public form-embed endpoints: 1:1 port of old_backend/routes/form-embed.js.
+//! Public form-embed endpoints.
 //!
 //! Public, NO auth (capability is the 22-char secret_token in the path).
 //!   GET  /api/public/forms/:secret_token          — public form config
 //!   POST /api/public/forms/:secret_token/submissions — validate + store
 //!
-//! Notes vs the original:
+//! Notes:
 //! - Per-IP burst/sustained rate limiting is left to the global middleware
 //!   (generous in-handler limiting is out of scope).
 //! - Confirmation e-mails go through the paced queue (`enqueue_mail`,
-//!   best-effort, never fails the request) instead of the old
-//!   notifyProjectOwner/notifySubmitter pair: the operator notification
+//!   best-effort, never fails the request): the operator notification
 //!   uses renderSubmissionNotification (always HU) and the submitter
 //!   auto-reply uses renderSubmissionAutoReply + detectSubmitterEmail.
 
@@ -106,9 +105,9 @@ fn allowed_of(row: &sea_orm::QueryResult) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Fire-and-forget operator notification + submitter auto-reply. Port of
-/// the old `notifyProjectOwner` + `notifySubmitter` pair (same templates,
-/// same subjects/kinds): the operator mail is always Hungarian with a
+/// Fire-and-forget operator notification + submitter auto-reply: the
+/// `notifyProjectOwner` + `notifySubmitter` pair (same templates, same
+/// subjects/kinds) — the operator mail is always Hungarian with a
 /// `Nexus` From; the auto-reply is project-branded.
 async fn send_form_emails(
     db: &sea_orm::DatabaseConnection,
@@ -144,7 +143,7 @@ async fn send_form_emails(
         .as_ref()
         .and_then(|r| r.try_get::<Option<String>>("", "customer_email").ok().flatten());
 
-    // Operator notification (always Hungarian — same as the old path).
+    // Operator notification (always Hungarian).
     if let Some(to) = customer_email.clone().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
         let rendered = render_submission_notification(SubmissionNotificationParams {
             project_name: &project_name,

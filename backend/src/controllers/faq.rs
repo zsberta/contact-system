@@ -1,4 +1,4 @@
-//! Admin CRUD for FAQ items. Port of old_backend/routes/faq.js.
+//! Admin CRUD for FAQ items.
 //!
 //! Routes (under /api/faq, auth required; mutations admin-only):
 //!   GET    /api/faq                  - paged list (endusers scoped)
@@ -9,14 +9,14 @@
 //!   POST   /api/faq/:id/publish      - flip to published
 //!   POST   /api/faq/:id/unpublish    - flip to draft
 //!
-//! Simplifications vs the Express original:
-//!   - Activity logging skipped (no shared helper in the Rust port yet).
-//!   - Public-cache invalidation is a no-op: the Rust public surface
+//! Notes:
+//!   - Activity logging skipped (no shared helper yet).
+//!   - Public-cache invalidation is a no-op: the public surface
 //!     (faq_public.rs) carries no in-memory cache, so there is nothing
 //!     to invalidate.
-//!   - Mutations allow scoped enduser writes (mirrors requireAuth +
-//!     requireProjectAccess): admins bypass; endusers need the target
-//!     project in their assignments else 403 "Access denied to this project".
+//!   - Mutations allow scoped enduser writes: admins bypass; endusers need
+//!     the target project in their assignments else 403 "Access denied to
+//!     this project".
 
 use std::collections::HashMap;
 

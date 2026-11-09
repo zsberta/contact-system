@@ -1,7 +1,4 @@
-//! Port of the docker-poll + event-loop-lag parts of
-//! old_backend/lib/server-info.js.
-//!
-//! Collection model mirrors the original: an in-process tick keeps a cached
+//! Collection model: an in-process tick keeps a cached
 //! docker snapshot; the API serves the snapshot (instant page loads) and a
 //! `?refresh=1` query forces a re-poll subject to a 10s min interval so the
 //! Refresh button can't hammer the daemon.
@@ -10,7 +7,7 @@
 //! live-polled: `docker_snapshot()` / `refresh_docker_snapshot()` return the
 //! exact `{ configured, lastPollAt, lastError, containers, engine,
 //! diskUsage }` object. On poll failure the previous good snapshot is kept
-//! and only `lastError` is updated (same as the old code).
+//! and only `lastError` is updated.
 //!
 //! The per-request self metrics (DB latency, table counts, email
 //! aggregates, uploads walk) stay live in the controller — only the docker
@@ -86,8 +83,8 @@ fn unconfigured_snapshot() -> serde_json::Value {
 
 /// Serve the cached docker snapshot, polling now when stale (older than
 /// SERVER_INFO_POLL_MS). Concurrent callers serialize on the cache lock and
-/// share the fresh result — the Rust equivalent of the old single-flight
-/// `dockerPollInFlight` guard.
+/// share the fresh result — concurrent callers coalesce onto one poll via
+/// the cache lock (single-flight `dockerPollInFlight` guard).
 pub async fn docker_snapshot() -> serde_json::Value {
     let base = match proxy_base() {
         Some(b) => b,
@@ -141,7 +138,7 @@ async fn poll_now(base: &str, guard: &mut DockerCache) {
         }
         (l, i, d) => {
             // Keep the previous good snapshot; surface the error instead of
-            // failing (mirrors the old catch block).
+            // failing.
             let err = l.err().or(i.err()).or(d.err()).unwrap_or_default();
             tracing::error!("[server-info] docker poll failed: {err}");
             guard.last_error = Some(err);
@@ -279,8 +276,8 @@ fn map_disk_usage(df: &serde_json::Value) -> serde_json::Value {
 
 static LAG_MS: AtomicU64 = AtomicU64::new(UNSET_LAG);
 
-/// Approximation of the old `eventLoopLagMs`: the overshoot of a yielded
-/// task, sampled every 5s. Clamped to 0 below 2ms like the original.
+/// Approximation of `eventLoopLagMs`: the overshoot of a yielded
+/// task, sampled every 5s. Clamped to 0 below 2ms.
 /// Currently informational only — no response field consumes it, so adding
 /// the sampler cannot change any response shape.
 pub fn event_loop_lag_ms() -> Option<u64> {

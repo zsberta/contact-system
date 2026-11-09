@@ -1,4 +1,4 @@
-//! Admin CRUD for blog posts. Port of old_backend/routes/blog.js.
+//! Admin CRUD for blog posts.
 //!
 //! Routes (all under /api/blog, auth required; mutations admin-only):
 //!   GET    /api/blog                      - paged list (endusers scoped)
@@ -10,15 +10,14 @@
 //!   POST   /api/blog/:id/unpublish        - flip to draft + landing flag
 //!   DELETE /api/blog/:id                  - hard delete + landing flag
 //!
-//! Simplifications vs the Express original:
-//!   - Activity logging (logActivity/diffObjects) is skipped: no shared
-//!     activity-log helper exists in the Rust port yet.
+//! Notes:
+//!   - Activity logging is skipped: no shared activity-log helper exists yet.
 //!   - body_html sanitization is a hand-rolled allowlist sanitizer
-//!     (same tag/attribute policy as lib/sanitize.js); DOMPurify-equivalent
-//!     fidelity would need an extra crate (e.g. ammonia).
-//!   - Mutations allow scoped enduser writes (mirrors requireAuth +
-//!     requireProjectAccess): admins bypass; endusers need the target
-//!     project in their assignments else 403 "Access denied to this project".
+//!     (tag/attribute policy documented inline); higher fidelity would
+//!     need an extra crate (e.g. ammonia).
+//!   - Mutations allow scoped enduser writes: admins bypass; endusers need
+//!     the target project in their assignments else 403 "Access denied to
+//!     this project".
 //!   - Landing rebuild flags are written synchronously best-effort
 //!     (never fail the request).
 
@@ -169,8 +168,8 @@ fn validate_post(body: &serde_json::Value, partial: bool) -> Result<ValidPost, S
         }
     }
 
-    // locale: defaults to 'hu' on POST; never written on PUT (old code
-    // 400s when locale is absent on PUT, validates-but-ignores when present).
+    // locale: defaults to 'hu' on POST; never written on PUT (PUT 400s
+    // when locale is absent, validates-but-ignores when present).
     match body.get("locale") {
         Some(v) => {
             if v.as_str().map(is_locale).unwrap_or(false) {
@@ -364,8 +363,8 @@ fn validate_post(body: &serde_json::Value, partial: bool) -> Result<ValidPost, S
 }
 
 // ---------------------------------------------------------------------------
-// Hungarian-friendly slugify (mirrors old slugify; accent folding covers
-// Hungarian + common Latin letters instead of full NFKD)
+// Hungarian-friendly slugify (accent folding covers Hungarian + common
+// Latin letters instead of full NFKD)
 // ---------------------------------------------------------------------------
 
 fn fold_char(c: char) -> Option<char> {
@@ -460,8 +459,8 @@ const DROP_WITH_CONTENT: &[&str] = &["script", "style", "iframe", "object", "emb
 
 fn allowed_url(value: &str) -> bool {
     let v = value.trim_start();
-    // block dangerous schemes (data: blocked too — stricter than the old
-    // img hook, which only stripped javascript:/vbscript:)
+    // block dangerous schemes (data: blocked too — stricter than a
+    // javascript:/vbscript:-only strip):
     let lower: String = v.chars().take(12).collect::<String>().to_lowercase();
     for scheme in ["javascript:", "vbscript:", "data:"] {
         if lower.starts_with(scheme) {

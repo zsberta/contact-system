@@ -200,7 +200,7 @@ const LogsPage: React.FC = () => {
   const [selected, setSelected] = useState<LogDTO | null>(null);
 
   const { query, handlers } = useDataTableQuery({
-    defaultSize: 10,
+    defaultSize: 100,
     defaultSortField: "createdAt",
     defaultSortOrder: "desc",
   });
@@ -476,6 +476,8 @@ const LogsPage: React.FC = () => {
             currentSortField={query.sortField || "createdAt"}
             currentSortOrder={query.sortOrder || "desc"}
             onRowDoubleClick={setSelected}
+            defaultPageSize={100}
+            pageSizeOptions={[100, 250, 500, 1000]}
           />
         </CardContent>
       </Card>

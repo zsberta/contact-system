@@ -1,4 +1,4 @@
-//! Payment records. Port of old_backend/routes/payments.js.
+//! Payment records.
 //!
 //! Routes (under /api/payments, auth required; mutations admin-only):
 //!   GET    /api/payments          - paged list, optional ?projectId= (endusers scoped)
@@ -7,13 +7,12 @@
 //!   PUT    /api/payments/:id      - partial update (projectId immutable, paid_at bookkeeping)
 //!   DELETE /api/payments/:id      - delete (paid payments -> 409)
 //!
-//! Simplifications vs the Express original:
-//!   - Activity logging skipped (no shared helper in the Rust port yet).
-//!   - Mutations are admin-only via require_admin (401/403). The old code
-//!     forbade enduser writes with 403 "Endusers have read-only access";
-//!     the code is the same, the message differs.
+//! Notes:
+//!   - Activity logging skipped (no shared helper yet).
+//!   - Mutations are admin-only via require_admin (401/403); enduser
+//!     writes get 403 "Endusers have read-only access".
 //!   - DB error mapping uses message-substring matching (23505 -> 409,
-//!     22P02 -> 400) instead of pg error codes.
+//!     22P02 -> 400).
 
 use std::collections::HashMap;
 

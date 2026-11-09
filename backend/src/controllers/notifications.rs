@@ -1,4 +1,4 @@
-//! Notifications: 1:1 port of old_backend/routes/notifications.js (+push lib).
+//! Notifications (+push lib).
 //!
 //! All routes require auth (CurrentUser → 401 JSON when anonymous).
 //!   GET  /api/notifications
@@ -9,8 +9,7 @@
 //!   POST /api/notifications/unsubscribe { endpoint }
 //!
 //! Browser-push fan-out lives centrally in crate::push::create_notification
-//! (port of lib/push.js), exactly like the old code — no route here sends
-//! push directly.
+//! — no route here sends push directly.
 
 use std::collections::HashMap;
 
@@ -291,9 +290,9 @@ async fn subscribe(
         return err(StatusCode::BAD_REQUEST, "Missing endpoint or keys");
     }
     let res: Result<Response, sea_orm::DbErr> = (async {
-        // Portable upsert (SELECT-then-write): the shipped migration declares
-        // endpoint UNIQUE while the old code assumed (user_id, endpoint), so
-        // ON CONFLICT cannot target both — explicit check works with either.
+        // Portable upsert (SELECT-then-write): works whether endpoint is
+        // UNIQUE alone or per (user_id, endpoint) — ON CONFLICT cannot
+        // target both, so the explicit check covers either shape.
         let existing = ctx
             .db
             .query_one_raw(Statement::from_sql_and_values(

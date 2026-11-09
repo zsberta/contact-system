@@ -1,10 +1,7 @@
-//! Port of old_backend/lib/push.js (+ the push strings from
-//! old_backend/lib/notifications-i18n.js).
-//!
 //! Central push fan-out: every notification type that pairs an in-app row
 //! with a browser push goes through [`create_notification`], which INSERTs
 //! the row and then pushes from this one place with byte-identical payloads
-//! and gates. Unknown types only create the in-app row (same as before).
+//! and gates. Unknown types only create the in-app row.
 //!
 //! [`send_push_to_user`] sends a `{title, body, url}` JSON payload to every
 //! device registered to a user, purging dead endpoints (410/404) and never
@@ -17,15 +14,14 @@ use web_push::{
     WebPushError, WebPushMessageBuilder,
 };
 
-/// VAPID subject, mirroring
-/// `webpush.setVapidDetails("mailto:info@zsoltberta.hu", ...)` in push.js.
+/// VAPID subject (`mailto:` contact) for outgoing browser pushes.
 pub const VAPID_SUBJECT: &str = "mailto:info@zsoltberta.hu";
 
 /// Push-message TTL (4 weeks), matching the node-web-push default.
 const PUSH_TTL_SECS: u32 = 2_419_200;
 
 // ---------------------------------------------------------------------------
-// send_push_to_user — port of sendPushToUser(userId, payload, audit)
+// send_push_to_user(userId, payload, audit)
 // ---------------------------------------------------------------------------
 
 /// Send a push notification to all devices registered to a user.
@@ -65,7 +61,7 @@ pub async fn send_push_to_user(
     }
 
     // VAPID_PRIVATE_KEY holds the raw base64url-no-pad private key (the same
-    // string node-web-push consumes), so from_base64 is the exact port of
+    // string node-web-push consumes), so from_base64 maps directly onto
     // setVapidDetails. Build once, clone per endpoint for the aud claim.
     let partial = match VapidSignatureBuilder::from_base64_no_sub(&vapid_private) {
         Ok(b) => b,
@@ -158,7 +154,7 @@ pub async fn send_push_to_user(
 }
 
 // ---------------------------------------------------------------------------
-// create_notification — port of createNotification({...})
+// create_notification({...})
 // ---------------------------------------------------------------------------
 
 /// Create an in-app notification row for a user, with central push fan-out.
@@ -224,11 +220,11 @@ pub async fn create_notification(
 }
 
 // ---------------------------------------------------------------------------
-// build_push_payload — exact port of buildPushPayload (push.js)
+// build_push_payload (push payload builder)
 // ---------------------------------------------------------------------------
 
 /// Browser-push payload for a freshly stored notification, or `None` for
-/// in-app-row-only types. Shapes and texts match the old per-call-site
+/// in-app-row-only types. Shapes and texts match the per-call-site
 /// `sendPushToUser` calls byte-for-byte.
 pub struct PushPayload {
     pub title: String,
@@ -327,7 +323,7 @@ async fn worker_push_enabled(db: &DatabaseConnection) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// notifications-i18n — port of the push strings + t()/formatDate
+// notifications-i18n — push strings + t()/formatDate
 // ---------------------------------------------------------------------------
 
 fn resolve_locale(locale: &str) -> &str {

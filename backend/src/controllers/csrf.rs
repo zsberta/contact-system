@@ -1,4 +1,4 @@
-//! CSRF token endpoint: 1:1 port of old_backend/routes/csrf.js.
+//! CSRF token endpoint.
 //! GET /api/csrf, POST /api/csrf/refresh — both issue a fresh token.
 
 use axum::response::IntoResponse;

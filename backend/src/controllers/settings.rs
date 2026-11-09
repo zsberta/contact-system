@@ -1,5 +1,3 @@
-//! Port of old_backend/routes/settings.js.
-//!
 //! Routes:
 //!   GET /api/settings                 — all system settings (admin only)
 //!   PUT /api/settings                 — upsert settings map (admin only)

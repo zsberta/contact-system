@@ -10,6 +10,5 @@ coverage
 .vscode
 .idea
 uploads/
-old_backend/
 playwright/
 .landing-flags/

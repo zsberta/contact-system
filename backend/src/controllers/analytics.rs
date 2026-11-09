@@ -1,4 +1,4 @@
-//! Analytics admin module: 1:1 port of old_backend/routes/analytics.js.
+//! Analytics admin module.
 //!
 //! One analytics_configs row per project (UNIQUE FK), created lazily via
 //! GET /by-project/:projectId. Mutations reject endusers with 403.
@@ -159,8 +159,8 @@ struct ValidatedConfig {
     allowed_origins: Option<Vec<String>>,
 }
 
-/// Port of validateConfigBody. POST path unused (creation is lazy), but the
-/// strict branch is kept for parity.
+/// Config body validator. POST path unused (creation is lazy), but the
+/// strict branch is kept.
 fn validate_config_body(
     body: &serde_json::Value,
     partial: bool,
@@ -851,8 +851,7 @@ async fn stats(
             Err(r) => return Ok(r),
             Ok(_) => {}
         }
-        // Sequential awaits (each is one round-trip; correctness first —
-        // the original fanned out with Promise.all, same result shape).
+        // Sequential awaits (each is one round-trip; correctness first).
         let totals = ctx
             .db
             .query_one_raw(Statement::from_sql_and_values(

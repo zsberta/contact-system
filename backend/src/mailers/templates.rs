@@ -1,18 +1,15 @@
-//! HTML + plain-text email templates. 1:1 port of
-//! `old_backend/lib/email-templates.js` (1165 lines).
+//! HTML + plain-text email templates.
 //!
-//! Same subjects, same Hungarian/English texts, same HTML structure
-//! (table-based, inline styles) and same plaintext bodies. Brand tokens
-//! mirror `src/globals.css` via the old `BRAND` object, exposed here as
-//! [`Brand`] associated constants.
+//! Hungarian/English subjects and texts, table-based HTML with inline
+//! styles plus matching plaintext bodies. Brand tokens (see
+//! `src/globals.css`) are exposed here as [`Brand`] associated constants.
 //!
-//! Two deliberate simplifications vs the Node original (both documented
-//! inline where they occur):
+//! Two deliberate simplifications (both documented inline where they occur):
 //! 1. Date/time formatting is hand-rolled (hu/en month tables + a
 //!    Europe/Budapest DST rule) because this crate cannot gain an ICU or
 //!    IANA-tz dependency (`backend/Cargo.toml` is owned by another crew).
 //!    Shapes (`2026. szeptember 10., 10:00 – 11:00`, `09/10/2026, 10:00 AM`)
-//!    match the old `toLocaleDateString`/`toLocaleTimeString` output.
+//!    match the `toLocaleDateString`/`toLocaleTimeString` output shapes.
 //! 2. Diacritic folding for key normalisation uses a Latin-1/Latin-Extended
 //!    lookup table instead of JS `String.normalize("NFD")`; coverage is
 //!    identical for every alias in the field catalogue.
@@ -828,8 +825,8 @@ pub fn render_submission_notification(p: SubmissionNotificationParams<'_>) -> Re
                     ),
                     _ => (0, 0, 0, 0, 0, 0, 0),
                 };
-                // Server-local rendering (old code used the server TZ via
-                // toLocaleDateString without a timeZone). Displayed in UTC.
+                // Server-local rendering (server TZ, no timeZone conversion).
+                // Displayed in UTC.
                 let date_str = if locale == "hu" {
                     format!("{sy}. {sm:02}. {sd:02}.")
                 } else {

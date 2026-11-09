@@ -1,5 +1,3 @@
-//! Port of old_backend/routes/users.js.
-//!
 //! Admin-only CRUD for the users table plus the enduser invite flow:
 //!   GET    /api/users
 //!   GET    /api/users/{id}            (includes projectIds)
@@ -69,9 +67,9 @@ fn public_url() -> String {
         .unwrap_or_else(|| "http://localhost:3000".to_string())
 }
 
-/// Best-effort invite email (never fails the request). Port of the old
-/// `renderInvite` + `sendMail` pair in `old_backend/routes/users.js`, routed
-/// through the paced queue instead of a direct send.
+/// Best-effort invite email (never fails the request). Renders the
+/// `renderInvite` template and routes it through the paced queue instead
+/// of a direct send.
 fn send_invite_email(to: &str, name: Option<&str>, link: &str, is_reinvite: bool) {
     let rendered = crate::mailers::templates::render_invite(
         crate::mailers::templates::InviteParams {

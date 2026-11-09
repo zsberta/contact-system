@@ -1,4 +1,4 @@
-//! Admin AI Assistant controller: port of old_backend/routes/ai-assistant.js.
+//! Admin AI Assistant controller.
 //!
 //! Endpoints (all under /api/ai-assistant, auth required):
 //! - GET    / — paged config list (enduser: project-scoped)
@@ -16,17 +16,16 @@
 //! - GET    /:id/sessions — paged chat sessions
 //! - GET    /:id/sessions/:sessionId — messages (read-only)
 //! - POST   /:id/test-chat — non-persisted RAG + LLM round-trip (any authed
-//!   user with project access; NEW endpoint — the old backend has no
-//!   test-chat route, the spec requires one, so it mirrors the public chat
-//!   pipeline without SSE persistence)
+//!   user with project access; mirrors the public chat pipeline without
+//!   SSE persistence)
 //!
 //! Degradations (reason for each):
 //! - ENCRYPTION: `aes-gcm` is NOT in Cargo deps (Cargo.toml is shared /
-//!   frozen), so AES-256-GCM blobs written by the old Node backend CANNOT
-//!   be decrypted here. New keys are stored as `"plain:<key>"` (the old
-//!   `decrypt()` treats unknown shapes as legacy plaintext, so rows stay
-//!   readable by both). `resolve_api_key()` returns `EncryptedUnavailable`
-//!   for old blobs; only key-protected operations (chat/test-chat,
+//!   frozen), so pre-existing AES-256-GCM blobs CANNOT be decrypted here.
+//!   New keys are stored as `"plain:<key>"` (unknown shapes are treated as
+//!   legacy plaintext, so rows stay readable everywhere).
+//!   `resolve_api_key()` returns `EncryptedUnavailable` for such blobs;
+//!   only key-protected operations (chat/test-chat,
 //!   embeddings) fail with a clear 500 "encryption unavailable — re-save
 //!   the key"; every other endpoint keeps working.
 //! - EMBEDDINGS: if `AI_EMBEDDING_API_KEY` (or a resolvable assistant key)
@@ -44,8 +43,8 @@
 //! - STREAMING: reqwest here has no `stream` feature, so the LLM SSE body
 //!   is buffered server-side and then replayed as SSE (embed chat) or
 //!   returned as JSON (test-chat). Clients still receive valid SSE.
-//! - `createNotification` (push/in-app) and `logActivity` have no Rust
-//!   equivalent: skipped / replaced with `tracing`.
+//! - `createNotification` (push/in-app) and `logActivity` side effects are
+//!   skipped / replaced with `tracing`.
 
 use axum::{
     extract::{Multipart, Path, Query, State},
@@ -159,7 +158,7 @@ pub(crate) fn resolve_api_key(enc: Option<String>) -> KeyState {
                     KeyState::Ready(rest.to_string())
                 }
             } else {
-                // Old AES-256-GCM blob (or legacy raw key). Without aes-gcm
+                // Pre-existing AES-256-GCM blob (or legacy raw key). Without aes-gcm
                 // we cannot decrypt; per spec this is a clear 500 for
                 // key-protected operations only.
                 KeyState::EncryptedUnavailable
@@ -238,7 +237,7 @@ async fn translations_for(
 }
 
 // ---------------------------------------------------------------------------
-// Body validation (port of validateConfigBody; partial=true for PUT)
+// Body validation (partial=true for PUT)
 // ---------------------------------------------------------------------------
 
 fn validate_origin_entry(entry: &str, index: usize, seen: &mut std::collections::HashSet<String>) -> Result<String, String> {
@@ -1218,7 +1217,7 @@ async fn process_document(db: sea_orm::DatabaseConnection, document_id: i64, ass
             }
         }
     } else {
-        mark_failed(&db, document_id, &file_path, format!("Unsupported file type in this port: {file_type} (PDF/DOCX extraction libraries unavailable; upload .txt/.md/.csv instead)")).await;
+        mark_failed(&db, document_id, &file_path, format!("Unsupported file type: {file_type} (PDF/DOCX extraction libraries unavailable; upload .txt/.md/.csv instead)")).await;
         return;
     };
     if text.trim().is_empty() {

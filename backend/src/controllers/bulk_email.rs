@@ -1,9 +1,9 @@
-//! Admin-only bulk e-mail: 1:1 port of old_backend/routes/bulk-email.js.
+//! Admin-only bulk e-mail.
 //!
 //!   POST /api/bulk-email — { projectId, subject, body } to every active
 //!                          reservation customer of the project.
 //!
-//! Each customer gets the old renderBulkEmail template (project-branded),
+//! Each customer gets the renderBulkEmail template (project-branded),
 //! fanned out through the paced queue (`enqueue_mail`, best-effort, which
 //! honours the EMAIL_SENDING kill-switch internally).
 
@@ -111,8 +111,7 @@ async fn send_bulk(
                 continue;
             };
 
-            // Same template as the old bulk-email route (project-branded,
-            // admin freeform body, HU).
+            // Bulk-email template (project-branded, admin freeform body, HU).
             let rendered = crate::mailers::templates::render_bulk_email(
                 crate::mailers::templates::BulkEmailParams {
                     project_name: project_name.as_deref(),

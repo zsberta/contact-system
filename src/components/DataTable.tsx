@@ -62,6 +62,7 @@ interface DataTableProps<TData, TValue> {
   onSearch: (query: string) => void;
   isLoading: boolean;
   defaultPageSize?: number;
+  pageSizeOptions?: number[];
 
   queries?: string[];
   filterType?: "any" | "all";
@@ -122,6 +123,7 @@ export function DataTable<TData, TValue>({
   onSearch,
   isLoading,
   defaultPageSize = 10,
+  pageSizeOptions = [5, 10, 20, 50],
   queries = EMPTY_QUERIES,
   filterType = "any",
   onQueriesChange,
@@ -481,7 +483,7 @@ export function DataTable<TData, TValue>({
                 <SelectValue placeholder={pageSize} />
               </SelectTrigger>
               <SelectContent className="z-[110]">
-                {[5, 10, 20, 50].map((size) => (
+                {pageSizeOptions.map((size) => (
                   <SelectItem key={size} value={String(size)}>
                     {size}
                   </SelectItem>

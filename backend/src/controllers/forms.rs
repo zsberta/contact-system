@@ -1,4 +1,4 @@
-//! Admin forms module: 1:1 port of old_backend/routes/forms.js.
+//! Admin forms module.
 //!
 //! Routes (all require auth; mutations reject endusers with 403):
 //!   GET    /api/forms
@@ -114,7 +114,7 @@ fn row_to_dto(
 }
 
 // ---------------------------------------------------------------------------
-// Allowed-origins validator (port of the forms.js validator)
+// Allowed-origins validator
 // ---------------------------------------------------------------------------
 
 fn re_hostname() -> &'static Regex {
@@ -1043,7 +1043,7 @@ async fn submissions_list(
             let conj = if filter_type == "all" { " AND " } else { " OR " };
             let mut parts = vec![];
             for t in terms {
-                // Escape LIKE wildcards like the original.
+                // Escape LIKE wildcards.
                 let esc = t.replace('%', "\\%").replace('_', "\\_");
                 parts.push(format!(
                     "(s.ip_address::text ILIKE ${next} OR s.locale ILIKE ${next} OR s.data::text ILIKE ${next})"

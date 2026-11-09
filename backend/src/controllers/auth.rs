@@ -1,4 +1,4 @@
-//! Auth controller: 1:1 port of old_backend/routes/auth.js.
+//! Auth controller.
 //!
 //! Routes:
 //!   POST /api/auth/signin, /refresh, /logout, /set-password,
@@ -484,8 +484,7 @@ async fn forgot_password(
                 .await;
             // Best-effort reset email (never fails the request; the token
             // itself is never logged). Uses renderForgotPassword (hu).
-            // Base URL: APP_PUBLIC_URL, else the request Host (same
-            // fallback as the old resolvePublicUrl).
+            // Base URL: APP_PUBLIC_URL, else the request Host.
             let mut base = std::env::var("APP_PUBLIC_URL").unwrap_or_default();
             if base.is_empty() {
                 if let Some(host) = headers.get("host").and_then(|v| v.to_str().ok()) {
@@ -498,7 +497,7 @@ async fn forgot_password(
                     base.trim_end_matches('/'),
                     plain
                 );
-                // Same subjects/kinds as the old forgot-password flow:
+                // Same subjects/kinds as the forgot-password flow:
                 // renderForgotPassword, queued (non-blocking).
                 let rendered = crate::mailers::templates::render_forgot_password(
                     crate::mailers::templates::ForgotPasswordParams {

@@ -1,4 +1,4 @@
-//! Admin CRUD for service items. Port of old_backend/routes/service.js.
+//! Admin CRUD for service items.
 //!
 //! Routes (under /api/service, auth required; mutations admin-only):
 //!   GET    /api/service                  - paged list (endusers scoped)

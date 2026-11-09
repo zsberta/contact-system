@@ -1,5 +1,4 @@
 //! Admin CRUD for reusable AI config presets.
-//! 1:1 port of old_backend/routes/ai-config-presets.js.
 //!
 //! Routes (all under /api/ai-config-presets, auth required):
 //!   GET    /          — paged list of the current user's presets
@@ -9,10 +8,10 @@
 //!   DELETE /:id       — delete (admin only, 204)
 //!
 //! Notes / degradations:
-//! - The old code stores `apiKey` verbatim in `api_key_enc` (no AES call
-//!   in this route) and never returns it in the DTO. This port does the
-//!   same: the key is write-only and never serialized back.
-//! - `logActivity` has no Rust equivalent yet; mutations are traced via
+//! - `apiKey` is stored verbatim in `api_key_enc` (no AES call in this
+//!   route) and never returned in the DTO: the key is write-only and
+//!   never serialized back.
+//! - Activity logging isn't wired here; mutations are traced via
 //!   `tracing::info!` instead.
 
 use axum::{

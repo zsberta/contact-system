@@ -1,5 +1,3 @@
-//! Port of old_backend/routes/projects.js.
-//!
 //! Project CRUD + attachment up/download. Reads are scoped to the caller's
 //! assigned projects for endusers; all mutations are admin-only:
 //!   GET    /api/projects
@@ -471,7 +469,7 @@ async fn list(
     dparams.push(offset.into());
     match ctx.db.query_all_raw(Statement::from_sql_and_values(sea_orm::DatabaseBackend::Postgres, &data_sql, dparams)).await {
         Ok(rows) => {
-            // List DTO omits landing internals (matches the old list query).
+            // List DTO omits landing internals.
             let content: Vec<_> = rows.iter().map(|r| {
                 json!({
                     "id": r.try_get::<i64>("", "id").unwrap_or(0),

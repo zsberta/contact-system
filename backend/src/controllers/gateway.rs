@@ -1,5 +1,4 @@
 //! Admin-only proxy to the nexus-gateway billing API.
-//! 1:1 port of old_backend/routes/gateway.js.
 //!
 //! The operator token never leaves the server: the browser talks to
 //! /api/gateway/* with its cookie session, this controller forwards to the

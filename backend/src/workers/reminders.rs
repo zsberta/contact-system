@@ -1,12 +1,9 @@
-//! Port of old_backend/lib/reservation-reminders.js.
-//!
 //! Background scheduler that sends reminder emails X hours before each
 //! booking starts. Uses the reminder_sent_at NULL-claim for idempotent,
 //! single-flight send: a row is only picked up while reminder_sent_at IS
 //! NULL, and is stamped after the send is queued.
 //!
-//! Cadence mirrors the old in-process setInterval wiring: run immediately on
-//! startup, then every 60 seconds. Env guard DISABLE_REMINDERS=true skips
+//! Cadence: run immediately on startup, then every 60 seconds. Env guard DISABLE_REMINDERS=true skips
 //! startup.
 
 use sea_orm::{ConnectionTrait, DatabaseConnection, DatabaseBackend, Statement};
@@ -130,9 +127,8 @@ pub async fn run_once(db: &DatabaseConnection) -> usize {
                 from_address: None,
             });
             // Mark as sent — prevents duplicate sends on next tick. Set
-            // eagerly (same as the old code): delivery from here is
-            // best-effort and a retry loop would be worse than a single
-            // missed reminder.
+            // eagerly: delivery from here is best-effort and a retry loop
+            // would be worse than a single missed reminder.
             db.execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE reservation_bookings SET reminder_sent_at = now() WHERE id = $1",
@@ -209,9 +205,8 @@ pub fn spawn(db: DatabaseConnection) {
 //
 // TODO(mail crew): swap `BookingReminderInput` / `render_booking_reminder` /
 // `RenderedMail` with `crate::mailers::templates::render_booking_reminder`
-// once the mail crew lands it. The input fields below mirror the
-// `renderBookingReminder({...})` arguments in
-// old_backend/lib/email-templates.js one-for-one (workerName/signerName are
+// once the mail crew lands it. The input fields below match the
+// `renderBookingReminder({...})` arguments one-for-one (workerName/signerName are
 // not selected by the reminder query, so they are absent here), and the
 // output `{ subject, html, text }` shape is identical — the swap is a
 // drop-in rename at the `render_booking_reminder(&input)` call site above.
@@ -246,8 +241,8 @@ fn esc(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// Local stand-in renderer (see the TODO above). Mirrors the wording and
-/// structure of `renderBookingReminder` in old_backend/lib/email-templates.js
+/// Local stand-in renderer (see the TODO above). Matches the wording and
+/// structure of `renderBookingReminder`
 /// (reminder intro with hoursBefore, service/date/id detail rows,
 /// modify/cancel manage links, no-reply hint, sign-off).
 pub fn render_booking_reminder(input: &BookingReminderInput) -> RenderedMail {

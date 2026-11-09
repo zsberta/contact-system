@@ -1,12 +1,9 @@
-//! Port of old_backend/lib/gateway-payments.js.
-//!
 //! Background watcher that notifies ADMINS (only) about gateway payments.
 //! Polls the nexus-gateway ledger and creates in-app notifications when a
 //! transaction is first observed in a terminal state (paid / failed /
 //! refunded) or transitions into one. Pending rows are tracked silently.
 //!
-//! Cadence mirrors the old in-process setInterval wiring: run immediately on
-//! startup, then every 120 seconds. Env guard DISABLE_GATEWAY_PAYMENTS=true
+//! Cadence: run immediately on startup, then every 120 seconds. Env guard DISABLE_GATEWAY_PAYMENTS=true
 //! skips startup. Quiet backfill: an empty seen-table seeds without
 //! notifying.
 

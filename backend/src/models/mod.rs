@@ -1,9 +1,8 @@
 //! Shared DB helpers: raw-SQL access through SeaORM's connection.
 //!
-//! Parity strategy: the Express backend issues hand-written parameterized
-//! SQL via `pg`. The Loco port keeps the *same SQL strings* (with `$1`
-//! placeholders) executed through SeaORM's `ConnectionTrait`, so query
-//! semantics stay identical without maintaining 48 entity files.
+//! Hand-written parameterized SQL (with `$1` placeholders) executed
+//! through SeaORM's `ConnectionTrait`, without maintaining 48 entity
+//! files. Query logic stays explicit and reviewable in one place.
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, Value as DbValue};
 use serde_json::Value;

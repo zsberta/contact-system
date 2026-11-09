@@ -1,4 +1,4 @@
-//! Public AI-assistant embed: port of old_backend/routes/ai-assistant-embed.js.
+//! Public AI-assistant embed.
 //! Mounted at /api/public/ai-assistant (CSRF-exempt, no auth — the 22-char
 //! `secret_token` is the capability).
 //!
@@ -10,17 +10,16 @@
 //!
 //! Notes / degradations:
 //! - The widget JS itself is compile-time embedded from
-//!   `public/ai-assistant-widget.js` (`include_str!`) and served with the
-//!   exact same `{{PLACEHOLDER}}` substitution as the old code.
+//!   `public/ai-assistant-widget.js` (`include_str!`) with
+//!   `{{PLACEHOLDER}}` values filled server-side.
 //! - RAG + LLM + key-resolution logic is shared with the admin
 //!   `ai_assistant` controller (`pub(crate)` helpers). SSE is a
 //!   server-side-buffered replay (reqwest has no `stream` feature here);
 //!   clients still receive valid `text/event-stream` with `[DONE]`.
-//! - Encryption: old AES-256-GCM blobs cannot be decrypted (`aes-gcm` not
-//!   in deps); chat with such a config returns the graceful SSE
-//!   "AI configuration is not properly set up." message instead of 500.
-//! - Rate limiters from the old file are NOT ported (no rate-limit
-//!   middleware in this workspace yet) — hardening TODO.
+//! - Encryption: pre-existing AES-256-GCM blobs cannot be decrypted
+//!   (`aes-gcm` not in deps); chat with such a config returns the graceful
+//!   SSE "AI configuration is not properly set up." message instead of 500.
+//! - No rate-limit middleware on these endpoints yet — hardening TODO.
 
 use axum::{
     body::Body,
@@ -267,7 +266,7 @@ async fn chat(
     if secret.len() != 22 {
         return err(StatusCode::NOT_FOUND, "Not found");
     }
-    // The old router accepts text/plain and parses JSON manually.
+    // This router accepts text/plain and parses JSON manually.
     let parsed: Value = if body.is_empty() {
         json!({})
     } else {
@@ -436,7 +435,7 @@ async fn chat(
         let r = if role == "system" { "user" } else { role.as_str() };
         llm_messages.push(json!({ "role": r, "content": content }));
     }
-    // key check (graceful SSE message, mirroring old no-key behavior)
+    // key check (graceful SSE message on missing key)
     let api_key = match A::resolve_api_key(api_key_enc) {
         A::KeyState::Ready(k) => k,
         _ => {

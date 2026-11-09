@@ -1,9 +1,9 @@
-//! Idempotent admin seed — port of old_backend/db/seed.js.
+//! Idempotent admin seed.
 //!
 //! Run via `contact-system-cli task seed_admin` (also invoked by the
 //! container entrypoint on every boot). Creates the admin user from
 //! ADMIN_EMAIL / ADMIN_PASSWORD when missing; never modifies an existing
-//! row, never appends demo data (parity with the old "no auto-seed"
+//! row, never appends demo data (per the "no auto-seed"
 //! compose policy).
 
 use loco_rs::prelude::*;

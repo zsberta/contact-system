@@ -1,4 +1,4 @@
-//! Public reservation embed: port of old_backend/routes/reservation-embed.js.
+//! Public reservation embed.
 //! Mounted at /api/public/reservations (CSRF-exempt, no auth — the
 //! 22-char `secret_token` is the capability).
 //!
@@ -20,13 +20,11 @@
 //! the EXACT same checks.
 //!
 //! Degradations (same rationale as reservations.rs):
-//! - `createNotification` (in-app + browser push) has no Rust equivalent:
-//!   worker in-app/push notifications are skipped; e-mails go best-effort
-//!   through the paced queue (`enqueue_mail` with the booking templates,
-//!   same subjects/kinds as the old code).
+//! - `createNotification` (in-app + browser push) is skipped: worker
+//!   in-app/push notifications are skipped; e-mails go best-effort
+//!   through the paced queue (`enqueue_mail` with the booking templates).
 //! - `logActivity`/`logError` → `tracing` only.
-//! - Rate limiters from the old file (express-rate-limit) are NOT ported:
-//!   no rate-limit middleware exists in this workspace yet. Documented as
+//! - No rate-limit middleware on these endpoints yet. Documented as
 //!   a hardening TODO; correctness is unaffected.
 
 use axum::{
@@ -212,7 +210,7 @@ async fn field_defs_for(
 }
 
 // ---------------------------------------------------------------------------
-// Customer profiles (port of reservation-customer-profiles.js)
+// Customer profiles
 // ---------------------------------------------------------------------------
 
 fn valid_profile_token(v: &str) -> bool {
@@ -666,7 +664,7 @@ async fn create_booking_public(
         let booked_at = R::ts_opt(&booking, "booked_at");
         let sname = svc.name.clone().unwrap_or_else(|| reservation.name.clone());
         // Customer confirmation + worker notification (same templates/kinds
-        // as the old public create: renderBookingAutoReply with manage
+        // as the public create: renderBookingAutoReply with manage
         // buttons + renderWorkerBookingNotification, both queued).
         let proj = ctx
             .db
@@ -799,8 +797,8 @@ async fn create_booking_public(
                 });
             }
         }
-        // In-app + push notification to worker (old embed create:
-        // createNotification BOOKING_CREATED; fan-out is central).
+        // In-app + push notification to worker (BOOKING_CREATED;
+        // fan-out is central).
         if let Some(wid) = svc.worker_user_id {
             let cname = format!("{} {}", contact.first_name, contact.last_name);
             let cname = cname.trim();
@@ -1316,7 +1314,7 @@ async fn reschedule_by_token(
             }
         }
         let old_id: i64 = ex.try_get("", "id").unwrap_or(0);
-        // cancel old first (restored on failure, mirroring old code)
+        // cancel the previous booking first (restored on failure)
         ctx.db
             .execute_raw(Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Postgres,
@@ -1428,13 +1426,13 @@ async fn reschedule_by_token(
         if let Some(em) = R::str_opt(&ex, "email") {
             // Customer confirmation for the replacement booking, with manage
             // tokens so the new booking stays manageable from the e-mail
-            // (parity with the old reschedule path + public create).
+            // (same as the reschedule path + public create).
             R::send_booking_confirmation(&ctx.db, reservation.project_id, None, &em, &sname, &starts_iso, &ends_iso, &reservation.timezone, &loc, Some(new_id), new_token.clone(), Some(secret.clone())).await;
         }
-        // Worker notification for the replacement booking (mirror public
+        // Worker notification for the replacement booking (like public
         // create: settings-gated worker e-mail + BOOKING_CREATED in-app/push).
-        // Without this the owner only sees the CANCELLED push for the old
-        // slot and never learns the new date.
+        // Without this the owner only sees the CANCELLED push for the
+        // previous slot and never learns the new date.
         let wid_opt: Option<i64> = svc
             .try_get::<Option<i64>>("", "worker_user_id")
             .ok()

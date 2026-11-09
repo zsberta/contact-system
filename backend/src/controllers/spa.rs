@@ -1,5 +1,4 @@
-//! SPA + upload static serving. 1:1 port of the old Express tail in
-//! old_backend/server.js:
+//! SPA + upload static serving.
 //!
 //! ```js
 //! app.use("/uploads", express.static(uploadsDir)); // + CORP header
@@ -13,7 +12,7 @@
 //!
 //! Explicit routes (not a fallback service) so Loco's own fallback
 //! middleware can never override the status: every non-API GET returns
-//! 200 like the old code did (the React Router `*` route renders the
+//! 200 (the React Router `*` route renders the
 //! in-app 404 page for unknown paths, e.g. the unregistered /settings).
 
 use axum::{
@@ -95,7 +94,7 @@ async fn upload_file(Path(path): Path<String>) -> Response {
     let full = format!("{}/{}", uploads_dir(), path);
     match file_response(&full).await {
         Some(mut resp) => {
-            // Old uploads mount overrode Helmet's same-origin CORP so
+            // The uploads mount overrides the default same-origin CORP so
             // cross-origin pages (landing sites, AI avatars) can load files.
             resp.headers_mut().insert(
                 "Cross-Origin-Resource-Policy",

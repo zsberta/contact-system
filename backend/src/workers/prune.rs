@@ -1,4 +1,3 @@
-//! Port of the retention-prune tail of old_backend/lib/activity-log.js
 //! (pruneActivityLogs + startActivityLogPrune).
 //!
 //! Nightly DELETE of activity_logs rows older than N months, where N comes
@@ -58,7 +57,7 @@ async fn prune_once_months(db: &DatabaseConnection, months: i32) -> usize {
 }
 
 /// Start the prune loop: first run 60s after boot (lets the pool warm up),
-/// then daily. No env guard in the original — always runs once wired.
+/// then daily. No env guard — always runs once wired.
 pub fn spawn(db: DatabaseConnection) {
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(FIRST_RUN_DELAY_SECS)).await;

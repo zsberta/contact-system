@@ -6,8 +6,8 @@
 #   3. runner: binary + backend/config + dist + entrypoint
 #
 # Migrations run automatically on boot (config `auto_migrate: true` +
-# explicit `db migrate` in the entrypoint). Same Postgres schema as the
-# old Express backend — zero data loss on existing volumes.
+# explicit `db migrate` in the entrypoint). Stable Postgres schema —
+# zero data loss on existing volumes.
 
 # ---------- frontend ----------
 FROM node:22-alpine AS frontend-builder

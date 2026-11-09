@@ -1,5 +1,3 @@
-//! Port of old_backend/routes/internal.js.
-//!
 //! Service-to-service endpoint for the host-cron landing rebuild wrapper:
 //!   POST /api/internal/landing-build-status
 //!

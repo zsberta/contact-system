@@ -1,4 +1,4 @@
-//! Auth extractor: mirrors old_backend/middleware/jwtAuth.js.
+//! JWT auth extractor.
 //!
 //! Reads the `token` cookie (HS256 JWT signed at signin/refresh with
 //! `{ sub, email, role, projectIds }`). Missing/invalid token -> `None`

@@ -1,13 +1,13 @@
-//! Public analytics embed: 1:1 port of old_backend/routes/analytics-embed.js.
+//! Public analytics embed.
 //!
 //! Public, NO auth (capability is the 22-char secret_token in the path).
 //!   GET  /api/public/analytics/:secret_token/script.js — loader script
 //!   POST /api/public/analytics/:secret_token/collect  — event ingestion
 //!
-//! Notes vs the original:
+//! Notes:
 //! - Per-IP burst/sustained rate limiting is left to the global middleware.
-//! - The POST accepts both application/json and text/plain bodies (the old
-//!   text/plain parser is folded in: the raw body is JSON-parsed manually).
+//! - The POST accepts both application/json and text/plain bodies (the raw
+//!   body is JSON-parsed manually).
 
 use axum::{
     extract::{Path, State},

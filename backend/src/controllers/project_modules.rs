@@ -1,5 +1,3 @@
-//! Port of old_backend/routes/project-modules.js.
-//!
 //! Routes (all require auth; endusers are scoped to assigned projects):
 //!   GET /api/project-modules?projectId=<id> — module DTOs for one project
 //!   GET /api/project-modules/{id}            — single module DTO

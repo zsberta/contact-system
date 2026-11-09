@@ -44,7 +44,7 @@ impl Hooks for App {
     }
 
     async fn before_run(app_context: &AppContext) -> Result<()> {
-        // Background loops (mirror old_backend/server.js wiring):
+        // Background loops:
         // mail queue drain, reservation reminders (60s), gateway payment
         // watch (120s), server-info snapshot, activity-log prune.
         crate::mailers::email::start();
@@ -61,7 +61,7 @@ impl Hooks for App {
         _ctx: &AppContext,
     ) -> Result<axum::Router> {
         use axum::middleware;
-        // Global parity layers (mirror old_backend/server.js mounting order):
+        // Global layers:
         // Origin/Referer check, then rate limiting, then double-submit
         // CSRF check. Layers run last-added-first, so they are added in
         // reverse execution order.
@@ -114,8 +114,7 @@ impl Hooks for App {
             .add_route(controllers::gateway::routes())
             .add_route(controllers::health::routes())
             // SPA + uploads last: explicit routes (not a fallback service)
-            // so API mounts always win and deep links return 200 like the
-            // old Express `app.get("*")` did.
+            // so API mounts always win and deep links return 200.
             .add_route(controllers::spa::routes())
     }
 
@@ -133,7 +132,7 @@ impl Hooks for App {
 
     async fn seed(_ctx: &AppContext, _base: &Path) -> Result<()> {
         // Admin seeding is handled by the seed_admin task reading
-        // ADMIN_EMAIL / ADMIN_PASSWORD (parity with old db/seed.js).
+        // ADMIN_EMAIL / ADMIN_PASSWORD.
         Ok(())
     }
 }

@@ -1,13 +1,13 @@
-//! Public by-domain service reads for landing pages. Port of old_backend/routes/service-public.js.
+//! Public by-domain service reads for landing pages.
 //!
 //! Routes (under /api/public/service, NO auth — Host header is the auth):
 //!   GET /by-domain/:domain/items   - all published items, sort_order order
 //!
 //! Response: { items: [{ titleHu, titleEn, descriptionHu, descriptionEn, priceHu, priceEn, sortOrder }] }
 //!
-//! Simplifications vs the Express original:
+//! Notes:
 //!   - No in-memory TTL cache; relies on Cache-Control headers + nginx/CDN.
-//!   - No express-rate-limit (burst 30/min, sustained 600/h).
+//!   - No rate limiting on this surface.
 
 use axum::{
     extract::Path,

@@ -2,7 +2,7 @@
 
 A simple, single-user admin dashboard. Login-only, no public registration, no SSO. React/Vite/shadcn frontend with a **Rust (Loco) + PostgreSQL** backend.
 
-> Branch `rust-loco-migration`: the backend was ported from Express to Rust/Loco with zero data/feature loss. The old Node backend is archived under `old_backend/` for reference. Same API contract (`/api/*`), same Postgres schema, same React SPA.
+> Backend is Rust/Loco (ported from Express with zero data/feature loss). Same API contract (`/api/*`), same Postgres schema, same React SPA.
 
 ## Stack
 

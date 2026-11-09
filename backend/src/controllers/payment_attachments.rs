@@ -1,4 +1,4 @@
-//! File attachments for payment records. Port of old_backend/routes/payment-attachments.js.
+//! File attachments for payment records.
 //!
 //! Routes (under /api/payments, auth required):
 //!   GET    /api/payments/{paymentId}/attachments                       - list (endusers scoped)
@@ -10,16 +10,16 @@
 //! the client Content-Type). Accepted: pdf, png, jpeg, xls, xlsx, csv,
 //! doc, docx, txt. Files live at UPLOADS_DIR/payments/<paymentId>/.
 //!
-//! Simplifications vs the Express original:
+//! Notes:
 //!   - Sniffing is hand-rolled (no `file-type` crate): pdf/png/jpeg by
 //!     magic bytes; OLE (xls/doc) distinguished by Workbook/WordDocument
 //!     stream names; OOXML (xlsx/docx) by [Content_Types] entry names;
 //!     anything else that is valid UTF-8 without NUL bytes is treated as
-//!     text/plain (or text/csv for .csv names). Consequence: the old code
-//!     *rejected* txt/csv (file-type cannot sniff text); the port accepts
-//!     them — documented fix, not a regression.
-//!   - Stored filename keeps the sanitized original extension (as the old
-//!     code did), restricted to alphanumeric extensions.
+//!     text/plain (or text/csv for .csv names). Note: txt/csv are
+//!     accepted here (`file-type` cannot sniff text, so magic-byte-only
+//!     sniffers reject them).
+//!   - Stored filename keeps the sanitized original extension, restricted
+//!     to alphanumeric extensions.
 
 use axum::{
     body::Body,

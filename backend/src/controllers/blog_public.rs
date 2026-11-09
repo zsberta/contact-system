@@ -1,4 +1,4 @@
-//! Public by-domain read API for landing pages. Port of old_backend/routes/blog-public.js.
+//! Public by-domain read API for landing pages.
 //!
 //! Routes (under /api/public/blog, NO auth — Host header is the auth):
 //!   GET /by-domain/:domain/posts            - published posts (?locale=&since=&limit=)
@@ -6,11 +6,10 @@
 //!   GET /by-domain/:domain/posts/:slug      - single post with body
 //!   GET /attachments/:filename              - serve cover/inline images
 //!
-//! Simplifications vs the Express original:
-//!   - No in-memory TTL cache (single-process Map in the old code); relies
-//!     on Cache-Control headers + nginx/CDN like the old code's mid-tier.
-//!   - No express-rate-limit (burst 30/min, sustained 600/h). Add a
-//!     tower-governor/tower limit layer if abuse appears.
+//! Notes:
+//!   - No in-memory TTL cache; relies on Cache-Control headers + nginx/CDN.
+//!   - No rate limiting on this surface. Add a tower-governor/tower limit
+//!     layer if abuse appears.
 //!   - Errors keep the `{ errorMessage }` shape and status codes.
 
 use std::collections::HashMap;

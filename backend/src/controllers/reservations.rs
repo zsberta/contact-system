@@ -1,6 +1,6 @@
-//! Admin Reservations controller: port of old_backend/routes/reservations.js.
+//! Admin Reservations controller.
 //!
-//! Covers ALL endpoints of the old module:
+//! Covers ALL endpoints:
 //! - reservations CRUD (GET / paged, GET /:id, POST /, PUT /:id, DELETE /:id)
 //! - snippet (GET /:id/snippet)
 //! - services CRUD (+ workers list, image upload/delete)
@@ -12,41 +12,39 @@
 //!   status, hard delete) + customers CRUD + customer bookings
 //! - calendar month + calendar day reads
 //!
-//! Faithful ports from old_backend/lib:
-//! - hungarian-holidays.js: fixed holidays + Easter-based (Good Friday,
-//!   Easter Monday, Whit Monday) + 2026 rest days — fully ported below.
-//! - reservation-availability.js: checkSlotAvailability,
-//!   getScheduleWindowStartMin, getServiceAvailability — ported faithfully.
-//! - booking-validation.js: strict ISO parse, bounded data bag, slot
-//!   alignment, contact + custom-field validators — ported faithfully.
-//! - reservation-booking.js: advisory-lock capacity enforcement, customer
-//!   upsert, duplicate-email guard — ported faithfully (via SQL txn).
-//! - reservation-customer-profiles.js: UUIDv4 token check + SHA-256 hash —
-//!   ported (used by the public embed; helpers live here for reuse).
+//! Helpers implemented below:
+//! - Hungarian holidays: fixed holidays + Easter-based (Good Friday,
+//!   Easter Monday, Whit Monday) + 2026 rest days.
+//! - Availability: checkSlotAvailability, getScheduleWindowStartMin,
+//!   getServiceAvailability.
+//! - Booking validation: strict ISO parse, bounded data bag, slot
+//!   alignment, contact + custom-field validators.
+//! - Booking writes: advisory-lock capacity enforcement, customer
+//!   upsert, duplicate-email guard (via SQL txn).
+//! - Customer profiles: UUIDv4 token check + SHA-256 hash (used by the
+//!   public embed; helpers live here for reuse).
 //!
 //! Simplifications / degradations (all deliberate, reason noted):
 //! - TIMEZONE: `chrono-tz` is NOT in Cargo deps (and Cargo.toml is shared /
 //!   frozen), so Budapest DST is implemented manually with chrono only:
 //!   CET (+01:00) / CEST (+02:00) using the EU rule (last Sunday of March
 //!   01:00 UTC -> last Sunday of October 01:00 UTC). `UTC` is offset 0.
-//!   Any other IANA name falls back to UTC and is logged. The old code used
-//!   Intl for arbitrary zones; in practice only UTC/Europe-Budapest occur.
-//! - `logActivity`/`diffObjects`/`logError` have no Rust equivalent yet:
-//!   mutations emit `tracing::info!` instead (same action names).
-//! - `notifySubmitter` (lib/email.js) + `createNotification` (lib/push.js)
-//!   are replaced by the templated queue fan-out (`enqueue_mail` with
-//!   `renderBookingAutoReply` / `renderBookingDeletedNotification` /
-//!   `renderWorkerBookingNotification`, same subjects/kinds as the old
-//!   code); in-app + browser push notifications are skipped.
+//!   Any other IANA name falls back to UTC and is logged; in practice only
+//!   UTC/Europe-Budapest occur.
+//! - `logActivity`/`diffObjects`/`logError` side effects are replaced by
+//!   `tracing::info!` (same action names).
+//! - `notifySubmitter` + `createNotification` are replaced by the templated
+//!   queue fan-out (`enqueue_mail` with `renderBookingAutoReply` /
+//!   `renderBookingDeletedNotification` /
+//!   `renderWorkerBookingNotification`); in-app + browser push
+//!   notifications are skipped.
 //! - Image sniffing uses hand-rolled magic bytes (png/jpeg/webp/avif) since
 //!   the `file-type` crate is unavailable.
-//! - Timestamps are rendered `YYYY-MM-DDTHH:MM:SS.mmmZ` (same instants as
-//!   the old `toISOString()` output).
-//! - Enduser mutation policy mirrors the old file exactly: endusers are NOT
-//!   globally forbidden (they create portal bookings, manage ranges, etc.)
-//!   — every handler applies the same project-membership scoping (404 when
-//!   the reservation/customer is outside their projects, 403 only for the
-//!   endpoints that used 403 in the old code).
+//! - Timestamps are rendered `YYYY-MM-DDTHH:MM:SS.mmmZ`.
+//! - Enduser mutation policy: endusers are NOT globally forbidden (they
+//!   create portal bookings, manage ranges, etc.) — every handler applies
+//!   project-membership scoping (404 when the reservation/customer is
+//!   outside their projects, 403 only for admin-only endpoints).
 
 use axum::{
     extract::{Multipart, Path, Query, State},
@@ -175,7 +173,7 @@ pub(crate) fn sha256_hex(s: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Hungarian holidays (port of old_backend/lib/hungarian-holidays.js)
+// Hungarian holidays
 // ---------------------------------------------------------------------------
 
 struct FixedHoliday {
@@ -458,7 +456,7 @@ fn parse_hhmm(s: &str) -> Option<u32> {
 }
 
 // ---------------------------------------------------------------------------
-// Booking validation (port of old_backend/lib/booking-validation.js)
+// Booking validation
 // ---------------------------------------------------------------------------
 
 pub(crate) const SLOT_GRID_MAX_MINUTES: i64 = 24 * 60;
@@ -466,9 +464,9 @@ const DATA_MAX_KEYS_PER_LEVEL: usize = 50;
 const DATA_MAX_DEPTH: usize = 5;
 const DATA_MAX_BYTES: usize = 50 * 1024;
 
-/// Strict ISO 8601 -> UTC ms. Accepts `Z` or ±HH:MM offsets but — like the
-/// old code's round-trip check — only instants whose UTC wall rendering
-/// matches the input prefix (i.e. effectively Z/+00:00).
+/// Strict ISO 8601 -> UTC ms. Accepts `Z` or ±HH:MM offsets, but only
+/// instants whose UTC wall rendering matches the input prefix
+/// (i.e. effectively Z/+00:00) are accepted.
 pub(crate) fn parse_strict_iso_ms(s: &str) -> Option<i64> {
     if s.is_empty() {
         return None;
@@ -547,7 +545,7 @@ pub(crate) fn parse_strict_iso_ms(s: &str) -> Option<i64> {
     }
     let local = local_parts_ms(y, mo, d, hh, mm) + ss as i64 * 1000 + ms as i64;
     let utc = local - tz_sign * (tz_h as i64 * 3_600_000 + tz_m as i64 * 60_000);
-    // round-trip check (mirrors old: UTC rendering must match input prefix)
+    // round-trip check (UTC rendering must match input prefix)
     let back = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(utc)?;
     let back_s = back.format("%Y-%m-%dT%H:%M:%S").to_string();
     if back_s != s[..19].to_string() {
@@ -869,7 +867,7 @@ pub(crate) fn is_origin_allowed(request_origin: &str, allowed: &[String]) -> boo
 }
 
 // ---------------------------------------------------------------------------
-// Availability core (port of reservation-availability.js)
+// Availability core
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
@@ -1214,7 +1212,7 @@ pub(crate) async fn get_service_availability<C: ConnectionTrait>(
     for d in 0..=diff {
         let day_ms = (from_day + d) * 86_400_000;
         let (yy, mm, dd) = {
-            // civil date from day count (tz-local iteration like old code)
+            // civil date from day count (tz-local iteration)
             let mut rem = from_day + d;
             let mut y = 1970;
             if rem >= 0 {
@@ -1288,7 +1286,7 @@ pub(crate) async fn get_service_availability<C: ConnectionTrait>(
                     cur += interval;
                     continue;
                 }
-                // NOTE: mirrors old getServiceAvailability — holiday rules
+                // NOTE: mirrors getServiceAvailability — holiday rules
                 // are enforced at booking time (checkSlotAvailability), not
                 // in slot generation. Present for documentation; unused.
                 let _holiday = hungarian_holiday_key(yy, mm, dd)
@@ -1540,7 +1538,7 @@ async fn range_service_ids(
 }
 
 // ---------------------------------------------------------------------------
-// Reservation body validation (port of validateReservationBody)
+// Reservation body validation
 // ---------------------------------------------------------------------------
 
 fn validate_origin_entry(entry: &str, index: usize, seen: &mut std::collections::HashSet<String>) -> Result<String, String> {
@@ -1653,9 +1651,8 @@ fn validate_reservation_body(
     match body.get("slug").and_then(|v| v.as_str()) {
         Some(s) if !s.trim().is_empty() => {
             if partial {
-                // old code: slug accepted but not written on PUT? Old PUT uses
-                // validateReservationBody(partial) — slug branch runs the same
-                // and would include it. Mirror: allow, write it.
+                // slug: accepted and written on PUT (the validator's slug
+                // branch runs the same and includes it).
                 let t = s.trim();
                 let ok = t.len() <= 50
                     && t.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
@@ -3626,7 +3623,7 @@ async fn delete_res_schedule(
 }
 
 // ---------------------------------------------------------------------------
-// Booking creation core (port of reservation-booking.js)
+// Booking creation core
 // ---------------------------------------------------------------------------
 
 const BK_COLS: &str = "b.id, b.reservation_id, b.service_id, b.starts_at, b.ends_at, b.booked_at, b.ip_address::text AS ip_address, b.user_agent, b.referer, b.data, b.locale, b.first_name, b.last_name, b.email, b.phone, b.comment, b.customer_id, b.created_by_user_id, b.worker_user_id, b.service_name_snapshot, b.duration_minutes_snapshot, b.price_amount_snapshot::text AS price_amount_snapshot, b.currency_snapshot, b.timezone, b.status, b.source, b.cancelled_at, b.cancelled_by_user_id, b.cancellation_reason, b.booking_token";
@@ -3834,11 +3831,10 @@ async fn create_booking_txn(
 }
 
 // ---------------------------------------------------------------------------
-// Cancellation notifications (port of reservation-cancellation-notifications.js)
+// Cancellation notifications
 // ---------------------------------------------------------------------------
 
-/// Best-effort cancellation e-mails (customer + worker). Port of
-/// `old_backend/lib/reservation-cancellation-notifications.js` (same
+/// Best-effort cancellation e-mails (customer + worker; same
 /// templates/kinds): the customer gets the cancelled booking auto-reply
 /// (`renderBookingAutoReply` with `cancelled: true`, project-branded,
 /// sent from the worker address when one is assigned); the worker gets the
@@ -3891,7 +3887,7 @@ pub(crate) async fn notify_booking_cancelled(db: &sea_orm::DatabaseConnection, r
         proj.as_ref().and_then(|r| str_opt(r, "customer_email"));
     let starts_opt = if starts.is_empty() { None } else { Some(starts.as_str()) };
     let ends_opt = if ends.is_empty() { None } else { Some(ends.as_str()) };
-    // Worker display name (old order: hu "Last First", en "First Last").
+    // Worker display name (hu "Last First", en "First Last").
     let wfirst = str_opt(&bk, "worker_first").unwrap_or_default();
     let wlast = str_opt(&bk, "worker_last").unwrap_or_default();
     let worker_display = if hu {
@@ -3906,7 +3902,7 @@ pub(crate) async fn notify_booking_cancelled(db: &sea_orm::DatabaseConnection, r
     } else {
         Some(worker_display.as_str())
     };
-    // Customer name (old order: "First Last", falling back to the email).
+    // Customer name ("First Last", falling back to the email).
     let cfirst = str_opt(&bk, "first_name").unwrap_or_default();
     let clast = str_opt(&bk, "last_name").unwrap_or_default();
     let customer_name = format!("{cfirst} {clast}").trim().to_string();
@@ -4079,10 +4075,11 @@ pub(crate) async fn notify_booking_created(
     .await;
 }
 
-/// Customer confirmation for a new booking. Same template/kind as the old
-/// `notifySubmitter({ kind: "reservation", ... })` path: `renderBookingAutoReply`
-/// (project-branded, worker-qualified service line, sent from the worker
-/// address when one is assigned), queued (non-blocking, best-effort).
+/// Customer confirmation for a new booking. Same template/kind as the
+/// `notifySubmitter({ kind: "reservation", ... })` path:
+/// `renderBookingAutoReply` (project-branded, worker-qualified service
+/// line, sent from the worker address when one is assigned), queued
+/// (non-blocking, best-effort).
 pub(crate) async fn send_booking_confirmation(
     db: &sea_orm::DatabaseConnection,
     project_id: i64,
@@ -4117,8 +4114,7 @@ pub(crate) async fn send_booking_confirmation(
         proj.as_ref().and_then(|r| str_opt(r, "domain_address"));
     let customer_contact: Option<String> =
         proj.as_ref().and_then(|r| str_opt(r, "customer_email"));
-    // Assigned worker (old worker-lookup: booking worker, else the
-    // service's worker). Drives the "Service - Worker" line, the sign-off
+    // Assigned worker (booking worker, else the service's worker). Drives the "Service - Worker" line, the sign-off
     // and the From address.
     let mut worker_email: Option<String> = None;
     let mut worker_display: Option<String> = None;
@@ -4164,8 +4160,7 @@ pub(crate) async fn send_booking_confirmation(
         }
     }
     // Manage-link base: APP_PUBLIC_URL + embed secret (no buttons when the
-    // public URL is unset or no tokens were passed — same as the old
-    // `embedBaseUrl` null branch).
+    // public URL is unset or no tokens were passed).
     let app_url = std::env::var("APP_PUBLIC_URL")
         .unwrap_or_default()
         .trim_end_matches('/')
@@ -4558,7 +4553,7 @@ async fn customer_bookings(
 }
 
 // ---------------------------------------------------------------------------
-// Bookings search (port of buildBookingsWhere + date conditions)
+// Bookings search
 // ---------------------------------------------------------------------------
 
 fn month_name_num(s: &str) -> Option<i32> {
@@ -5026,7 +5021,7 @@ async fn create_booking(
                 if let Err(e) = check_data_bag(data) {
                     return Ok(err(StatusCode::BAD_REQUEST, e));
                 }
-                // NOTE: mirrors old admin create — the data bag is validated
+                // NOTE: like admin create — the data bag is validated
                 // but intentionally NOT stored (customData = fields only).
             }
         }
@@ -5050,7 +5045,7 @@ async fn create_booking(
                 let bid: i64 = row.try_get("", "id").unwrap_or(0);
                 let token: Option<String> = row.try_get::<Option<String>>("", "booking_token").ok().flatten();
                 // Fire-and-forget confirmation e-mails (same templates/kinds
-                // as the old admin create: customer auto-reply + worker
+                // as admin create: customer auto-reply + worker
                 // notification, both queued).
                 let pname: Option<String> = ctx
                     .db
@@ -5119,8 +5114,8 @@ async fn create_booking(
                         }
                     }
                 }
-                // In-app + push notification to worker (old admin create:
-                // createNotification BOOKING_CREATED; fan-out is central).
+                // In-app + push notification to worker (BOOKING_CREATED;
+                // fan-out is central).
                 if let Some(wid) = svc.worker_user_id {
                     let cname = format!("{} {}", contact.first_name, contact.last_name);
                     let cname = cname.trim();
@@ -5304,7 +5299,7 @@ async fn delete_booking(
 }
 
 // ---------------------------------------------------------------------------
-// Calendar (port of getCalendarMonthSlots / getCalendarDayDetails)
+// Calendar
 // ---------------------------------------------------------------------------
 
 struct CalService {
@@ -6804,7 +6799,7 @@ async fn put_holiday_rules(
 }
 
 // ---------------------------------------------------------------------------
-// Endpoint-group stubs (501). Each shrinks as its group is ported above.
+// Endpoint-group stubs (501). Each shrinks as its group is implemented above.
 // Keeping `pub fn routes()` compiling at all times (workspace requirement).
 // ---------------------------------------------------------------------------
 

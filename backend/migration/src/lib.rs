@@ -1,8 +1,8 @@
-//! Migration crate: replays the exact SQL files from
-//! `old_backend/db/migrations/*.sql` in lexicographic order.
+//! Migration crate: replays the SQL files in
+//! `backend/migration/sql/*.sql` in lexicographic order.
 //!
 //! Compatibility contract (zero data loss):
-//! - Fresh DB: all 53 files run, producing the identical schema.
+//! - Fresh DB: all 54 files run, producing the identical schema.
 //! - Existing DB (migrated by node-pg-migrate): the legacy
 //!   `pgmigrations` table is consulted first; files whose names already
 //!   appear there are skipped, then remaining files run once and are
@@ -66,6 +66,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("20261105000001000_add_gateway_merchant_id.sql", include_str!("../sql/20261105000001000_add_gateway_merchant_id.sql")),
     ("20261106000001000_add_gateway_payment_seen.sql", include_str!("../sql/20261106000001000_add_gateway_payment_seen.sql")),
     ("20261108000001000_push_subscriptions_per_user.sql", include_str!("../sql/20261108000001000_push_subscriptions_per_user.sql")),
+    ("20261109000001000_backfill_paid_at.sql", include_str!("../sql/20261109000001000_backfill_paid_at.sql")),
 ];
 
 #[derive(DeriveMigrationName)]

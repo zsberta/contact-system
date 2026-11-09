@@ -1,5 +1,3 @@
-//! Port of old_backend/routes/logs.js.
-//!
 //! Admin-only activity-log API (read-only; rows are written by the app):
 //!   GET /api/logs      — paged, filterable list
 //!   GET /api/logs/meta — distinct filter values for the frontend selects
@@ -139,7 +137,7 @@ async fn list(
         return r;
     }
     let page: i64 = one(&q, "page").and_then(|v| v.parse().ok()).unwrap_or(0).max(0);
-    let size: i64 = one(&q, "size").and_then(|v| v.parse().ok()).unwrap_or(10).clamp(1, 100);
+    let size: i64 = one(&q, "size").and_then(|v| v.parse().ok()).unwrap_or(100).clamp(1, 1000);
     let sort_field = one(&q, "sortField").unwrap_or_else(|| "createdAt".to_string());
     let sort_order = one(&q, "sortOrder").unwrap_or_default();
     let filter_any = one(&q, "filterType").as_deref() != Some("all");

@@ -1,4 +1,4 @@
-//! GET /api/health — mirrors old_backend/server.js health probe.
+//! GET /api/health.
 //! `{ status: "ok", db: "up" }` or 500 `{ status: "error", db: "down" }`
 //! (never leaks the pg error text).
 

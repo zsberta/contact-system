@@ -1,5 +1,3 @@
-//! Port of old_backend/lib/startup-guard.js assertSafeStartup.
-//!
 //! Startup-time safety assertions. Crashes the process if the config is
 //! unsafe — fail-fast by design: refusing to start beats serving requests
 //! with a known-insecure configuration.
@@ -10,16 +8,16 @@
 /// SameSite values that disable CSRF defense (mirrors WEAK_SAMESITE).
 const WEAK_SAMESITE: [&str; 2] = ["none", ""];
 
-/// Production is `LOCO_ENV == "production"` (the Rust port's env name).
-/// `NODE_ENV == "production"` is honored too so a production deploy using
-/// the old variable name still fails safe instead of booting insecure.
+/// Production is `LOCO_ENV == "production"`. `NODE_ENV == "production"` is
+/// honored too so a production deploy using that variable name still fails
+/// safe instead of booting insecure.
 fn is_production() -> bool {
     std::env::var("LOCO_ENV").as_deref() == Ok("production")
         || std::env::var("NODE_ENV").as_deref() == Ok("production")
 }
 
 /// Assert the process config is safe to serve with, else `process::exit(1)`
-/// with the same messages as the Node guard:
+/// with these messages:
 ///
 /// * SameSite must be Lax or Strict — always checked.
 /// * In production: COOKIE_SECURE=true, ADMIN_PASSWORD>=16 chars,

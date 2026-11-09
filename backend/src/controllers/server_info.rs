@@ -1,11 +1,9 @@
-//! Port of old_backend/routes/server-info.js + lib/server-info.js.
-//!
 //! Admin-only server monitoring API (read-only):
 //!   GET /api/server-info              — full snapshot (self + email + tables + docker)
 //!   GET /api/server-info/containers/{id} — full inspect of one container
 //!
 //! Docker data comes from the read-only socket-proxy at DOCKER_PROXY_URL
-//! via reqwest GETs only. This port never shells out to docker (or df):
+//! via reqwest GETs only. This service never shells out to docker (or df):
 //! host disk figures are omitted (null) by design.
 
 use axum::{
@@ -332,10 +330,9 @@ async fn snapshot(State(ctx): State<AppContext>, MaybeUser(u): MaybeUser, Query(
         .unwrap_or_default();
 
     // Docker host (read-only proxy). Served from the cached snapshot in
-    // workers::server_info (port of lib/server-info.js docker caching:
-    // SERVER_INFO_POLL_MS cadence, ?refresh=1 forces a re-poll subject to a
-    // 10s floor, last-good snapshot kept on error). Same response shapes as
-    // the old live-polling code.
+    // workers::server_info docker caching (SERVER_INFO_POLL_MS cadence,
+    // ?refresh=1 forces a re-poll subject to a 10s floor, last-good
+    // snapshot kept on error). Same response shapes as live polling.
     let force_refresh = q.get("refresh").map(|v| v == "1").unwrap_or(false);
     let docker_snapshot = if force_refresh {
         server_info_worker::refresh_docker_snapshot().await

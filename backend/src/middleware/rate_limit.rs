@@ -1,24 +1,20 @@
 //! Per-IP fixed-window rate limiting.
 //!
-//! 1:1 port of the `express-rate-limit` wiring in the old backend:
-//!   - `old_backend/server.js` — global `/api` catch-all
+//! Limits:
+//!   - global `/api` catch-all
 //!     (`API_GLOBAL_LIMIT`, default 10000/min, "Too many requests")
-//!   - `old_backend/routes/auth.js` — signin / refresh / forgot+reset /
-//!     set-password limiters with their exact windows, caps and messages
-//!   - `old_backend/routes/{form,reservation,analytics,ai-assistant}-embed.js`
-//!     — burst + sustained chains on the mutating public endpoints
-//!   - `old_backend/routes/{blog,faq,service}-public.js` — 30/min +
-//!     600/hour on the public read surface
+//!   - `auth` limiters (signin / refresh / forgot+reset /
+//!     set-password) with per-route windows, caps and messages
+//!   - burst + sustained chains on the mutating public embed endpoints
+//!   - 30/min + 600/hour on the public read surface
 //!
-//! Fixed-window counters keyed per surface + client IP, exactly like the
-//! old `keyGenerator: (req) => \`<surface>:${req.ip}\`` scheme. IP
-//! resolution mirrors `trust proxy = 1`: first valid `X-Forwarded-For`
-//! entry wins, then `X-Real-Ip`, then the socket peer address.
+//! Fixed-window counters keyed `<surface>:<ip>` per surface + client IP.
+//! IP resolution is first-valid-`X-Forwarded-For`-wins, then `X-Real-Ip`,
+//! then the socket peer address.
 //!
 //! Installed as a single global `from_fn` layer in `after_routes` that
-//! dispatches by method + path, so the old per-router mounting order is
-//! preserved (global first, then the specific limiter — the first
-//! tripped limiter decides the 429 body).
+//! dispatches by method + path (global first, then the specific limiter —
+//! the first tripped limiter decides the 429 body).
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -236,9 +232,8 @@ fn cms_sustained() -> &'static Limiter {
     &L
 }
 
-/// Resolve the client IP the way the old `trust proxy = 1` setup did:
-/// first valid `X-Forwarded-For` entry, else `X-Real-Ip`, else the socket
-/// peer address.
+/// Resolve the client IP (first valid `X-Forwarded-For` entry, else
+/// `X-Real-Ip`, else the socket peer address):
 fn client_ip(req: &Request<Body>) -> String {
     if let Some(xff) = req
         .headers()
@@ -279,8 +274,8 @@ fn too_many(message: &'static str) -> Response {
         .into_response()
 }
 
-/// Global layer entry point. Mirrors the old mounting order: the global
-/// `/api` limiter runs first, then the surface-specific limiter(s).
+/// Global layer entry point: the global `/api` limiter runs first, then
+/// the surface-specific limiter(s).
 pub async fn limit_all(req: Request<Body>, next: Next) -> Response {
     let method = req.method().as_str().to_string();
     let path = req.uri().path().to_string();
@@ -289,12 +284,12 @@ pub async fn limit_all(req: Request<Body>, next: Next) -> Response {
     }
     let ip = client_ip(&req);
 
-    // Global catch-all first (old server.js mounted it before the routers).
+    // Global catch-all first, then surface-specific limiters.
     if !global().allow(&ip) {
         return too_many(global().message);
     }
 
-    // Surface-specific limiters, in old route order (burst before sustained).
+    // Surface-specific limiters (burst before sustained).
     let specific: &[&Limiter] = match (method.as_str(), path.as_str()) {
         ("POST", "/api/auth/signin") => &[signin()],
         ("POST", "/api/auth/refresh") => &[refresh()],

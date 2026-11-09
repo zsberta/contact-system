@@ -6,8 +6,8 @@ use migration::Migrator;
 async fn main() -> loco_rs::Result<()> {
     // Fail-fast on unsafe config for EVERY subcommand (migrate, seed,
     // start). Hooks::boot doesn't run for `db` subcommands, so the guard
-    // lives here — the one place all paths funnel through. Mirrors
-    // old_backend/lib/startup-guard.js (fail-fast via process exit).
+    // lives here — the one place all paths funnel through (fail-fast via
+    // process exit).
     contact_system::startup_guard::assert_safe_startup();
     cli::main::<App, Migrator>().await
 }

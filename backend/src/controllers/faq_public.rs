@@ -1,14 +1,14 @@
-//! Public by-domain FAQ reads for landing pages. Port of old_backend/routes/faq-public.js.
+//! Public by-domain FAQ reads for landing pages.
 //!
 //! Routes (under /api/public/faq, NO auth — Host header is the auth):
 //!   GET /by-domain/:domain/items   - all published items, sort_order order
 //!
 //! Response: { items: [{ questionHu, answerHu, questionEn, answerEn, sortOrder }] }
 //!
-//! Simplifications vs the Express original:
-//!   - No in-memory TTL cache (single-process Map); relies on Cache-Control
-//!     headers + nginx/CDN like the old mid-tier.
-//!   - No express-rate-limit (burst 30/min, sustained 600/h).
+//! Notes:
+//!   - No in-memory TTL cache; relies on Cache-Control
+//!     headers + nginx/CDN.
+//!   - No rate limiting on this surface.
 
 use axum::{
     extract::Path,

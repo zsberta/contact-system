@@ -1,4 +1,4 @@
-//! CSRF layer: mirrors old_backend/middleware/csrf.js.
+//! CSRF layer.
 //!
 //! Double-submit check on state-changing methods: `XSRF-TOKEN` cookie must
 //! equal the `x-xsrf-token` header. Exempt: safe methods, public auth paths,
@@ -70,7 +70,7 @@ pub async fn csrf_protection(req: Request<Body>, next: Next) -> Response {
 }
 
 /// Origin/Referer check for state-changing non-public API calls.
-/// Mirrors the defense-in-depth layer in old_backend/server.js.
+/// Extra defense-in-depth for state-changing API calls.
 pub async fn origin_check(req: Request<Body>, next: Next) -> Response {
     let method = req.method().clone();
     if matches!(method.as_str(), "GET" | "HEAD" | "OPTIONS") {

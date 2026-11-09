@@ -1,5 +1,3 @@
-//! Port of old_backend/routes/dashboard.js.
-//!
 //! Routes:
 //!   GET /api/dashboard/summary — legacy stub (any authenticated user)
 //!   GET /api/dashboard/stats   — KPI payload (admin only; endusers get 403)
@@ -81,7 +79,7 @@ async fn stats(State(ctx): State<AppContext>, MaybeUser(u): MaybeUser) -> Respon
         .db
         .query_all_raw(Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Postgres,
-            "SELECT status, COUNT(*)::int AS n FROM payments GROUP BY status",
+            "SELECT status::text AS status, COUNT(*)::int AS n FROM payments GROUP BY 1",
             vec![],
         ))
         .await
@@ -138,7 +136,7 @@ async fn stats(State(ctx): State<AppContext>, MaybeUser(u): MaybeUser) -> Respon
                     pr.name           AS \"projectName\",
                     p.amount::float   AS amount,
                     p.due_date::text  AS \"dueDate\",
-                    p.status          AS status,
+                    p.status::text    AS status,
                     pr.customer_name  AS \"customerName\"
              FROM payments p
              JOIN projects pr ON pr.id = p.project_id

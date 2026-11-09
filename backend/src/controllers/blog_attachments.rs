@@ -1,4 +1,4 @@
-//! Admin cover-image upload for blog posts. Port of old_backend/routes/blog-attachments.js.
+//! Admin cover-image upload for blog posts.
 //!
 //! Routes (under /api/blog, auth required, admin-only mutations):
 //!   POST   /api/blog/:id/cover   - multipart upload, field "file" (10 MB, image-only)
@@ -8,12 +8,11 @@
 //! (see blog_public.rs). The stored URL is absolute, built from
 //! APP_PUBLIC_URL (or the request Host in dev).
 //!
-//! Simplifications vs the Express original:
-//!   - Magic-byte sniffing is hand-rolled (png/jpeg/webp/avif) instead of
-//!     the `file-type` npm package. HEIC and other exotic types are rejected.
-//!   - Enduser uploads are admin-only (require_admin -> 401/403); the old
-//!     code forbade enduser mutations with 403 "Endusers have read-only access".
-//!   - File writes go through tokio spawn_blocking instead of fs/promises.
+//! Notes:
+//!   - Magic-byte sniffing is hand-rolled (png/jpeg/webp/avif); HEIC and
+//!     other exotic types are rejected.
+//!   - Enduser uploads are admin-only (require_admin -> 401/403).
+//!   - File writes go through tokio spawn_blocking.
 
 use axum::{
     extract::{Multipart, Path},

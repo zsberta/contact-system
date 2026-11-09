@@ -1,6 +1,6 @@
-//! Background workers (ports of old_backend/lib background tasks).
+//! Background workers.
 //! Each worker runs as a Loco BackgroundWorker on the queue; the interval
-//! loops from the Express `setInterval` wiring become worker schedules.
+//! loops become worker schedules.
 
 pub struct EmailQueueWorker;
 pub struct GatewayWatchWorker;

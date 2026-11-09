@@ -1,4 +1,4 @@
-//! Cross-project aggregation reads: 1:1 port of old_backend/routes/submissions.js.
+//! Cross-project aggregation reads.
 //!
 //! All routes require auth; endusers are scoped to assigned projects.
 //!   GET  /api/submissions/forms
@@ -6,10 +6,9 @@
 //!   GET  /api/submissions/bookings/calendar?from=&to=&projectId=
 //!   POST /api/submissions/bookings  (manual admin-portal booking)
 //!
-//! Simplification vs the original: the manual-booking endpoint keeps the
-//! strict ISO validation, reservation-active check, service resolution and
-//! overlap guard, but skips the slot-grid alignment + schedule-window
-//! availability helpers (reservation lib lives with another module team).
+//! Note: the manual-booking endpoint keeps the strict ISO validation,
+//! reservation-active check, service resolution and overlap guard, but
+//! skips the slot-grid alignment + schedule-window availability helpers.
 //! The DB EXCLUDE constraint remains the backstop: any insert conflict
 //! surfaces as 409.
 

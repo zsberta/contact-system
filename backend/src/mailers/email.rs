@@ -1,6 +1,5 @@
-//! SMTP mailer (lettre-backed) with a paced retry queue. Port of
-//! `old_backend/lib/email.js` (`sendMail`) + `old_backend/lib/email-queue.js`
-//! (`enqueueMail`, token bucket, worker).
+//! SMTP mailer (lettre-backed) with a paced retry queue:
+//! validate → [`enqueue_mail`] → token-bucket paced send with retries.
 //!
 //! - Callers never await send completion. They call [`enqueue_mail`], which
 //!   validates the recipient and returns `(job_id, "queued")` immediately.
@@ -14,12 +13,11 @@
 //! - `send_now` returns `bool` and never throws: transport/build failures
 //!   are logged and reported as `false` so the worker can retry them.
 //! - No `SMTP_HOST` → dev JSON-transport parity: the message is dumped to
-//!   stdout (`[email/dev-json]`) and the send counts as delivered, exactly
-//!   like the old nodemailer `jsonTransport` branch.
+//!   stdout (`[email/dev-json]`) and the send counts as delivered, like a
+//!   `jsonTransport`-style dry run.
 //! - The transport is built once and cached ([`transport`]).
-//! - The old queue logged one `activity_log` SEND row per delivery; that
-//!   write is intentionally dropped here — the worker logs via `tracing`
-//!   instead (`logActivity` has no Rust equivalent in this workspace).
+//! - No per-delivery `activity_log` SEND row; the worker logs via `tracing`
+//!   instead.
 //!
 //! NOTE: [`start`] must be called once when the binary boots (from the
 //! application boot path, which is owned by another crew — this module only
@@ -39,8 +37,8 @@ use lettre::{
     },
 };
 
-/// Default display name when a send doesn't pass one (port of
-/// `DEFAULT_FROM_NAME` — the admin-initiated flows inherit this).
+/// Default display name when a send doesn't pass one (admin-initiated
+/// flows inherit this).
 pub const DEFAULT_FROM_NAME: &str = "Nexus";
 
 /// Outgoing message. `from_name` is the `From:` display name (defaults to
@@ -112,8 +110,7 @@ fn envelope(job: &EmailJob) -> String {
         .unwrap_or_else(resolve_from)
 }
 
-/// Cached transport (port of `cachedTransport`/`buildTransport`). `None`
-/// means "no SMTP_HOST — dev JSON-transport mode".
+/// Cached transport. `None` means "no SMTP_HOST — dev JSON-transport mode".
 static TRANSPORT: OnceLock<Option<AsyncSmtpTransport<Tokio1Executor>>> = OnceLock::new();
 
 fn transport() -> &'static Option<AsyncSmtpTransport<Tokio1Executor>> {
@@ -251,7 +248,7 @@ static NEXT_JOB_ID: AtomicI64 = AtomicI64::new(1);
 static STARTED: AtomicBool = AtomicBool::new(false);
 static WAKE: OnceLock<tokio::sync::Notify> = OnceLock::new();
 /// Jobs currently sending (a job holds its slot during backoff, so a
-/// stalled job can't be leapfrogged — same as the old `inFlight` set).
+/// stalled job can't be leapfrogged).
 static IN_FLIGHT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 fn pending() -> &'static Mutex<VecDeque<QueuedJob>> {
@@ -296,7 +293,7 @@ async fn drain_loop() {
             continue;
         };
         // Concurrency cap: at most `burst` jobs in flight (a job holds its
-        // slot during backoff). Parallel sends, like the old worker.
+        // slot during backoff). Parallel sends.
         while IN_FLIGHT.load(Ordering::SeqCst) >= burst_capacity() as usize {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
@@ -374,8 +371,8 @@ async fn run_job(queued: QueuedJob) {
 // ---------------------------------------------------------------------------
 
 /// Queue an outgoing message and return immediately: `(job_id, status)`.
-/// `status` is `"queued"` or `"rejected"` (missing recipient — the old
-/// code refused with `{ id: -1, status: "rejected" }`).
+/// `status` is `"queued"` or `"rejected"` (missing recipient refuses with
+/// `{ id: -1, status: "rejected" }`).
 pub fn enqueue_mail(job: EmailJob) -> (i64, &'static str) {
     if job.to.trim().is_empty() {
         tracing::error!("[email/queue] refusing to enqueue mail without a recipient");

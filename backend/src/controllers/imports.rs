@@ -1,4 +1,4 @@
-//! Admin-only CSV import module: 1:1 port of old_backend/routes/imports.js.
+//! Admin-only CSV import module.
 //!
 //!   POST /api/imports/dry-run            — parse + validate CSV, no writes
 //!   GET  /api/imports/services?projectId — existing services for mapping UI
@@ -7,9 +7,9 @@
 //!   POST /api/imports/bookings          — import bookings (future confirmed
 //!                                          ones get a best-effort confirmation)
 //!
-//! Simplifications vs the original:
+//! Notes:
 //! - The dry-run accepts JSON `{ projectId, importType, csv }` (raw CSV text)
-//!   instead of a multipart file upload; the RFC4180 parser is ported 1:1.
+//!   instead of a multipart file upload; the RFC4180 parser follows the spec.
 //! - Confirmation e-mails use renderBookingAutoReply through the paced queue
 //!   (best-effort); the EMAIL_SENDING=false kill-switch is honoured inside
 //!   the mailer and reported via `emailsSending`.
@@ -399,8 +399,8 @@ async fn upsert_customer(
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/imports/dry-run — multipart (file, projectId, importType),
-// exactly like the old multer-based handler. Parses + validates, no writes.
+// POST /api/imports/dry-run — multipart (file, projectId, importType).
+// Parses + validates, no writes.
 // ---------------------------------------------------------------------------
 
 async fn dry_run(
@@ -422,7 +422,7 @@ async fn dry_run(
         let name = field.name().unwrap_or("").to_string();
         if name == "file" {
             let bytes = field.bytes().await.unwrap_or_default();
-            // Same 20MB cap as the old multer limits.
+            // 20MB cap (matches the upload limits).
             if bytes.len() > 20 * 1024 * 1024 {
                 return err(StatusCode::PAYLOAD_TOO_LARGE, "File too large");
             }
@@ -1031,7 +1031,7 @@ async fn bookings_import(
             let booking_id: i64 = row.try_get("", "id").unwrap_or(0);
             results.push(json!({ "rowNumber": row_no, "ok": true, "bookingId": booking_id }));
             // Only confirmed future bookings get a customer confirmation
-            // e-mail (same template/kind as the old notifySubmitter
+            // e-mail (same template/kind as the notifySubmitter
             // reservation path: renderBookingAutoReply, queued).
             if sending && status == "confirmed" {
                 let today = chrono::Utc::now().date_naive().to_string();
@@ -1097,9 +1097,8 @@ pub fn routes() -> Routes {
 }
 
 /// Customer confirmation for an imported booking. Same template/kind as the
-/// old `notifySubmitter({ kind: "reservation", ... })` path in
-/// `old_backend/routes/imports.js`: `renderBookingAutoReply` (HU),
-/// project-branded From, queued (non-blocking, best-effort).
+/// `notifySubmitter({ kind: "reservation", ... })` path:
+/// `renderBookingAutoReply` (HU), project-branded From, queued (non-blocking, best-effort).
 #[allow(clippy::too_many_arguments)]
 async fn send_import_confirmation(
     db: &sea_orm::DatabaseConnection,
@@ -1136,7 +1135,7 @@ async fn send_import_confirmation(
         .as_ref()
         .and_then(|r| r.try_get::<Option<String>>("", "customer_email").ok().flatten());
     // Manage-link base: APP_PUBLIC_URL + embed secret (no buttons when the
-    // public URL is unset — same as the old `embedBaseUrl` null branch).
+    // public URL is unset).
     let app_url = std::env::var("APP_PUBLIC_URL")
         .unwrap_or_default()
         .trim_end_matches('/')
