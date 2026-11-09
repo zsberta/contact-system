@@ -574,7 +574,7 @@ async fn create(State(ctx): State<AppContext>, user: CurrentUser, Json(b): Json<
            status, comment, customer_name, customer_phone, customer_email,
            landing_repo_dir, landing_build_command, landing_build_env,
            landing_dist_path, landing_enabled, brand_color, gateway_merchant_id)
-         VALUES ($1, $2, $3::numeric, $4, $5, $6, $7, $8, $9, $10,
+         VALUES ($1, $2, $3::numeric, $4, $5::billing_period, $6::project_status, $7, $8, $9, $10,
                  $11, $12, $13::jsonb, $14, $15, $16, $17)
          RETURNING {PROJECT_COLS}"
     );
@@ -671,6 +671,12 @@ async fn update(State(ctx): State<AppContext>, user: CurrentUser, Path(id): Path
         } else if *col == "landing_enabled" {
             sets.push(format!("{col} = ${idx}"));
             params.push(val.as_bool().unwrap_or(false).into());
+        } else if *col == "billing_period" {
+            sets.push(format!("{col} = ${idx}::billing_period"));
+            params.push(bind_or_null(val));
+        } else if *col == "status" {
+            sets.push(format!("{col} = ${idx}::project_status"));
+            params.push(bind_or_null(val));
         } else {
             sets.push(format!("{col} = ${idx}"));
             params.push(bind_or_null(val));
