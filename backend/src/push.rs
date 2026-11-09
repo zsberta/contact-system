@@ -390,12 +390,11 @@ const EN_MONTHS: [&str; 12] = [
 
 /// Port of `formatDate(isoDate, locale, timezone)` from notifications-i18n.js.
 ///
-/// Deviation: without an IANA timezone database (chrono-tz is not in
-/// Cargo.toml, which this port must not touch), no UTC→local conversion is
-/// performed — the instant is rendered in the offset carried by the ISO
-/// string itself (falling back to UTC for naive inputs). Month names are
-/// hardcoded hu/en tables so the shape matches `toLocaleString` output.
-pub fn format_date(iso: &str, locale: &str, _timezone: &str) -> String {
+/// Converts the instant to the target timezone using the same hand-rolled
+/// EU DST rules as the reservation engine
+/// (`crate::controllers::reservations`), so push bodies agree with the
+/// e-mail templates to the minute.
+pub fn format_date(iso: &str, locale: &str, timezone: &str) -> String {
     if iso.is_empty() {
         return String::new();
     }
@@ -416,18 +415,16 @@ pub fn format_date(iso: &str, locale: &str, _timezone: &str) -> String {
         Some(d) => d,
         None => return String::new(),
     };
-    let (year, month, day, hour, min) = (
-        dt.format("%Y").to_string(),
-        dt.format("%-m").to_string().parse::<usize>().unwrap_or(1),
-        dt.format("%-d").to_string(),
-        dt.format("%H").to_string(),
-        dt.format("%M").to_string(),
-    );
-    let month_idx = month.saturating_sub(1).min(11);
+    let tz = if timezone.is_empty() { "UTC" } else { timezone };
+    let utc_ms = dt.timestamp_millis();
+    let (year, month, day) =
+        crate::controllers::reservations::fmt_date_in_tz(utc_ms, tz);
+    let hm = crate::controllers::reservations::fmt_time_in_tz(utc_ms, tz);
+    let month_idx = (month as usize).saturating_sub(1).min(11);
     if resolve_locale(locale) == "en" {
-        format!("{day} {} {year}, {hour}:{min}", EN_MONTHS[month_idx])
+        format!("{day} {} {year}, {hm}", EN_MONTHS[month_idx])
     } else {
-        format!("{year}. {} {day}. {hour}:{min}", HU_MONTHS[month_idx])
+        format!("{year}. {} {day}. {hm}", HU_MONTHS[month_idx])
     }
 }
 
