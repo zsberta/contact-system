@@ -378,12 +378,29 @@ test.describe("frontend-driven E2E", () => {
   test("09 imports dry-run (real FormData like the UI) + gateway + notifications reads", async ({ }, testInfo) => {
     const page = pg(testInfo);
     // exactly what ImportsPage sends: FormData{projectId, importType, file}
+    // via apiFetch (which attaches the CSRF header like the real UI)
     const dryStatus = await page.evaluate(async () => {
+      const readXsrf = () => {
+        for (const c of document.cookie.split(";")) {
+          const [k, ...rest] = c.trim().split("=");
+          if (k === "XSRF-TOKEN") return rest.join("=");
+        }
+        return "";
+      };
+      let token = readXsrf();
+      if (!token) {
+        await fetch("/api/csrf");
+        token = readXsrf();
+      }
       const fd = new FormData();
       fd.append("projectId", "1");
       fd.append("importType", "customers");
-      fd.append("file", new File(["firstName,lastName,email\nE2E,Teszt,e2e@example.com\n"], "t.csv", { type: "text/csv" }));
-      const r = await fetch("/api/imports/dry-run", { method: "POST", body: fd });
+      fd.append("file", new File(["First Name,Last Name,Email\nE2E,Teszt,e2e@example.com\n"], "t.csv", { type: "text/csv" }));
+      const r = await fetch("/api/imports/dry-run", {
+        method: "POST",
+        headers: token ? { "X-XSRF-TOKEN": decodeURIComponent(token) } : {},
+        body: fd,
+      });
       return { status: r.status, body: (await r.text()).slice(0, 200) };
     });
     expect(dryStatus.status, `dry-run: ${dryStatus.body}`).toBe(200);
@@ -404,6 +421,18 @@ test.describe("frontend-driven E2E", () => {
         return r.status;
       }, { secret: RESERVATION_TOKEN, tok });
       expect([200, 404, 410]).toContain(res);
+    }
+    // admin-delete the cancelled test bookings (proper API flow), so no
+    // booking rows remain; notifications/customer rows have no delete
+    // endpoint and are removed via SQL after the run (see runbook note).
+    for (const tok of created.bookings) {
+      const info = await api(page, "GET", `/api/public/reservations/${RESERVATION_TOKEN}/bookings/by-token/${tok}`);
+      const bid = info.json?.id;
+      const rid = info.json?.reservationId ?? 1;
+      if (bid) {
+        const r = await api(page, "DELETE", `/api/reservations/${rid}/bookings/${bid}`);
+        expect([200, 204, 404]).toContain(r.status);
+      }
     }
     // delete nested entities (children before parents)
     for (const id of created.submissions) {
@@ -432,10 +461,8 @@ test.describe("frontend-driven E2E", () => {
       const r = await api(page, "DELETE", `/api/projects/${id}`);
       expect([200, 204, 404]).toContain(r.status);
     }
-    // remove e2e analytics events + customers created by the booking flow
-    await page.evaluate(async () => {
-      await fetch(`/api/public/analytics/xxxxxxxxxxxxxxxxxxxxxx/collect`, { method: "POST" }).catch(() => {});
-    }).catch(() => {});
+    // NOTE: analytics probe events have no public delete endpoint; the
+    // runbook deletes the /e2e-test-probe rows via SQL after the run.
   });
 
   test.afterAll(async ({ browser }) => {
