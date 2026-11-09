@@ -13,10 +13,11 @@
  */
 import { test, expect, Page, APIRequestContext } from "@playwright/test";
 import * as fs from "node:fs";
+import { execSync } from "node:child_process";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
-const RESERVATION_TOKEN = "kASHP10-o8L5IY3gKsic0A"; // existing fixture reservation
+const RESERVATION_TOKEN = "kASHP10-o8L5IY3gKsic0A"; // fallback only; tests resolve a live reservation
 const E2E_TAG = `e2e-${Date.now().toString(36)}`;
 
 interface Fail {
@@ -142,7 +143,7 @@ test.describe("frontend-driven E2E", () => {
     faq: [] as number[],
     services: [] as number[],
     users: [] as number[],
-    bookings: [] as { token: string; id: number }[],
+    bookings: [] as { token: string; id: number; rid?: number }[],
     customers: [] as number[],
     aiConfigs: [] as { projectId: number; id: number; preExisting: boolean }[],
     analyticsConfigs: [] as { projectId: number; id: number; preExisting: boolean }[],
@@ -277,26 +278,57 @@ test.describe("frontend-driven E2E", () => {
 
   test("05b admin enriched booking (calendar flow) + delete", async ({ }, testInfo) => {
     const page = pg(testInfo);
-    // exact ReservationBookingForm payload: existing customer + service
-    const r = await api(page, "POST", "/api/reservations/1/bookings", {
-      serviceId: 1,
+    // resolve a live reservation + service the way the calendar UI does
+    // (hardcoding ids breaks when fixtures change)
+    const rl = await api(page, "GET", "/api/reservations");
+    expect(rl.status).toBe(200);
+    const res0 = (rl.json?.content ?? []).find((r: any) => r.status === "active") ?? rl.json?.content?.[0];
+    expect(res0?.id, "active reservation").toBeTruthy();
+    // create a scratch customer the way the admin UI does (deleted below)
+    const cust = await api(page, "POST", "/api/reservations/customers", {
+      projectId: res0.project_id ?? res0.projectId,
+      firstName: "E2E",
+      lastName: "Teszt",
+      email: `e2e-${Date.now().toString(36)}@example.com`,
+      phone: "+3600000000",
+    });
+    expect(cust.status, JSON.stringify(cust.json).slice(0, 200)).toBe(201);
+    const custId = cust.json?.id;
+    expect(custId, "scratch customer").toBeTruthy();
+    const svc = await api(page, "GET", `/api/reservations/${res0.id}/services`);
+    const serviceId = svc.json?.[0]?.id ?? svc.json?.content?.[0]?.id;
+    expect(serviceId, "active service").toBeTruthy();
+    // exact ReservationBookingForm payload: scratch customer + service
+    const r = await api(page, "POST", `/api/reservations/${res0.id}/bookings`, {
+      serviceId,
       startsAt: "2027-05-03T10:00:00Z",
       endsAt: "2027-05-03T11:00:00Z",
-      customerId: 1057,
-      firstName: "Zsolt",
-      lastName: "Berta",
-      email: "kicsibertazsolt+1@gmail.com",
-      phone: "+36706071196",
+      customerId: custId,
+      firstName: "E2E",
+      lastName: "Teszt",
+      email: `e2e-${Date.now().toString(36)}@example.com`,
+      phone: "+3600000000",
     });
     expect(r.status, JSON.stringify(r.json).slice(0, 200)).toBe(201);
     expect(r.json?.bookingToken).toBeTruthy();
     const bid = r.json?.id;
     expect(bid).toBeTruthy();
-    // notification created for the worker (real user 4 owns service 1)
-    const n = await api(page, "GET", "/api/notifications?limit=3");
-    expect(n.status).toBe(200);
-    const del = await api(page, "DELETE", `/api/reservations/1/bookings/${bid}`);
+    // notification created for the worker (in-app row always written).
+    // NOTE: notifications are strictly per-user; the admin session cannot
+    // list the worker's rows, so existence is asserted with a read-only
+    // DB probe (no data is forged or mutated here).
+    const notifCount = Number(
+      execSync(
+        `docker exec contact-system-db psql -U contact -d contact_system -t -A -c "SELECT count(*) FROM notifications WHERE type='BOOKING_CREATED' AND entity_id=${Number(bid)}"`,
+      )
+        .toString()
+        .trim(),
+    );
+    expect(notifCount, "BOOKING_CREATED row for the new booking").toBe(1);
+    const del = await api(page, "DELETE", `/api/reservations/${res0.id}/bookings/${bid}`);
     expect([200, 204, 404]).toContain(del.status);
+    const delc = await api(page, "DELETE", `/api/reservations/customers/${custId}`);
+    expect([200, 204, 404]).toContain(delc.status);
   });
 
   test("06 public form submission via real embed fetch", async ({ }, testInfo) => {
@@ -329,10 +361,18 @@ test.describe("frontend-driven E2E", () => {
 
   test("07 public reservation booking via real embed page", async ({ }, testInfo) => {
     const page = pg(testInfo);
-    await gotoOk(page, `/embed/reservations/${RESERVATION_TOKEN}`);
+    // resolve a real, active reservation instead of hardcoding a token
+    // (fixtures change; the UI itself lists them first)
+    const rl = await api(page, "GET", "/api/reservations");
+    expect(rl.status).toBe(200);
+    const res0 = (rl.json?.content ?? []).find((r: any) => r.status === "active") ?? rl.json?.content?.[0];
+    expect(res0?.secretToken, "active reservation with token").toBeTruthy();
+    const RES_TOKEN: string = res0.secretToken;
+    (testInfo as any).resToken = RES_TOKEN;
+    await gotoOk(page, `/embed/reservations/${RES_TOKEN}`);
     // wait for the catalog/services to load (proves public config works)
     await page.waitForLoadState("networkidle").catch(() => {});
-    const token = await page.evaluate(async (secret) => {
+    const token = await page.evaluate(async ({ secret, rid }: { secret: string; rid: number }) => {
       const cat = await (
         await fetch(`/api/public/reservations/${secret}/catalog`)
       ).json();
@@ -367,8 +407,8 @@ test.describe("frontend-driven E2E", () => {
       });
       if (!book.ok) return `BOOKFAIL:${book.status}:${(await book.text()).slice(0, 200)}`;
       const j = await book.json();
-      return JSON.stringify({ token: j.bookingToken, id: j.id });
-    }, RESERVATION_TOKEN);
+      return JSON.stringify({ token: j.bookingToken, id: j.id, rid });
+    }, { secret: RES_TOKEN, rid: res0.id });
     expect(token, "booking token").toBeTruthy();
     expect(String(token).startsWith("BOOKFAIL")).toBe(false);
     created.bookings.push(JSON.parse(token as string));
@@ -444,9 +484,9 @@ test.describe("frontend-driven E2E", () => {
       const res = await page.evaluate(async ({ secret, tok }) => {
         const r = await fetch(`/api/public/reservations/${secret}/bookings/by-token/${tok}`, { method: "DELETE" });
         return r.status;
-      }, { secret: RESERVATION_TOKEN, tok: b.token });
+      }, { secret: (testInfo as any).resToken ?? RESERVATION_TOKEN, tok: b.token });
       expect([200, 404, 410]).toContain(res);
-      const r = await api(page, "DELETE", `/api/reservations/1/bookings/${b.id}`);
+      const r = await api(page, "DELETE", `/api/reservations/${b.rid ?? 1}/bookings/${b.id}`);
       expect([200, 204, 404]).toContain(r.status);
     }
     // NOTE: notification + reservation_customer rows have no delete

@@ -39,7 +39,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # ---------- runner ----------
 FROM debian:bookworm-slim AS runner
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+# gosu: drop from root to appuser after fixing volume ownership at boot
+# (mirrors the old su-exec pattern that cured EACCES on the uploads volume).
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates gosu \
     && rm -rf /var/lib/apt/lists/* \
  && groupadd -r appuser && useradd -r -g appuser appuser \
  && mkdir -p /app/uploads /app/dist /app/backend/config \
@@ -51,6 +53,9 @@ COPY backend/entrypoint.sh ./entrypoint.sh
 COPY --from=frontend-builder /fe/dist ./dist
 RUN chmod +x /app/entrypoint.sh /app/contact-system-cli \
  && chown -R appuser:appuser /app
-USER appuser
+# NOTE: no USER directive on purpose — the entrypoint starts as root,
+# chowns /app/uploads (named volumes keep their previous ownership),
+# then drops to appuser via gosu. Running the server itself as root
+# is never allowed.
 EXPOSE 3000
 ENTRYPOINT ["/app/entrypoint.sh"]
