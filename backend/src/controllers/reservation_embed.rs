@@ -1194,7 +1194,7 @@ async fn cancel_by_token(
                 "A foglalás kezdete előtt 12 órán belül nem lehetséges a lemondás.",
             ));
         }
-        let mut reason = "Cancelled by customer".to_string();
+        let mut reason = "Ügyfél által lemondva".to_string();
         if let Some(v) = body_json.as_ref() {
             if let Some(s) = v.get("reason").and_then(|x| x.as_str()) {
                 let t = s.trim();
@@ -1320,7 +1320,7 @@ async fn reschedule_by_token(
         ctx.db
             .execute_raw(Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Postgres,
-                "UPDATE reservation_bookings SET status = 'cancelled', cancelled_at = NOW(), cancellation_reason = 'Rescheduled by customer', reminder_sent_at = NULL WHERE id = $1",
+                "UPDATE reservation_bookings SET status = 'cancelled', cancelled_at = NOW(), cancellation_reason = 'Ügyfél által átfoglalva', reminder_sent_at = NULL WHERE id = $1",
                 vec![old_id.into()],
             ))
             .await?;
@@ -1423,12 +1423,94 @@ async fn reschedule_by_token(
         let new_id: i64 = new_row.try_get("", "id").unwrap_or(0);
         let new_token: Option<String> = new_row.try_get::<Option<String>>("", "booking_token").ok().flatten();
         R::notify_booking_cancelled(&ctx.db, reservation.id, old_id).await;
+        let loc = R::str_opt(&ex, "locale").unwrap_or_else(|| "hu".to_string());
+        let sname = R::str_opt(&ex, "service_name").unwrap_or_else(|| "Reservation".to_string());
         if let Some(em) = R::str_opt(&ex, "email") {
-            let sname = R::str_opt(&ex, "service_name").unwrap_or_else(|| "Reservation".to_string());
-            let loc = R::str_opt(&ex, "locale").unwrap_or_else(|| "hu".to_string());
-            // Same as the old reschedule path: confirmation without manage
-            // tokens (no bookingToken/secretToken there).
-            R::send_booking_confirmation(&ctx.db, reservation.project_id, None, &em, &sname, &starts_iso, &ends_iso, &reservation.timezone, &loc, Some(new_id), None, None).await;
+            // Customer confirmation for the replacement booking, with manage
+            // tokens so the new booking stays manageable from the e-mail
+            // (parity with the old reschedule path + public create).
+            R::send_booking_confirmation(&ctx.db, reservation.project_id, None, &em, &sname, &starts_iso, &ends_iso, &reservation.timezone, &loc, Some(new_id), new_token.clone(), Some(secret.clone())).await;
+        }
+        // Worker notification for the replacement booking (mirror public
+        // create: settings-gated worker e-mail + BOOKING_CREATED in-app/push).
+        // Without this the owner only sees the CANCELLED push for the old
+        // slot and never learns the new date.
+        let wid_opt: Option<i64> = svc
+            .try_get::<Option<i64>>("", "worker_user_id")
+            .ok()
+            .flatten()
+            .or_else(|| ex.try_get::<Option<i64>>("", "worker_user_id").ok().flatten());
+        if let Some(wid) = wid_opt {
+            let cfirst = R::str_opt(&ex, "first_name").unwrap_or_default();
+            let clast = R::str_opt(&ex, "last_name").unwrap_or_default();
+            let cname_raw = format!("{cfirst} {clast}").trim().to_string();
+            let customer_name = if cname_raw.is_empty() {
+                R::str_opt(&ex, "email").unwrap_or_default()
+            } else {
+                cname_raw
+            };
+            let wrow = ctx
+                .db
+                .query_one_raw(Statement::from_sql_and_values(
+                    sea_orm::DatabaseBackend::Postgres,
+                    "SELECT email FROM users WHERE id = $1 AND role = 'enduser' AND enabled = true",
+                    vec![wid.into()],
+                ))
+                .await
+                .ok()
+                .flatten();
+            if let Some(wemail) = wrow.as_ref().and_then(|r| R::str_opt(r, "email")) {
+                let enabled: bool = ctx
+                    .db
+                    .query_one_raw(Statement::from_sql_and_values(
+                        sea_orm::DatabaseBackend::Postgres,
+                        "SELECT value::text AS v FROM system_settings WHERE key = 'worker_email_notifications'",
+                        vec![],
+                    ))
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|r| r.try_get::<String>("", "v").ok())
+                    .map(|v| v != "false")
+                    .unwrap_or(true);
+                if enabled {
+                    let rendered = crate::mailers::templates::render_worker_booking_notification(
+                        crate::mailers::templates::WorkerBookingNotificationParams {
+                            service_name: Some(&sname),
+                            customer_name: Some(customer_name.trim()).filter(|s| !s.is_empty()),
+                            customer_email: R::str_opt(&ex, "email").as_deref(),
+                            customer_phone: R::str_opt(&ex, "phone").as_deref(),
+                            comment: R::str_opt(&ex, "comment").as_deref(),
+                            starts_at: Some(&starts_iso),
+                            ends_at: Some(&ends_iso),
+                            locale: Some(&loc),
+                            timezone: Some(&reservation.timezone),
+                            cancelled: false,
+                        },
+                    );
+                    crate::mailers::email::enqueue_mail(crate::mailers::email::EmailJob {
+                        to: wemail,
+                        subject: rendered.subject,
+                        text: rendered.text,
+                        html: rendered.html,
+                        from_name: None,
+                        from_address: None,
+                    });
+                }
+            }
+            R::notify_booking_created(
+                &ctx.db,
+                wid,
+                &loc,
+                &customer_name,
+                &sname,
+                &starts_iso,
+                &ends_iso,
+                &reservation.timezone,
+                new_id,
+                reservation.project_id,
+            )
+            .await;
         }
         tracing::info!("[reservation-embed] booking.reschedule_public old={old_id} new={new_id}");
         Ok((

@@ -3,7 +3,7 @@
 // Renders outside ProtectedRoute, uses only public API endpoints.
 
 import { useState, useEffect, useCallback } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -240,6 +240,7 @@ function translateError(message: string, locale: string): string {
 
 export default function ReservationEmbedPage() {
   const { secretToken, bookingToken } = useParams<{ secretToken: string; bookingToken: string }>();
+  const navigate = useNavigate();
   // Standalone vs iframe-embedded: the host page supplies padding when this
   // runs inside an iframe, so only add our own when opened directly as the
   // top-level window (e.g. manage/cancel links from emails).
@@ -267,6 +268,9 @@ export default function ReservationEmbedPage() {
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
   const [error, setError] = useState<string | null>(null);
   const [bookingId, setBookingId] = useState<number | null>(null);
+  // New booking token after a successful reschedule (modify flow only).
+  // Used solely to redirect "back to start" to the replacement booking.
+  const [rescheduledToken, setRescheduledToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   // ── profile state ──────────────────────────────────────────────────────────
@@ -442,6 +446,7 @@ export default function ReservationEmbedPage() {
         endsAt: selectedSlot.endsAt,
       });
       setBookingId(result.id);
+      setRescheduledToken(result.bookingToken ?? null);
       setView("rescheduled");
     } catch (err) {
       setManageError(err instanceof Error ? err.message : "Reschedule failed");
@@ -938,6 +943,23 @@ export default function ReservationEmbedPage() {
           <Button
             variant="outline"
             onClick={() => {
+              // Reschedule-only: the old booking was cancelled and replaced,
+              // so "back to start" must open the NEW booking (new ID/token).
+              // Other flows (plain booking confirmation) keep the old behavior.
+              if (view === "rescheduled" && rescheduledToken && secretToken) {
+                const newToken = rescheduledToken;
+                setSelectedService(null);
+                setSelectedSlot(null);
+                setBookingId(null);
+                setCustomFields({});
+                setError(null);
+                setConsentAccepted(false);
+                setManageError(null);
+                setManageBooking(null);
+                setRescheduledToken(null);
+                navigate(`/embed/reservations/${secretToken}/manage/${newToken}`);
+                return;
+              }
               setSelectedService(null);
               setSelectedSlot(null);
               setBookingId(null);
