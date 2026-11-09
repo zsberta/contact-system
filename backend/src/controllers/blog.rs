@@ -1170,7 +1170,7 @@ async fn create(
     use sea_orm::sea_query::{ArrayType, Value as QV};
     let stmt = Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "INSERT INTO blog_posts (project_id, module_id, slug, locale, title, excerpt, cover_image_url, body_html, body_json, status, seo_title, seo_description, seo_keywords, og_image_url, canonical_url, published_at, created_by, translation_group_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,COALESCE($18::uuid, gen_random_uuid())) RETURNING id",
+        "INSERT INTO blog_posts (project_id, module_id, slug, locale, title, excerpt, cover_image_url, body_html, body_json, status, seo_title, seo_description, seo_keywords, og_image_url, canonical_url, published_at, created_by, translation_group_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::timestamptz,$17,COALESCE($18::uuid, gen_random_uuid())) RETURNING id",
         vec![
             project_id.into(),
             module_id.into(),
