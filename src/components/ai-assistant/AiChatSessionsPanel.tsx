@@ -111,7 +111,7 @@ export function AiChatSessionsPanel({
   ];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2 sm:space-y-4">
       <div>
         <p className="text-sm font-medium">
           {t("ai-assistant:chat_sessions")}

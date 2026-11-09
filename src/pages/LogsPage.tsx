@@ -23,6 +23,7 @@ import { Eye } from "lucide-react";
 import { getLogsPaged, getLogsMeta } from "@/lib/logs";
 import type { GetLogsParams, LogActionType, LogDTO, PageLogDTO } from "@/types/log";
 import { useDataTableQuery } from "@/hooks/useDataTableQuery";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const ACTION_TYPES: LogActionType[] = ["CREATE", "READ", "UPDATE", "DELETE", "SEND", "ERROR"];
 
@@ -78,6 +79,18 @@ function formatLogDate(iso: string | null, lang: string): string {
   return d.toLocaleString(lang);
 }
 
+// Ultra-compact timestamp for small screens: "11.09 22:15" style, no seconds.
+function formatLogDateCompact(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${dd}.${mm} ${hh}:${min}`;
+}
+
 function LogDetail({ log }: { log: LogDTO }) {
   const { t, i18n } = useTranslation(["logs", "common"]);
   const meta = log.metadata ?? {};
@@ -130,8 +143,8 @@ function LogDetail({ log }: { log: LogDTO }) {
     ]);
   }
   return (
-    <div className="flex flex-col gap-3">
-      <dl className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-1 text-sm">
+    <div className="flex flex-col gap-2 sm:gap-3">
+      <dl className="grid grid-cols-[96px_1fr] gap-x-2 gap-y-1 text-xs sm:grid-cols-[140px_1fr] sm:gap-x-3 sm:text-sm">
         {rows.map(([label, value]) => (
           <React.Fragment key={label}>
             <dt className="text-muted-foreground">{label}</dt>
@@ -160,6 +173,7 @@ function LogDetail({ log }: { log: LogDTO }) {
 const LogsPage: React.FC = () => {
   const { t, i18n } = useTranslation(["logs", "common"]);
   const [searchParams] = useSearchParams();
+  const isMobile = useIsMobile();
 
   const validAction = (v: string | null) => (v && v.length > 0 && v.length <= 120 ? v : undefined);
   const validEnum = <T extends string>(v: string | null, allowed: readonly T[]): T | undefined =>
@@ -226,10 +240,10 @@ const LogsPage: React.FC = () => {
 
   const filterRow = useMemo(
     () => (
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+      <div className="mb-1.5 flex flex-wrap items-center gap-1.5 sm:mb-3 sm:gap-2">
         <select
           aria-label={t("logs:filter_action_type")}
-          className="rounded border bg-background px-2 py-1 text-sm"
+          className="rounded border bg-background px-1.5 py-1 text-xs sm:px-2 sm:text-sm"
           value={actionType}
           onChange={(e) => setActionType(e.target.value)}
         >
@@ -240,7 +254,7 @@ const LogsPage: React.FC = () => {
         </select>
         <select
           aria-label={t("logs:filter_action")}
-          className="rounded border bg-background px-2 py-1 text-sm"
+          className="rounded border bg-background px-1.5 py-1 text-xs sm:px-2 sm:text-sm"
           value={action}
           onChange={(e) => setAction(e.target.value)}
         >
@@ -251,7 +265,7 @@ const LogsPage: React.FC = () => {
         </select>
         <select
           aria-label={t("logs:filter_actor_type")}
-          className="rounded border bg-background px-2 py-1 text-sm"
+          className="rounded border bg-background px-1.5 py-1 text-xs sm:px-2 sm:text-sm"
           value={actorType}
           onChange={(e) => setActorType(e.target.value)}
         >
@@ -262,14 +276,14 @@ const LogsPage: React.FC = () => {
         </select>
         <input
           aria-label={t("logs:filter_actor_email")}
-          className="rounded border bg-background px-2 py-1 text-sm"
+          className="rounded border bg-background px-1.5 py-1 text-xs sm:px-2 sm:text-sm"
           placeholder={t("logs:filter_actor_email")}
           value={actorEmail}
           onChange={(e) => setActorEmail(e.target.value)}
         />
         <select
           aria-label={t("logs:filter_entity_type")}
-          className="rounded border bg-background px-2 py-1 text-sm"
+          className="rounded border bg-background px-1.5 py-1 text-xs sm:px-2 sm:text-sm"
           value={entityType}
           onChange={(e) => setEntityType(e.target.value)}
         >
@@ -280,7 +294,7 @@ const LogsPage: React.FC = () => {
         </select>
         <select
           aria-label={t("logs:filter_status")}
-          className="rounded border bg-background px-2 py-1 text-sm"
+          className="rounded border bg-background px-1.5 py-1 text-xs sm:px-2 sm:text-sm"
           value={statusCode}
           onChange={(e) => setStatusCode(e.target.value)}
         >
@@ -291,7 +305,7 @@ const LogsPage: React.FC = () => {
         </select>
         <input
           aria-label={t("logs:filter_project")}
-          className="w-28 rounded border bg-background px-2 py-1 text-sm"
+          className="w-20 rounded border bg-background px-1.5 py-1 text-xs sm:w-28 sm:px-2 sm:text-sm"
           placeholder={t("logs:filter_project")}
           inputMode="numeric"
           value={projectId}
@@ -299,14 +313,14 @@ const LogsPage: React.FC = () => {
         />
         <input
           aria-label={t("logs:filter_date_from")}
-          className="rounded border bg-background px-2 py-1 text-sm"
+          className="rounded border bg-background px-1.5 py-1 text-xs sm:px-2 sm:text-sm"
           type="date"
           value={dateFrom}
           onChange={(e) => setDateFrom(e.target.value)}
         />
         <input
           aria-label={t("logs:filter_date_to")}
-          className="rounded border bg-background px-2 py-1 text-sm"
+          className="rounded border bg-background px-1.5 py-1 text-xs sm:px-2 sm:text-sm"
           type="date"
           value={dateTo}
           onChange={(e) => setDateTo(e.target.value)}
@@ -316,85 +330,135 @@ const LogsPage: React.FC = () => {
     [t, actionType, action, actorType, actorEmail, entityType, statusCode, projectId, dateFrom, dateTo, meta],
   );
 
-  const columns = [
-    {
-      accessorKey: "createdAt",
-      header: t("logs:created_at"),
-      cell: (row: LogDTO) => formatLogDate(row.createdAt, i18n.language),
-      enableSorting: true,
-    },
-    {
-      accessorKey: "actor",
-      header: t("logs:actor"),
-      cell: (row: LogDTO) => (
-        <span className="flex flex-col gap-1">
-          <span className="max-w-52 truncate text-xs">{row.actorEmail || "—"}</span>
-          <Badge variant="outline" className="w-fit font-mono text-[10px]">
-            {row.actorType}
+  const columns = useMemo(() => {
+    // Mobile: 4 narrow columns that fit without horizontal scrolling.
+    // Actor / entity / project stay reachable via the detail dialog.
+    if (isMobile) {
+      return [
+        {
+          accessorKey: "createdAt",
+          header: t("logs:created_at"),
+          cell: (row: LogDTO) => (
+            <span className="whitespace-nowrap font-mono text-[11px] leading-tight">
+              {formatLogDateCompact(row.createdAt)}
+            </span>
+          ),
+          enableSorting: true,
+        },
+        {
+          accessorKey: "action",
+          header: t("logs:action"),
+          cell: (row: LogDTO) => (
+            <span className="flex min-w-0 flex-col items-start gap-0.5">
+              <span className="max-w-28 truncate font-mono text-[11px] leading-tight">{row.action}</span>
+              <Badge variant={actionTypeBadgeVariant(row.actionType)} className="px-1 py-0 font-mono text-[10px] leading-tight">
+                {row.actionType}
+              </Badge>
+            </span>
+          ),
+          enableSorting: true,
+        },
+        {
+          accessorKey: "statusCode",
+          header: t("logs:status"),
+          cell: (row: LogDTO) => (
+            <Badge variant={row.ok ? "default" : "destructive"} className="px-1.5 py-0 text-[10px] leading-tight">
+              {row.ok ? (row.statusCode ?? "OK") : (row.statusCode ?? "FAIL")}
+            </Badge>
+          ),
+          enableSorting: true,
+        },
+        {
+          id: "actions",
+          header: t("common:actions"),
+          cell: (row: LogDTO) => (
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setSelected(row)} aria-label={t("logs:view_details")}>
+              <Eye className="h-3.5 w-3.5" />
+            </Button>
+          ),
+        },
+      ];
+    }
+    return [
+      {
+        accessorKey: "createdAt",
+        header: t("logs:created_at"),
+        cell: (row: LogDTO) => formatLogDate(row.createdAt, i18n.language),
+        enableSorting: true,
+      },
+      {
+        accessorKey: "actor",
+        header: t("logs:actor"),
+        cell: (row: LogDTO) => (
+          <span className="flex flex-col gap-1">
+            <span className="max-w-52 truncate text-xs">{row.actorEmail || "—"}</span>
+            <Badge variant="outline" className="w-fit font-mono text-[10px]">
+              {row.actorType}
+            </Badge>
+          </span>
+        ),
+      },
+      {
+        accessorKey: "action",
+        header: t("logs:action"),
+        cell: (row: LogDTO) => (
+          <span className="font-mono text-xs">{row.action}</span>
+        ),
+        enableSorting: true,
+      },
+      {
+        accessorKey: "actionType",
+        header: t("logs:action_type"),
+        cell: (row: LogDTO) => (
+          <Badge variant={actionTypeBadgeVariant(row.actionType)}>
+            {row.actionType}
           </Badge>
-        </span>
-      ),
-    },
-    {
-      accessorKey: "action",
-      header: t("logs:action"),
-      cell: (row: LogDTO) => (
-        <span className="font-mono text-xs">{row.action}</span>
-      ),
-      enableSorting: true,
-    },
-    {
-      accessorKey: "actionType",
-      header: t("logs:action_type"),
-      cell: (row: LogDTO) => (
-        <Badge variant={actionTypeBadgeVariant(row.actionType)}>
-          {row.actionType}
-        </Badge>
-      ),
-      enableSorting: true,
-    },
-    {
-      accessorKey: "entity",
-      header: t("logs:entity"),
-      cell: (row: LogDTO) =>
-        row.entityType
-          ? `${row.entityType}${row.entityId !== null ? ` #${row.entityId}` : ""}`
-          : "—",
-    },
-    {
-      accessorKey: "projectId",
-      header: t("logs:project"),
-      cell: (row: LogDTO) => (row.projectId !== null ? `#${row.projectId}` : "—"),
-      enableSorting: true,
-    },
-    {
-      accessorKey: "statusCode",
-      header: t("logs:status"),
-      cell: (row: LogDTO) => (
-        <Badge variant={row.ok ? "default" : "destructive"}>
-          {row.ok ? (row.statusCode ?? "OK") : (row.statusCode ?? "FAIL")}
-        </Badge>
-      ),
-      enableSorting: true,
-    },
-    {
-      id: "actions",
-      header: t("common:actions"),
-      cell: (row: LogDTO) => (
-        <Button variant="ghost" size="sm" onClick={() => setSelected(row)} aria-label={t("logs:view_details")}>
-          <Eye className="h-4 w-4" />
-        </Button>
-      ),
-    },
-  ];
+        ),
+        enableSorting: true,
+      },
+      {
+        accessorKey: "entity",
+        header: t("logs:entity"),
+        cell: (row: LogDTO) =>
+          row.entityType
+            ? `${row.entityType}${row.entityId !== null ? ` #${row.entityId}` : ""}`
+            : "—",
+      },
+      {
+        accessorKey: "projectId",
+        header: t("logs:project"),
+        cell: (row: LogDTO) => (row.projectId !== null ? `#${row.projectId}` : "—"),
+        enableSorting: true,
+      },
+      {
+        accessorKey: "statusCode",
+        header: t("logs:status"),
+        cell: (row: LogDTO) => (
+          <Badge variant={row.ok ? "default" : "destructive"}>
+            {row.ok ? (row.statusCode ?? "OK") : (row.statusCode ?? "FAIL")}
+          </Badge>
+        ),
+        enableSorting: true,
+      },
+      {
+        id: "actions",
+        header: t("common:actions"),
+        cell: (row: LogDTO) => (
+          <Button variant="ghost" size="sm" onClick={() => setSelected(row)} aria-label={t("logs:view_details")}>
+            <Eye className="h-4 w-4" />
+          </Button>
+        ),
+      },
+    ];
+  }, [t, i18n.language, isMobile]);
 
   return (
-    <div className="container mx-auto p-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("logs:page_title")}</CardTitle>
+    <div className="w-full px-0 sm:container sm:mx-auto sm:p-4">
+      <Card className="rounded-md sm:rounded-lg">
+        <CardHeader className="px-2 py-2.5 sm:p-6">
+          <CardTitle className="text-base sm:text-2xl">{t("logs:page_title")}</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-2 pb-2.5 pt-0 sm:p-6 sm:pt-0">
           {filterRow}
           <DataTable
             columns={columns}
@@ -416,7 +480,7 @@ const LogsPage: React.FC = () => {
         </CardContent>
       </Card>
       <Dialog open={selected !== null} onOpenChange={(open) => { if (!open) setSelected(null); }}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-h-[90dvh] w-[calc(100vw-1rem)] overflow-y-auto px-3 py-4 sm:max-w-2xl sm:p-6">
           <DialogHeader>
             <DialogTitle>
               {selected ? `${selected.action} — #${selected.id}` : ""}

@@ -124,7 +124,7 @@ const Layout: React.FC = () => {
           </header>
 
           {/* Content */}
-          <main className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6 overflow-x-hidden">
+          <main className="flex flex-1 flex-col gap-2 px-2 py-3 sm:gap-4 sm:p-4 lg:gap-6 lg:p-6 overflow-x-hidden">
             <Suspense fallback={<div className="flex items-center justify-center p-8"><div className="animate-pulse text-muted-foreground">Loading...</div></div>}>
               <Outlet />
             </Suspense>

@@ -149,13 +149,13 @@ const ServicePage: React.FC<ServicePageProps> = ({ basePath = "/services", conte
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-2 sm:space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">
+          <h1 className="text-lg sm:text-3xl font-bold tracking-tight">
             {t("service:title", "Szolgaltatasok")}
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="text-muted-foreground mt-0.5 text-xs sm:mt-1 sm:text-sm">
             {t("service:subtitle", "Szolgaltatasok kezelese")}
           </p>
         </div>
@@ -165,8 +165,8 @@ const ServicePage: React.FC<ServicePageProps> = ({ basePath = "/services", conte
         </Button>
       </div>
 
-      <Card>
-        <CardContent className="pt-6">
+      <Card className="rounded-md sm:rounded-lg">
+        <CardContent className="px-2 pb-2.5 pt-2.5 sm:p-6 sm:pt-6">
           <DataTable
             columns={columns}
             data={data?.content || []}

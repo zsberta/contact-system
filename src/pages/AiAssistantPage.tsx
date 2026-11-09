@@ -98,14 +98,14 @@ const AiAssistantPage: React.FC = () => {
 
   return (
     <div className="mx-auto w-full">
-      <Card>
-        <CardHeader className="flex flex-col space-y-4 pb-2">
-          <CardTitle className="text-2xl font-bold break-words flex items-center gap-2">
+      <Card className="rounded-md sm:rounded-lg">
+        <CardHeader className="flex flex-col space-y-2 px-2 py-2.5 sm:space-y-4 sm:p-6 sm:pb-2">
+          <CardTitle className="text-base sm:text-2xl font-bold break-words flex items-center gap-2">
             <Bot className="h-6 w-6" />
             {t("ai-assistant:ai_assistant_management")}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-2 pb-2.5 pt-0 sm:p-6 sm:pt-0">
           <DataTable
             columns={columns}
             data={data?.content || []}

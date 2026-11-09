@@ -140,8 +140,8 @@ export default function SubmissionsBookingsTab({ projectId }: Props) {
 
   return (
     <>
-      <Card>
-        <CardContent className="pt-6">
+      <Card className="rounded-md sm:rounded-lg">
+        <CardContent className="px-2 pb-2.5 pt-2.5 sm:p-6 sm:pt-6">
           <DataTable
             columns={columns}
             data={data?.content || []}

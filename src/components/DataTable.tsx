@@ -238,7 +238,7 @@ export function DataTable<TData, TValue>({
   };
 
   return (
-    <div className={constrainedHeight ? "h-full flex flex-col" : "space-y-4"}>
+    <div className={constrainedHeight ? "h-full flex flex-col" : "space-y-2 sm:space-y-4"}>
       <DataTableSearch
         queries={queries}
         filterType={filterType}
@@ -253,7 +253,7 @@ export function DataTable<TData, TValue>({
       <div className={constrainedHeight ? "flex-1 min-h-0 mt-4" : "grid"}>
         <div
           className={cn(
-            "rounded-md border",
+            "rounded-sm border sm:rounded-md",
             constrainedHeight ? "overflow-auto" : "overflow-x-auto",
             isMobile && "min-w-[320px]",
             constrainedHeight && "h-full",
@@ -287,7 +287,7 @@ export function DataTable<TData, TValue>({
                         isLastColumn &&
                           freezeLastColumn &&
                           "sticky right-0 bg-background z-20", // Freeze last column header
-                        isMobile && "px-2 py-3 text-xs", // Smaller padding and text on mobile
+                        isMobile && "px-1.5 py-2 text-xs", // Very compact on mobile
                       )}
                       onClick={() => isSortable && handleSort(accessorKey)}
                       onKeyDown={(e) => {
@@ -330,7 +330,7 @@ export function DataTable<TData, TValue>({
                           colIndex === lastColumnIndex &&
                             freezeLastColumn &&
                             "sticky right-0 bg-card z-10",
-                          isMobile && "px-2",
+                          isMobile && "px-1.5 py-2",
                         )}
                       >
                         <div className="h-[21px]">
@@ -400,7 +400,7 @@ export function DataTable<TData, TValue>({
                               isLastColumn &&
                                 freezeLastColumn &&
                                 "sticky right-0 bg-card z-10",
-                              isMobile && "px-2 py-3 text-sm",
+                              isMobile && "px-1.5 py-2 text-xs",
                             )}
                           >
                             <DataTableCell row={row} column={column} />
@@ -444,7 +444,7 @@ export function DataTable<TData, TValue>({
                     colSpan={columnsToRender.length}
                     className={cn(
                       "h-24 text-center whitespace-nowrap",
-                      isMobile && "px-2 py-4 text-sm", // Smaller padding on mobile
+                      isMobile && "px-1.5 py-2 text-xs", // Very compact on mobile
                     )}
                   >
                     {emptyMessage ?? t("common:no_results")}
@@ -460,7 +460,7 @@ export function DataTable<TData, TValue>({
       {showPagination && (
         <div
           className={cn(
-            "flex flex-col sm:flex-row items-center justify-between gap-4 px-2",
+            "flex flex-col sm:flex-row items-center justify-between gap-2 px-1 sm:gap-4 sm:px-2",
             constrainedHeight ? "flex-shrink-0 mt-4" : "",
           )}
         >
@@ -489,7 +489,7 @@ export function DataTable<TData, TValue>({
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 lg:gap-8 w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-6 lg:gap-8 w-full sm:w-auto">
             <div className="flex items-center space-x-1">
               {/* First Page (Page 1) */}
               {totalPages > 1 && (

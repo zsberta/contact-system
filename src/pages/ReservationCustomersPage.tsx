@@ -130,9 +130,9 @@ export default function ReservationCustomersPage() {
   ];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2 sm:space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold break-words">{t("reservations:customers")}</h2>
+        <h2 className="text-base sm:text-lg font-semibold break-words">{t("reservations:customers")}</h2>
       </div>
 
       <DataTable
