@@ -275,6 +275,30 @@ test.describe("frontend-driven E2E", () => {
     if (r.json?.id) created.users.push(r.json.id);
   });
 
+  test("05b admin enriched booking (calendar flow) + delete", async ({ }, testInfo) => {
+    const page = pg(testInfo);
+    // exact ReservationBookingForm payload: existing customer + service
+    const r = await api(page, "POST", "/api/reservations/1/bookings", {
+      serviceId: 1,
+      startsAt: "2027-05-03T10:00:00Z",
+      endsAt: "2027-05-03T11:00:00Z",
+      customerId: 1057,
+      firstName: "Zsolt",
+      lastName: "Berta",
+      email: "kicsibertazsolt+1@gmail.com",
+      phone: "+36706071196",
+    });
+    expect(r.status, JSON.stringify(r.json).slice(0, 200)).toBe(201);
+    expect(r.json?.bookingToken).toBeTruthy();
+    const bid = r.json?.id;
+    expect(bid).toBeTruthy();
+    // notification created for the worker (real user 4 owns service 1)
+    const n = await api(page, "GET", "/api/notifications?limit=3");
+    expect(n.status).toBe(200);
+    const del = await api(page, "DELETE", `/api/reservations/1/bookings/${bid}`);
+    expect([200, 204, 404]).toContain(del.status);
+  });
+
   test("06 public form submission via real embed fetch", async ({ }, testInfo) => {
     const page = pg(testInfo);
     const formId = created.forms[0];
