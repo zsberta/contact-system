@@ -60,6 +60,9 @@ pub async fn run_once(db: &DatabaseConnection) -> WatchStats {
             }
             Err(e) => {
                 tracing::error!("[gateway-payments] ledger fetch failed: {e}");
+                // Additive system-error fan-out (gated by `system_errors`;
+                // throttled to at most one per hour to avoid poll spam).
+                notify_sync_failure_once_per_hour(db, &e).await;
                 return WatchStats {
                     checked: 0,
                     notified: 0,
@@ -208,7 +211,48 @@ fn owner_name(tx: &serde_json::Value) -> String {
     }
 }
 
+/// Throttled `SYSTEM_ERROR` fan-out for ledger sync failures: at most one
+/// admin notification per hour (per process-wide poll cadence). Best-effort
+/// and fully gated by the `system_errors` admin preference (missing = enabled).
+async fn notify_sync_failure_once_per_hour(db: &DatabaseConnection, err: &str) {
+    if !push::is_admin_category_enabled(db, "system_errors").await {
+        return;
+    }
+    let recent: i64 = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT COUNT(*)::bigint AS c FROM notifications
+              WHERE type = 'SYSTEM_ERROR' AND created_at > NOW() - INTERVAL '1 hour'
+                AND metadata->>'source' = 'gateway_ledger_fetch'",
+            vec![],
+        ))
+        .await
+        .ok()
+        .flatten()
+        .and_then(|r| {
+            r.try_get::<i64>("", "c")
+                .ok()
+                .or_else(|| r.try_get::<i32>("", "c").ok().map(|v| v as i64))
+        })
+        .unwrap_or(0);
+    if recent > 0 {
+        return;
+    }
+    push::notify_admins_system_error(
+        db,
+        "Fizetési szinkron hiba",
+        &format!("A gateway ledger lekérdezés sikertelen: {err}"),
+        json!({ "source": "gateway_ledger_fetch", "error": err }),
+    )
+    .await;
+}
+
 async fn notify_admins(db: &DatabaseConnection, tx: &serde_json::Value) {
+    // Early-out when admins opted out of payments (the central
+    // `create_notification` guard would also skip per-admin row).
+    if !push::is_admin_category_enabled(db, "payments").await {
+        return;
+    }
     let admins: Vec<i64> = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,

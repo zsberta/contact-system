@@ -383,6 +383,8 @@ async fn submit(
 
         // Fire-and-forget notification + auto-reply (never fails the
         // request; the queue worker owns delivery + retries).
+        // Admin in-app + push fan-out rides along (additive, gated by the
+        // `form_submissions` admin preference; missing setting = enabled).
         {
             let db = ctx.db.clone();
             let data_owned: serde_json::Value =
@@ -395,6 +397,15 @@ async fn submit(
                     project_id,
                     &form_name_owned,
                     &data_owned,
+                    locale_owned.as_deref(),
+                )
+                .await;
+                notify_admins_form_submission(
+                    &db,
+                    project_id,
+                    form_id,
+                    sid,
+                    &form_name_owned,
                     locale_owned.as_deref(),
                 )
                 .await;
@@ -414,6 +425,74 @@ async fn submit(
             err(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")
         }
     }
+}
+
+/// Admin in-app + push fan-out for a new public form submission.
+/// Additive and best-effort: never fails the public request, and the
+/// `form_submissions` preference gate lives in `notify_all_admins` +
+/// the central `create_notification` guard (missing setting = enabled).
+async fn notify_admins_form_submission(
+    db: &sea_orm::DatabaseConnection,
+    project_id: i64,
+    form_id: i64,
+    submission_id: i64,
+    form_name: &str,
+    locale: Option<&str>,
+) {
+    let proj_name: String = db
+        .query_one_raw(Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT name FROM projects WHERE id = $1",
+            vec![project_id.into()],
+        ))
+        .await
+        .ok()
+        .flatten()
+        .and_then(|r| r.try_get::<Option<String>>("", "name").ok().flatten())
+        .unwrap_or_default();
+    let loc = locale.unwrap_or("hu");
+    let form_label = if form_name.trim().is_empty() {
+        "Űrlap".to_string()
+    } else {
+        form_name.trim().to_string()
+    };
+    let (title, message) = if loc == "en" {
+        (
+            format!("New form submission — {form_label}"),
+            if proj_name.is_empty() {
+                format!("{form_label}")
+            } else {
+                format!("{proj_name} — {form_label}")
+            },
+        )
+    } else {
+        (
+            format!("Új űrlapbeküldés — {form_label}"),
+            if proj_name.is_empty() {
+                form_label.clone()
+            } else {
+                format!("{proj_name} — {form_label}")
+            },
+        )
+    };
+    crate::push::notify_all_admins(
+        db,
+        "FORM_SUBMISSION_CREATED",
+        &title,
+        &message,
+        Some("form_submission"),
+        Some(submission_id as i32),
+        serde_json::json!({
+            "projectId": project_id,
+            "formId": form_id,
+            "submissionId": submission_id,
+            "formName": form_label,
+            "projectName": proj_name,
+            "locale": loc,
+        }),
+        None,
+    )
+    .await;
 }
 
 pub fn routes() -> Routes {

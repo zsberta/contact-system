@@ -14,5 +14,7 @@
   "gateway_payment_paid": "Successful payment",
   "gateway_payment_failed": "Failed payment",
   "gateway_payment_refunded": "Refunded payment",
+  "form_submission_created": "New form submission",
+  "system_error": "System error",
   "system": "System"
 }

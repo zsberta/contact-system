@@ -7,5 +7,20 @@
   "worker_push_notifications_desc": "Send PWA push notifications to workers when a new booking is created for their assigned service. Workers must enable push on their device.",
   "save": "Save Settings",
   "save_success": "Settings saved successfully.",
-  "save_error": "Failed to save settings."
+  "save_error": "Failed to save settings.",
+  "admin_notifications_title": "Admin Notifications",
+  "admin_notifications_desc": "Choose which events create in-app notifications and push notifications for admin users. Admins only — workers and customers are not affected.",
+  "admin_only_badge": "Admins only",
+  "admin_notifications_bookings": "Bookings",
+  "admin_notifications_bookings_desc": "New bookings, cancellations and reschedules across all reservation modules.",
+  "admin_notifications_form_submissions": "Contact form submissions",
+  "admin_notifications_form_submissions_desc": "New submissions from public contact and embedded forms.",
+  "admin_notifications_payments": "Payments",
+  "admin_notifications_payments_desc": "Successful, failed and refunded gateway payments.",
+  "admin_notifications_system_errors": "Log / system errors",
+  "admin_notifications_system_errors_desc": "Critical sync and system failures (e.g. payment ledger unreachable). Throttled to avoid spam.",
+  "admin_notifications_select_all": "Select all",
+  "admin_notifications_clear": "Clear",
+  "admin_notifications_selected": "{{count}} of {{total}} selected",
+  "admin_notifications_none_warning": "No types selected — admins will not receive in-app or push notifications. Workers are unaffected."
 }

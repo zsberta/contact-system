@@ -14,5 +14,7 @@
   "gateway_payment_paid": "Sikeres fizetés",
   "gateway_payment_failed": "Sikertelen fizetés",
   "gateway_payment_refunded": "Visszatérített fizetés",
+  "form_submission_created": "Új űrlapbeküldés",
+  "system_error": "Rendszerhiba",
   "system": "Rendszer"
 }

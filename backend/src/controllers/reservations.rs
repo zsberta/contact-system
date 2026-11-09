@@ -3989,11 +3989,11 @@ pub(crate) async fn notify_booking_cancelled(db: &sea_orm::DatabaseConnection, r
     // In-app + push notification to the worker (old
     // reservation-cancellation-notifications.js: in-app row only when a
     // worker is assigned; push fan-out is central in create_notification).
-    if let Some(wid) = bk
+    let worker_id_opt: Option<i64> = bk
         .try_get::<Option<i64>>("", "worker_user_id")
         .ok()
-        .flatten()
-    {
+        .flatten();
+    if let Some(wid) = worker_id_opt {
         let date = crate::push::format_date(&starts, &locale, &tz);
         let title = crate::push::t(&locale, "booking_cancelled", &[]);
         let message = crate::push::t(
@@ -4021,6 +4021,39 @@ pub(crate) async fn notify_booking_cancelled(db: &sea_orm::DatabaseConnection, r
                 "locale": locale,
                 "timezone": tz,
             }),
+        )
+        .await;
+    }
+    // Admin fan-out (additive; worker flow above unchanged). Cancelled
+    // bookings reach admins even when no worker was assigned.
+    {
+        let date = crate::push::format_date(&starts, &locale, &tz);
+        let title = crate::push::t(&locale, "booking_cancelled", &[]);
+        let message = crate::push::t(
+            &locale,
+            "booking_cancelled_message",
+            &[
+                ("customerName", customer_name.as_str()),
+                ("serviceName", service_name.as_str()),
+                ("date", date.as_str()),
+            ],
+        );
+        crate::push::notify_all_admins(
+            db,
+            "BOOKING_CANCELLED",
+            &title,
+            &message,
+            Some("booking"),
+            Some(booking_id as i32),
+            serde_json::json!({
+                "serviceName": service_name,
+                "customerName": customer_name,
+                "startsAt": starts,
+                "endsAt": ends,
+                "locale": locale,
+                "timezone": tz,
+            }),
+            worker_id_opt,
         )
         .await;
     }
@@ -4071,6 +4104,27 @@ pub(crate) async fn notify_booking_created(
             "locale": locale,
             "timezone": tz,
         }),
+    )
+    .await;
+    // Admin fan-out (additive; worker flow above unchanged). Gated by the
+    // `bookings` admin preference inside `notify_all_admins` + the central
+    // guard — missing setting means all enabled (current behaviour).
+    crate::push::notify_all_admins(
+        db,
+        "BOOKING_CREATED",
+        &title,
+        &message,
+        Some("booking"),
+        Some(booking_id as i32),
+        serde_json::json!({
+            "serviceName": service_name,
+            "customerName": customer_name,
+            "startsAt": starts_iso,
+            "endsAt": ends_iso,
+            "locale": locale,
+            "timezone": tz,
+        }),
+        Some(worker_id),
     )
     .await;
 }

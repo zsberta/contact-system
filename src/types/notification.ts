@@ -4,6 +4,8 @@ export type NotificationType =
   | "GATEWAY_PAYMENT_PAID"
   | "GATEWAY_PAYMENT_FAILED"
   | "GATEWAY_PAYMENT_REFUNDED"
+  | "FORM_SUBMISSION_CREATED"
+  | "SYSTEM_ERROR"
   | "SYSTEM";
 
 export interface Notification {

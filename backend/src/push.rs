@@ -21,6 +21,161 @@ pub const VAPID_SUBJECT: &str = "mailto:info@zsoltberta.hu";
 const PUSH_TTL_SECS: u32 = 2_419_200;
 
 // ---------------------------------------------------------------------------
+// Admin notification preferences (Settings → admin notification types)
+// ---------------------------------------------------------------------------
+
+/// system_settings key holding the admin multiselect (JSON array of strings).
+/// Missing / unreadable / unexpected shape counts as "all enabled" so every
+/// pre-existing admin notification keeps flowing (zero behaviour change).
+pub const ADMIN_NOTIFICATION_TYPES_KEY: &str = "admin_notification_types";
+
+/// All admin-selectable categories (must stay in sync with the Settings UI).
+pub const ALL_ADMIN_CATEGORIES: &[&str] =
+    &["bookings", "form_submissions", "payments", "system_errors"];
+
+/// Map a notification `type` to the admin preference category that gates it
+/// for admin recipients. Returns `None` for worker-only or uncategorised
+/// types, which are never gated (fail-open, preserves current behaviour).
+pub fn admin_category_for_type(type_: &str) -> Option<&'static str> {
+    match type_ {
+        "BOOKING_CREATED" | "BOOKING_CANCELLED" => Some("bookings"),
+        "FORM_SUBMISSION_CREATED" => Some("form_submissions"),
+        "GATEWAY_PAYMENT_PAID" | "GATEWAY_PAYMENT_FAILED" | "GATEWAY_PAYMENT_REFUNDED" => {
+            Some("payments")
+        }
+        "SYSTEM_ERROR" | "GATEWAY_SYNC_FAILED" => Some("system_errors"),
+        _ => None,
+    }
+}
+
+/// Whether an admin-gated `category` is currently enabled.
+/// Fail-open: missing key, DB error, or unexpected JSON shape → `true`.
+pub async fn is_admin_category_enabled(
+    db: &DatabaseConnection,
+    category: &str,
+) -> bool {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT value FROM system_settings WHERE key = $1",
+            vec![ADMIN_NOTIFICATION_TYPES_KEY.into()],
+        ))
+        .await
+        .ok()
+        .flatten();
+    let Some(r) = row else { return true };
+    let val: serde_json::Value = match r.try_get("", "value") {
+        Ok(v) => v,
+        Err(_) => return true,
+    };
+    match &val {
+        serde_json::Value::Array(items) => items.iter().any(|v| v.as_str() == Some(category)),
+        serde_json::Value::Null => true,
+        // Explicit object map `{ "bookings": true, ... }` (forward-compat):
+        // missing key counts as enabled, `false` opts out.
+        serde_json::Value::Object(map) => match map.get(category) {
+            None => true,
+            Some(serde_json::Value::Bool(false)) => false,
+            _ => true,
+        },
+        // Any other shape (bool/string/number) → fail-open.
+        _ => true,
+    }
+}
+
+/// Best-effort admin-role check. Unknown / error → `false` (fail-open: the
+/// central guard only skips when positively admin + opted out).
+async fn is_user_admin(db: &DatabaseConnection, user_id: i64) -> bool {
+    db.query_one_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT role FROM users WHERE id = $1",
+        vec![user_id.into()],
+    ))
+    .await
+    .ok()
+    .flatten()
+    .and_then(|r| r.try_get::<Option<String>>("", "role").ok().flatten())
+    .map(|role| role == "admin")
+    .unwrap_or(false)
+}
+
+/// Fan out one notification to every enabled admin (best-effort, never fails
+/// the caller). Respects the matching preference category; `exclude_user_id`
+/// skips one id (used to avoid a duplicate when the worker is also an admin).
+/// Unknown types bypass the gate via [`admin_category_for_type`] → `None`.
+pub async fn notify_all_admins(
+    db: &DatabaseConnection,
+    type_: &str,
+    title: &str,
+    message: &str,
+    entity_type: Option<&str>,
+    entity_id: Option<i32>,
+    metadata: serde_json::Value,
+    exclude_user_id: Option<i64>,
+) {
+    if let Some(cat) = admin_category_for_type(type_) {
+        if !is_admin_category_enabled(db, cat).await {
+            return;
+        }
+    }
+    let admins: Vec<i64> = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT id FROM users WHERE role = 'admin' AND enabled",
+            vec![],
+        ))
+        .await
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|r| {
+                    r.try_get::<i64>("", "id")
+                        .ok()
+                        .or_else(|| r.try_get::<i32>("", "id").ok().map(|v| v as i64))
+                })
+                .filter(|id| Some(*id) != exclude_user_id)
+                .collect()
+        })
+        .unwrap_or_default();
+    if admins.is_empty() {
+        return;
+    }
+    for admin_id in admins {
+        create_notification(
+            db,
+            admin_id,
+            type_,
+            title,
+            message,
+            entity_type,
+            entity_id,
+            metadata.clone(),
+        )
+        .await;
+    }
+}
+
+/// Convenience wrapper for critical system errors (gateway sync failures,
+/// worker failures, …). Gated by the `system_errors` category; best-effort.
+pub async fn notify_admins_system_error(
+    db: &DatabaseConnection,
+    title: &str,
+    message: &str,
+    metadata: serde_json::Value,
+) {
+    notify_all_admins(
+        db,
+        "SYSTEM_ERROR",
+        title,
+        message,
+        Some("system"),
+        None,
+        metadata,
+        None,
+    )
+    .await;
+}
+
+// ---------------------------------------------------------------------------
 // send_push_to_user(userId, payload, audit)
 // ---------------------------------------------------------------------------
 
@@ -174,6 +329,17 @@ pub async fn create_notification(
     metadata: serde_json::Value,
 ) {
     let notif_type = if type_.is_empty() { "SYSTEM" } else { type_ };
+    // Admin preference gate: admins who opted out of a category receive
+    // neither the in-app row nor the push. Workers and uncategorised types
+    // are never gated; DB/role lookup failures fail open (deliver).
+    if let Some(cat) = admin_category_for_type(notif_type) {
+        if is_user_admin(db, user_id).await && !is_admin_category_enabled(db, cat).await {
+            tracing::debug!(
+                "[notifications] skipped {notif_type} for admin {user_id} (category '{cat}' disabled)"
+            );
+            return;
+        }
+    }
     // Same convention as controllers/settings.rs: bind JSON as text + ::jsonb.
     let meta_text =
         serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".to_string());
@@ -296,6 +462,23 @@ async fn build_push_payload(
             title: title.to_string(),
             body: message.to_string(),
             url: "/gateway".to_string(),
+        });
+    }
+    // Admin-only types: no worker gate (no worker equivalent); the admin
+    // category gate already ran in `create_notification`, so reaching here
+    // means push is wanted.
+    if type_ == "FORM_SUBMISSION_CREATED" {
+        return Some(PushPayload {
+            title: title.to_string(),
+            body: message.to_string(),
+            url: "/submissions".to_string(),
+        });
+    }
+    if type_ == "SYSTEM_ERROR" || type_ == "GATEWAY_SYNC_FAILED" {
+        return Some(PushPayload {
+            title: title.to_string(),
+            body: message.to_string(),
+            url: "/logs".to_string(),
         });
     }
     None

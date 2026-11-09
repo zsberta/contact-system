@@ -302,7 +302,11 @@ export const NotificationBell: React.FC = () => {
                           ? "notifications:gateway_payment_failed"
                           : n.type === "GATEWAY_PAYMENT_REFUNDED"
                             ? "notifications:gateway_payment_refunded"
-                            : "notifications:system";
+                            : n.type === "FORM_SUBMISSION_CREATED"
+                              ? "notifications:form_submission_created"
+                              : n.type === "SYSTEM_ERROR"
+                                ? "notifications:system_error"
+                                : "notifications:system";
                   let displayMessage = n.message;
                   if (n.metadata?.customerName && n.metadata?.serviceName) {
                     const notifLocale = (n.metadata.locale as string) || "hu";

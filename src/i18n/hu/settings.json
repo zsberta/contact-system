@@ -7,5 +7,20 @@
   "worker_push_notifications_desc": "PWA push értesítés küldése a dolgozóknak, ha új foglalás érkezik a hozzárendelt szolgáltatásukra. A dolgozóknak engedélyezniük kell a push értesítéseket az eszközükön.",
   "save": "Beállítások mentése",
   "save_success": "Beállítások sikeresen elmentve.",
-  "save_error": "A beállítások mentése sikertelen."
+  "save_error": "A beállítások mentése sikertelen.",
+  "admin_notifications_title": "Adminisztrátori értesítések",
+  "admin_notifications_desc": "Válaszd ki, mely események hozzanak létre alkalmazáson belüli és push értesítést az adminisztrátoroknak. Csak adminok — a dolgozókat és az ügyfeleket nem érinti.",
+  "admin_only_badge": "Csak adminok",
+  "admin_notifications_bookings": "Foglalások",
+  "admin_notifications_bookings_desc": "Új foglalások, lemondások és átütemezések minden foglalási modulban.",
+  "admin_notifications_form_submissions": "Kapcsolati űrlap beküldések",
+  "admin_notifications_form_submissions_desc": "Új beküldések a nyilvános kapcsolati és beágyazott űrlapokról.",
+  "admin_notifications_payments": "Fizetések",
+  "admin_notifications_payments_desc": "Sikeres, sikertelen és visszatérített gateway fizetések.",
+  "admin_notifications_system_errors": "Napló / rendszerhibák",
+  "admin_notifications_system_errors_desc": "Kritikus szinkron- és rendszerhibák (pl. a fizetési ledger nem elérhető). Ritkítva a spam elkerülésére.",
+  "admin_notifications_select_all": "Mind kiválasztása",
+  "admin_notifications_clear": "Törlés",
+  "admin_notifications_selected": "{{count}} / {{total}} kiválasztva",
+  "admin_notifications_none_warning": "Nincs típus kiválasztva — az adminisztrátorok nem kapnak alkalmazáson belüli vagy push értesítést. A dolgozókat ez nem érinti."
 }
