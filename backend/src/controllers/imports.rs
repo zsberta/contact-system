@@ -17,7 +17,7 @@
 use std::sync::OnceLock;
 
 use axum::{
-    extract::{Query, State},
+    extract::{Multipart, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -399,13 +399,14 @@ async fn upsert_customer(
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/imports/dry-run — JSON { projectId, importType, csv }
+// POST /api/imports/dry-run — multipart (file, projectId, importType),
+// exactly like the old multer-based handler. Parses + validates, no writes.
 // ---------------------------------------------------------------------------
 
 async fn dry_run(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
-    Json(body): Json<serde_json::Value>,
+    mut multipart: Multipart,
 ) -> Response {
     if require_admin(&u).is_err() {
         return match u {
@@ -413,14 +414,29 @@ async fn dry_run(
             Some(_) => err(StatusCode::FORBIDDEN, "Admin access required"),
         };
     }
-    let project_id = body
-        .get("projectId")
-        .and_then(|v| v.as_i64().or_else(|| v.as_str()?.parse::<i64>().ok()))
-        .unwrap_or(0);
-    let import_type = body
-        .get("importType")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let mut project_id: i64 = 0;
+    let mut import_type = String::new();
+    let mut csv = String::new();
+    let mut got_file = false;
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let name = field.name().unwrap_or("").to_string();
+        if name == "file" {
+            let bytes = field.bytes().await.unwrap_or_default();
+            // Same 20MB cap as the old multer limits.
+            if bytes.len() > 20 * 1024 * 1024 {
+                return err(StatusCode::PAYLOAD_TOO_LARGE, "File too large");
+            }
+            csv = String::from_utf8_lossy(&bytes).to_string();
+            got_file = true;
+        } else {
+            let text = field.text().await.unwrap_or_default();
+            if name == "projectId" {
+                project_id = text.parse().unwrap_or(0);
+            } else if name == "importType" {
+                import_type = text;
+            }
+        }
+    }
     if project_id <= 0 {
         return err(StatusCode::BAD_REQUEST, "Invalid projectId");
     }
@@ -430,15 +446,14 @@ async fn dry_run(
             "importType must be 'customers' or 'bookings'",
         );
     }
-    let csv = body.get("csv").and_then(|v| v.as_str()).unwrap_or("");
-    if csv.is_empty() {
-        return err(StatusCode::BAD_REQUEST, "CSV text is required");
+    if !got_file || csv.is_empty() {
+        return err(StatusCode::BAD_REQUEST, "CSV file is required");
     }
     let res: Result<Response, sea_orm::DbErr> = (async {
         if !project_exists(&ctx.db, project_id).await? {
             return Ok(err(StatusCode::NOT_FOUND, "Project not found"));
         }
-        let (headers, records) = rows_to_records(parse_csv(csv));
+        let (headers, records) = rows_to_records(parse_csv(&csv));
         let required: &[&str] = if import_type == "customers" {
             CUSTOMER_REQUIRED
         } else {
