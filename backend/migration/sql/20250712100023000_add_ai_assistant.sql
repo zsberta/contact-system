@@ -32,17 +32,23 @@
 -- ---------------------------------------------------------------------------
 -- Recovery block
 -- ---------------------------------------------------------------------------
-DO $$ BEGIN
-  DROP TABLE IF EXISTS ai_chat_messages CASCADE;
-  DROP TABLE IF EXISTS ai_chat_sessions CASCADE;
-  DROP TABLE IF EXISTS ai_knowledge_chunks CASCADE;
-  DROP TABLE IF EXISTS ai_knowledge_base CASCADE;
-  DROP TABLE IF EXISTS ai_assistant_translations CASCADE;
-  DROP TABLE IF EXISTS ai_assistant_configs CASCADE;
-  DROP TABLE IF EXISTS ai_config_presets CASCADE;
-EXCEPTION WHEN OTHERS THEN
-  RAISE NOTICE '0024: recovery drop of AI assistant tables skipped: %', SQLERRM;
-END $$;
+-- ---------------------------------------------------------------------------
+-- SCRUBBED 2026-11-10: the recovery block below (DROP TABLE in the UP
+-- section) wiped production tables when this migration re-ran during the
+-- per-file migrator transition. Everything below is IF NOT EXISTS /
+-- guarded, so the block was unnecessary. Kept commented for history.
+-- ---------------------------------------------------------------------------
+-- DO $$ BEGIN
+--   DROP TABLE IF EXISTS ai_chat_messages CASCADE;
+--   DROP TABLE IF EXISTS ai_chat_sessions CASCADE;
+--   DROP TABLE IF EXISTS ai_knowledge_chunks CASCADE;
+--   DROP TABLE IF EXISTS ai_knowledge_base CASCADE;
+--   DROP TABLE IF EXISTS ai_assistant_translations CASCADE;
+--   DROP TABLE IF EXISTS ai_assistant_configs CASCADE;
+--   DROP TABLE IF EXISTS ai_config_presets CASCADE;
+-- EXCEPTION WHEN OTHERS THEN
+--   RAISE NOTICE '0024: recovery drop of AI assistant tables skipped: %', SQLERRM;
+-- END $$;
 
 -- ---------------------------------------------------------------------------
 -- Enable pgvector extension (optional — RAG vector search requires it)

@@ -72,12 +72,18 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;
 -- from partial runs. Wrapped in DO/EXCEPTION for safety on a greenfield
 -- database where the new tables don't exist yet.
 -- ---------------------------------------------------------------------------
-DO $$ BEGIN
-  DROP TABLE IF EXISTS reservation_bookings CASCADE;
-  DROP TABLE IF EXISTS reservations CASCADE;
-EXCEPTION WHEN OTHERS THEN
-  RAISE NOTICE '0011: recovery drop of reservations skipped: %', SQLERRM;
-END $$;
+-- ---------------------------------------------------------------------------
+-- SCRUBBED 2026-11-10: the recovery block below (DROP TABLE in the UP
+-- section) wiped the production reservations tables when this migration
+-- re-ran during the per-file migrator transition. All CREATEs below are
+-- IF NOT EXISTS, so the block was unnecessary. Kept commented for history.
+-- ---------------------------------------------------------------------------
+-- DO $$ BEGIN
+--   DROP TABLE IF EXISTS reservation_bookings CASCADE;
+--   DROP TABLE IF EXISTS reservations CASCADE;
+-- EXCEPTION WHEN OTHERS THEN
+--   RAISE NOTICE '0011: recovery drop of reservations skipped: %', SQLERRM;
+-- END $$;
 
 -- ---------------------------------------------------------------------------
 -- Reservations table (the "form" / operator config)

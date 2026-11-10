@@ -24,18 +24,26 @@
 -- ---------------------------------------------------------------------------
 -- Recovery block — clean partial runs
 -- ---------------------------------------------------------------------------
-DO $$ BEGIN
-  ALTER TABLE IF EXISTS service_items DROP COLUMN IF EXISTS module_id;
-  ALTER TABLE IF EXISTS faq_items DROP COLUMN IF EXISTS module_id;
-  ALTER TABLE IF EXISTS blog_posts DROP COLUMN IF EXISTS module_id;
-  ALTER TABLE IF EXISTS ai_assistant_configs DROP COLUMN IF EXISTS module_id;
-  ALTER TABLE IF EXISTS analytics_configs DROP COLUMN IF EXISTS module_id;
-  ALTER TABLE IF EXISTS reservations DROP COLUMN IF EXISTS module_id;
-  ALTER TABLE IF EXISTS forms DROP COLUMN IF EXISTS module_id;
-  DROP TABLE IF EXISTS project_modules CASCADE;
-EXCEPTION WHEN OTHERS THEN
-  RAISE NOTICE '0032: recovery drop of project_modules skipped: %', SQLERRM;
-END $$;
+-- ---------------------------------------------------------------------------
+-- SCRUBBED 2026-11-10: the recovery block below used to DROP TABLE
+-- project_modules (and DROP the module_id columns) in the UP section. It
+-- wiped the production project_modules table when this migration re-ran
+-- during the per-file migrator transition. Everything below is
+-- IF NOT EXISTS / guarded, so the block was unnecessary.
+-- Kept commented for history.
+-- ---------------------------------------------------------------------------
+-- DO $$ BEGIN
+--   ALTER TABLE IF EXISTS service_items DROP COLUMN IF EXISTS module_id;
+--   ALTER TABLE IF EXISTS faq_items DROP COLUMN IF EXISTS module_id;
+--   ALTER TABLE IF EXISTS blog_posts DROP COLUMN IF EXISTS module_id;
+--   ALTER TABLE IF EXISTS ai_assistant_configs DROP COLUMN IF EXISTS module_id;
+--   ALTER TABLE IF EXISTS analytics_configs DROP COLUMN IF EXISTS module_id;
+--   ALTER TABLE IF EXISTS reservations DROP COLUMN IF EXISTS module_id;
+--   ALTER TABLE IF EXISTS forms DROP COLUMN IF EXISTS module_id;
+--   DROP TABLE IF EXISTS project_modules CASCADE;
+-- EXCEPTION WHEN OTHERS THEN
+--   RAISE NOTICE '0032: recovery drop of project_modules skipped: %', SQLERRM;
+-- END $$;
 
 -- ---------------------------------------------------------------------------
 -- 1. Create the project_modules registry

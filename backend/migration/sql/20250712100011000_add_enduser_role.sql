@@ -34,13 +34,19 @@
 -- ---------------------------------------------------------------------------
 -- Recovery block — drop orphaned enduser artifacts from partial runs.
 -- ---------------------------------------------------------------------------
-DO $$ BEGIN
-  DROP TABLE IF EXISTS user_project_assignments CASCADE;
-  DROP TABLE IF EXISTS password_reset_tokens CASCADE;
-  DROP TABLE IF EXISTS invite_tokens CASCADE;
-EXCEPTION WHEN OTHERS THEN
-  RAISE NOTICE '0012: recovery drop of enduser tables skipped: %', SQLERRM;
-END $$;
+-- ---------------------------------------------------------------------------
+-- SCRUBBED 2026-11-10: the recovery block below (DROP TABLE in the UP
+-- section) wiped production tables when this migration re-ran during the
+-- per-file migrator transition. Everything below is IF NOT EXISTS /
+-- guarded, so the block was unnecessary. Kept commented for history.
+-- ---------------------------------------------------------------------------
+-- DO $$ BEGIN
+--   DROP TABLE IF EXISTS user_project_assignments CASCADE;
+--   DROP TABLE IF EXISTS password_reset_tokens CASCADE;
+--   DROP TABLE IF EXISTS invite_tokens CASCADE;
+-- EXCEPTION WHEN OTHERS THEN
+--   RAISE NOTICE '0012: recovery drop of enduser tables skipped: %', SQLERRM;
+-- END $$;
 
 -- ---------------------------------------------------------------------------
 -- 1) users: role, must_set_password, password_hash nullable

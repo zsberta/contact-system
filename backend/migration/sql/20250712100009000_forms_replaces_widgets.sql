@@ -80,25 +80,31 @@
 -- triggers / indexes / FK constraints that might have been created before
 -- the previous run was killed.
 -- ---------------------------------------------------------------------------
-DO $$ BEGIN
-  DROP TABLE IF EXISTS form_submissions CASCADE;
-  DROP TABLE IF EXISTS forms CASCADE;
-EXCEPTION WHEN OTHERS THEN
-  RAISE NOTICE '0010: recovery drop of forms/form_submissions skipped: %', SQLERRM;
-END $$;
+-- ---------------------------------------------------------------------------
+-- SCRUBBED 2026-11-10: the recovery blocks below (DROP TABLE in the UP
+-- section) wiped the production forms tables when this migration re-ran
+-- during the per-file migrator transition. All CREATEs below are
+-- IF NOT EXISTS, so the blocks were unnecessary. Kept commented for history.
+-- ---------------------------------------------------------------------------
+-- DO $$ BEGIN
+--   DROP TABLE IF EXISTS form_submissions CASCADE;
+--   DROP TABLE IF EXISTS forms CASCADE;
+-- EXCEPTION WHEN OTHERS THEN
+--   RAISE NOTICE '0010: recovery drop of forms/form_submissions skipped: %', SQLERRM;
+-- END $$;
 
-DO $$ BEGIN
-  -- Drop the OLD tables first. CASCADE removes the FK from
-  -- widget_form_submissions.widget_id → widgets.id, so we can drop in
-  -- either order, but explicit ordering keeps the down-migration
-  -- trivially safe.
-  DROP TABLE IF EXISTS widget_form_submissions CASCADE;
-  DROP TABLE IF EXISTS widgets CASCADE;
-EXCEPTION WHEN OTHERS THEN
-  -- If the old tables don't exist (fresh installs), swallow the error
-  -- so the migration is idempotent on greenfield databases.
-  RAISE NOTICE '0010: widget tables did not exist (fresh install): %', SQLERRM;
-END $$;
+-- DO $$ BEGIN
+--   -- Drop the OLD tables first. CASCADE removes the FK from
+--   -- widget_form_submissions.widget_id → widgets.id, so we can drop in
+--   -- either order, but explicit ordering keeps the down-migration
+--   -- trivially safe.
+--   DROP TABLE IF EXISTS widget_form_submissions CASCADE;
+--   DROP TABLE IF EXISTS widgets CASCADE;
+-- EXCEPTION WHEN OTHERS THEN
+--   -- If the old tables don't exist (fresh installs), swallow the error
+--   -- so the migration is idempotent on greenfield databases.
+--   RAISE NOTICE '0010: widget tables did not exist (fresh install): %', SQLERRM;
+-- END $$;
 
 -- Old ENUM types — drop if they exist. The DO/EXCEPTION wrapper keeps
 -- this idempotent for databases that never had widgets.

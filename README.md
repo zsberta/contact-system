@@ -78,6 +78,7 @@ Rules for adding a migration (all must hold, or deploys break):
 3. **`down()` is a no-op by design.** Rollbacks are done via explicit SQL, never `migrate:down` (which would just re-queue the up-section).
 4. **Register the file** in `backend/migration/src/lib.rs`: one `sql_migration!(...)` line plus one `Box::new(...)` line, in lexicographic order.
 5. **Never delete or rename an applied migration struct** — not even the `LegacySquashedLib` tombstone at the top of the list. The framework aborts boot (`Migration file of version 'X' is missing`) if the database contains an applied migration with no matching code.
+6. **Never `DROP TABLE` (or any data-destroying statement) in the up-section** — not even in a "recovery block". A re-run on a populated database (migrator transition, restored backup, re-applied volume) executes it against live data: on 2026-11-10 exactly this wiped production reservations/bookings and emptied every module table. Create with `IF NOT EXISTS`; clean up partial runs with convergent guards only, never drops.
 
 ## Project structure
 

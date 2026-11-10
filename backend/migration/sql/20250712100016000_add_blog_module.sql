@@ -65,11 +65,17 @@
 -- migration run. The pgmigrations row is only written on successful commit,
 -- so if we are executing this file, no row exists yet.
 -- ---------------------------------------------------------------------------
-DO $$ BEGIN
-  DROP TABLE IF EXISTS blog_posts CASCADE;
-EXCEPTION WHEN OTHERS THEN
-  RAISE NOTICE '0017: recovery drop of blog_posts skipped: %', SQLERRM;
-END $$;
+-- ---------------------------------------------------------------------------
+-- SCRUBBED 2026-11-10: the recovery block below (DROP TABLE in the UP
+-- section) wiped the production blog_posts table when this migration
+-- re-ran during the per-file migrator transition. Everything below is
+-- IF NOT EXISTS, so the block was unnecessary. Kept commented for history.
+-- ---------------------------------------------------------------------------
+-- DO $$ BEGIN
+--   DROP TABLE IF EXISTS blog_posts CASCADE;
+-- EXCEPTION WHEN OTHERS THEN
+--   RAISE NOTICE '0017: recovery drop of blog_posts skipped: %', SQLERRM;
+-- END $$;
 
 -- ---------------------------------------------------------------------------
 -- projects: landing configuration + UNIQUE(domain_address)

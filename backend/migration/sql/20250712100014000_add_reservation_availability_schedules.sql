@@ -16,12 +16,14 @@
 -- The FE sorts and renders them in time order.
 -- ============================================================================
 
--- Recovery block
-DO $$ BEGIN
-  DROP TABLE IF EXISTS reservation_availability_schedules CASCADE;
-EXCEPTION WHEN OTHERS THEN
-  RAISE NOTICE '0015: recovery drop of reservation_availability_schedules skipped: %', SQLERRM;
-END $$;
+-- SCRUBBED 2026-11-10: recovery DROP TABLE in the UP section removed —
+-- it wiped the production table when this migration re-ran during the
+-- per-file migrator transition. CREATE below is IF NOT EXISTS.
+-- DO $$ BEGIN
+--   DROP TABLE IF EXISTS reservation_availability_schedules CASCADE;
+-- EXCEPTION WHEN OTHERS THEN
+--   RAISE NOTICE '0015: recovery drop of reservation_availability_schedules skipped: %', SQLERRM;
+-- END $$;
 
 CREATE TABLE IF NOT EXISTS reservation_availability_schedules (
   id              BIGSERIAL PRIMARY KEY,

@@ -44,11 +44,17 @@
 -- ---------------------------------------------------------------------------
 -- Recovery block
 -- ---------------------------------------------------------------------------
-DO $$ BEGIN
-  DROP TABLE IF EXISTS blog_attachments CASCADE;
-EXCEPTION WHEN OTHERS THEN
-  RAISE NOTICE '0018: recovery drop of blog_attachments skipped: %', SQLERRM;
-END $$;
+-- ---------------------------------------------------------------------------
+-- SCRUBBED 2026-11-10: the recovery block below (DROP TABLE in the UP
+-- section) wiped the production table when this migration re-ran during
+-- the per-file migrator transition. CREATE below is IF NOT EXISTS.
+-- Kept commented for history.
+-- ---------------------------------------------------------------------------
+-- DO $$ BEGIN
+--   DROP TABLE IF EXISTS blog_attachments CASCADE;
+-- EXCEPTION WHEN OTHERS THEN
+--   RAISE NOTICE '0018: recovery drop of blog_attachments skipped: %', SQLERRM;
+-- END $$;
 
 -- ---------------------------------------------------------------------------
 -- Table

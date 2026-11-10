@@ -54,12 +54,18 @@
 -- ---------------------------------------------------------------------------
 -- Recovery block: drop any partial-state from a previously-killed run.
 -- ---------------------------------------------------------------------------
-DO $$ BEGIN
-  DROP TABLE IF EXISTS analytics_events CASCADE;
-  DROP TABLE IF EXISTS analytics_configs CASCADE;
-EXCEPTION WHEN OTHERS THEN
-  RAISE NOTICE '0013: recovery drop of analytics tables skipped: %', SQLERRM;
-END $$;
+-- ---------------------------------------------------------------------------
+-- SCRUBBED 2026-11-10: the recovery block below (DROP TABLE in the UP
+-- section) wiped production tables when this migration re-ran during the
+-- per-file migrator transition. Everything below is IF NOT EXISTS, so the
+-- block was unnecessary. Kept commented for history.
+-- ---------------------------------------------------------------------------
+-- DO $$ BEGIN
+--   DROP TABLE IF EXISTS analytics_events CASCADE;
+--   DROP TABLE IF EXISTS analytics_configs CASCADE;
+-- EXCEPTION WHEN OTHERS THEN
+--   RAISE NOTICE '0013: recovery drop of analytics tables skipped: %', SQLERRM;
+-- END $$;
 
 -- ---------------------------------------------------------------------------
 -- Analytics configs
