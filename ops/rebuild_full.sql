@@ -809,3 +809,34 @@ COMMIT;
      AND NOT EXISTS (SELECT 1 FROM reservation_ratings rr WHERE rr.reservation_id = b.reservation_id AND lower(rr.email) = lower(b.email));
 
  COMMIT;
+
+-- ============================================================================
+-- PHASE 3 (disabled ranges): parents wiped, junction survived. Idempotent
+-- (ON CONFLICT DO NOTHING): restores what is missing, keeps what survived.
+-- Ranges 9/10/14 are unrecoverable (ids logged, times never logged).
+-- ============================================================================
+
+BEGIN;
+
+INSERT INTO reservation_disabled_ranges
+  (id, reservation_id, starts_at, ends_at, reason, source, enabled, created_at)
+VALUES
+  (7, 2, '2026-10-22 22:00:00+00', '2026-10-23 22:00:00+00', NULL, 'manual', false, '2026-09-25 12:46:24.681186+00'),
+  (8, 2, '2026-10-12 06:00:00+00', '2026-10-12 10:00:00+00', NULL, 'manual', true, '2026-10-05 11:31:35.859309+00'),
+  (11, 2, '2026-10-13 07:00:00+00', '2026-10-13 08:00:00+00', NULL, 'manual', true, '2026-10-13 06:52:57.003937+00'),
+  (12, 2, '2026-10-20 07:00:00+00', '2026-10-20 08:00:00+00', NULL, 'manual', true, '2026-10-20 08:01:41.29431+00'),
+  (13, 2, '2026-11-12 08:00:00+00', '2026-11-12 09:00:00+00', NULL, 'manual', true, '2026-11-03 12:54:38.70673+00')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO reservation_disabled_range_services (disabled_range_id, service_id)
+VALUES (11, 6), (12, 6), (13, 10),
+       (7, 3), (7, 4), (7, 8), (7, 12), (7, 14), (7, 15)
+ON CONFLICT (disabled_range_id, service_id) DO NOTHING;
+
+SELECT setval(pg_get_serial_sequence('reservation_disabled_ranges','id'),
+  GREATEST((SELECT max(id) FROM reservation_disabled_ranges), 100));
+
+SELECT 'phase3_ranges' AS metric, count(*)::text AS value FROM reservation_disabled_ranges
+UNION ALL SELECT 'phase3_range_links', count(*)::text FROM reservation_disabled_range_services;
+
+COMMIT;
