@@ -563,6 +563,7 @@ COMMIT;
          ORDER BY e.created_at DESC, e.id DESC LIMIT 1) AS service_guess,
         (r.metadata->'diff'->'starts_at'->>'to') AS new_starts_raw,
         (r.metadata->'diff'->'ends_at'->>'to') AS new_ends_raw,
+        substring(r.metadata->>'url' from 'by-token/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})') AS url_token,
         r.created_at AS rescheduled_at
  FROM activity_logs r
  WHERE r.action = 'booking.reschedule_public'
@@ -750,12 +751,26 @@ COMMIT;
    c.id, s.created_by, w.id,
    COALESCE(t.name, 'Visszaállított szolgáltatás'), v.duration_minutes, v.price_amount,
    v.currency, r.timezone, s.status, s.source, 'hu', NULL,
-   gen_random_uuid()::text, s.booked_at, s.cancelled_at, s.cancelled_by,
+   -- original token where the logs still carry it (reschedule/cancel URLs),
+   -- else fresh (old emailed links for these need the Gmail export)
+   COALESCE(rs.tok, cs.tok, gen_random_uuid()::text), s.booked_at, s.cancelled_at, s.cancelled_by,
    CASE WHEN s.status = 'attended' THEN now() ELSE NULL END,
    NULL
  FROM stage_bookings s
  JOIN reservations r ON r.id = s.reservation_id
  JOIN reservation_services v ON v.id = s.service_id
+ LEFT JOIN LATERAL (
+   SELECT substring(a.metadata->>'url' from 'by-token/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})') AS tok
+   FROM activity_logs a
+   WHERE a.action = 'booking.reschedule_public' AND a.entity_id = s.id
+   ORDER BY a.id DESC LIMIT 1
+ ) rs ON true
+ LEFT JOIN LATERAL (
+   SELECT substring(a.metadata->>'url' from 'by-token/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})') AS tok
+   FROM activity_logs a
+   WHERE a.action = 'booking.cancel_public' AND a.entity_id = s.id
+   ORDER BY a.id DESC LIMIT 1
+ ) cs ON true
  LEFT JOIN LATERAL (
    SELECT name FROM reservation_service_translations
    WHERE service_id = s.service_id ORDER BY (locale = r.default_locale) DESC LIMIT 1
