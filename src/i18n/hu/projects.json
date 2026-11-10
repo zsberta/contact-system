@@ -34,6 +34,12 @@
   "customer_phone_placeholder": "+36 30 123 4567",
   "customer_email": "E-mail",
   "customer_email_placeholder": "ugyfel@példa.hu",
+  "google_review_url": "Google értékelési link",
+  "google_review_url_placeholder": "https://www.google.com/maps/…",
+  "google_review_url_description": "3–5 csillagos értékelés után a vendég ezen a linken a Google-oldalatokat is tudja értékelni.",
+  "rating_email_every_n": "Értékelő e-mail gyakoriság",
+  "rating_email_every_n_description": "Hányadik „Részt vett” alkalom után kapjon újra értékelő e-mailt a vendég. 1 = minden alkalom után, 5 = az 1., 5., 10., 15. alkalom után.",
+  "rating_email_every_n_invalid": "1 és 1000 közötti egész számot adj meg",
 
   "billing_period_monthly": "Havonta",
   "billing_period_yearly": "Évente",

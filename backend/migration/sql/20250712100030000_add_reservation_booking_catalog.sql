@@ -253,11 +253,18 @@ WHERE service_id IS NOT NULL
 ALTER TABLE reservation_bookings
   ALTER COLUMN service_id SET NOT NULL;
 
-ALTER TABLE reservation_bookings
-  ADD CONSTRAINT reservation_bookings_service_fk
-  FOREIGN KEY (service_id, reservation_id)
-  REFERENCES reservation_services (id, reservation_id)
-  ON DELETE CASCADE;
+-- Guarded (DO block): re-runs on a DB that already has the FK are silent.
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'reservation_bookings_service_fk'
+  ) THEN
+    ALTER TABLE reservation_bookings
+      ADD CONSTRAINT reservation_bookings_service_fk
+      FOREIGN KEY (service_id, reservation_id)
+      REFERENCES reservation_services (id, reservation_id)
+      ON DELETE CASCADE;
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_reservation_bookings_customer_id
   ON reservation_bookings (customer_id) WHERE customer_id IS NOT NULL;

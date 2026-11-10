@@ -152,6 +152,68 @@ export interface ReservationBookingDTO {
   projectName: string | null;
 }
 
+// One customer rating, returned by GET /api/reservations/:id/ratings.
+export interface ReservationRatingDTO {
+  id: number;
+  reservationId: number;
+  serviceId: number | null;
+  serviceName: string | null;
+  bookingId: number;
+  customerId: number | null;
+  raterName: string;
+  email: string;
+  rating: number;
+  comment: string | null;
+  bookingStartsAt: string | null;
+  bookingEndsAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReservationRatingsSummary {
+  count: number;
+  average: number;
+  distribution: { "1": number; "2": number; "3": number; "4": number; "5": number };
+}
+
+export interface ReservationRatingsResponse {
+  content: ReservationRatingDTO[];
+  summary: ReservationRatingsSummary;
+}
+
+// Public rating-page data + submit payloads.
+export interface PublicRatingInfo {
+  bookingId: number;
+  status: string;
+  canRate: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  serviceId: number | null;
+  serviceName: string | null;
+  locale: string | null;
+  timezone: string;
+  projectName: string | null;
+  googleReviewUrl: string | null;
+  alreadyRated: boolean;
+  existingRating: { id: number; rating: number; comment: string | null; createdAt: string | null } | null;
+}
+
+export interface PublicRatingSubmitRequest {
+  rating: number;
+  comment?: string;
+}
+
+export interface PublicRatingSubmitResponse {
+  id: number;
+  rating: number;
+  comment: string | null;
+  raterName: string;
+  createdAt: string | null;
+  googleReviewUrl: string | null;
+}
+
 // Public availability response — the headline endpoint the landing page
 // uses to grey out already-booked slots before showing the user a date
 // picker. We return ONLY the busy ranges, never the metadata, so the FE

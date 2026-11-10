@@ -7,6 +7,9 @@ import type {
   CalendarDayDetailsResponse,
   CalendarMonthResponse,
   EnrichedReservationBookingDTO,
+  PublicRatingInfo,
+  PublicRatingSubmitRequest,
+  PublicRatingSubmitResponse,
   ReservationBookingAck,
   ReservationBookingCreateRequest,
   ReservationBookingDTO,
@@ -25,6 +28,8 @@ import type {
   ReservationHolidayDateDTO,
   ReservationDTO,
   ReservationPublicBookingRequest,
+  ReservationRatingDTO,
+  ReservationRatingsResponse,
   ReservationServiceAvailabilityDTO,
   ReservationServiceCreateDTO,
   ReservationServiceDTO,
@@ -867,6 +872,109 @@ export async function publicRescheduleBookingByToken(
   );
   if (!res.ok) {
     let msg = "Reschedule failed";
+    try {
+      const errBody = await res.json();
+      if (errBody && typeof errBody === "object" && errBody.errorMessage) {
+        msg = errBody.errorMessage;
+      }
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Ratings
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/reservations/:id/ratings
+ * Admin list of customer ratings for a reservation, with a summary
+ * (count, average, per-star distribution).
+ */
+export const getReservationRatings = (
+  reservationId: number,
+): Promise<ReservationRatingsResponse> => {
+  return apiFetch<ReservationRatingsResponse>(
+    `/reservations/${reservationId}/ratings`,
+  );
+};
+
+export const deleteReservationRating = (
+  reservationId: number,
+  ratingId: number,
+): Promise<{ success: true }> => {
+  return apiFetch<{ success: true }>(
+    `/reservations/${reservationId}/ratings/${ratingId}`,
+    { method: "DELETE" },
+  );
+};
+
+/**
+ * POST /api/reservations/:id/bookings/:bookingId/rating-email
+ * Manually trigger the rating-request email for one booking. Runs the same
+ * checks as the automatic worker (attended, visit over, email, not rated)
+ * and stamps the booking so the worker ignores it afterwards. Skips only
+ * the frequency throttle: an explicit send always goes out.
+ */
+export const sendReservationRatingEmail = (
+  reservationId: number,
+  bookingId: number,
+): Promise<{ success: true }> => {
+  return apiFetch<{ success: true }>(
+    `/reservations/${reservationId}/bookings/${bookingId}/rating-email`,
+    { method: "POST" },
+  );
+};
+
+export type { ReservationRatingDTO };
+
+/**
+ * GET /api/public/reservations/:secret_token/ratings/by-token/:bookingToken
+ * Public rating-page data for a booking (no auth — the booking token is
+ * the capability).
+ */
+export async function publicGetRatingByToken(
+  secretToken: string,
+  bookingToken: string,
+): Promise<PublicRatingInfo> {
+  const res = await fetch(
+    `/api/public/reservations/${encodeURIComponent(secretToken)}/ratings/by-token/${encodeURIComponent(bookingToken)}`,
+    { method: "GET", credentials: "omit" },
+  );
+  if (!res.ok) {
+    let msg = "Rating not found";
+    try {
+      const errBody = await res.json();
+      if (errBody && typeof errBody === "object" && errBody.errorMessage) {
+        msg = errBody.errorMessage;
+      }
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+/**
+ * POST /api/public/reservations/:secret_token/ratings/by-token/:bookingToken
+ * Submit a 1-5 star rating with an optional comment.
+ */
+export async function publicSubmitRatingByToken(
+  secretToken: string,
+  bookingToken: string,
+  body: PublicRatingSubmitRequest,
+): Promise<PublicRatingSubmitResponse> {
+  const res = await fetch(
+    `/api/public/reservations/${encodeURIComponent(secretToken)}/ratings/by-token/${encodeURIComponent(bookingToken)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "omit",
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    let msg = "Rating failed";
     try {
       const errBody = await res.json();
       if (errBody && typeof errBody === "object" && errBody.errorMessage) {

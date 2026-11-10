@@ -45,11 +45,14 @@ impl Hooks for App {
 
     async fn before_run(app_context: &AppContext) -> Result<()> {
         // Background loops:
-        // mail queue drain, reservation reminders (60s), gateway payment
-        // watch (120s), server-info snapshot, activity-log prune.
+        // mail queue drain, reservation reminders + rating requests
+        // (60s each, tunable via REMINDER/RATING_POLL_INTERVAL_SECS),
+        // gateway payment watch (120s), server-info snapshot,
+        // activity-log prune.
         crate::mailers::email::start();
         let db = app_context.db.clone();
         crate::workers::reminders::spawn(db.clone());
+        crate::workers::ratings::spawn(db.clone());
         crate::workers::gateway_watch::spawn(db.clone());
         crate::workers::server_info::spawn();
         crate::workers::prune::spawn(db);

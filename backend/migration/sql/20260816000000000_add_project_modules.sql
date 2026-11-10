@@ -200,11 +200,23 @@ ALTER TABLE service_items ALTER COLUMN module_id SET NOT NULL;
 -- ---------------------------------------------------------------------------
 -- 6. Enforce one-source-per-registry-row for config tables
 --    (content tables keep non-unique module_id — many children per module)
+--    Guarded (DO blocks): re-runs on a DB that already has the constraints
+--    are silent.
 -- ---------------------------------------------------------------------------
-ALTER TABLE forms ADD CONSTRAINT uq_forms_module_id UNIQUE (module_id);
-ALTER TABLE reservations ADD CONSTRAINT uq_reservations_module_id UNIQUE (module_id);
-ALTER TABLE analytics_configs ADD CONSTRAINT uq_analytics_configs_module_id UNIQUE (module_id);
-ALTER TABLE ai_assistant_configs ADD CONSTRAINT uq_ai_assistant_configs_module_id UNIQUE (module_id);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_forms_module_id') THEN
+    ALTER TABLE forms ADD CONSTRAINT uq_forms_module_id UNIQUE (module_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_reservations_module_id') THEN
+    ALTER TABLE reservations ADD CONSTRAINT uq_reservations_module_id UNIQUE (module_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_analytics_configs_module_id') THEN
+    ALTER TABLE analytics_configs ADD CONSTRAINT uq_analytics_configs_module_id UNIQUE (module_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_ai_assistant_configs_module_id') THEN
+    ALTER TABLE ai_assistant_configs ADD CONSTRAINT uq_ai_assistant_configs_module_id UNIQUE (module_id);
+  END IF;
+END $$;
 
 -- ---------------------------------------------------------------------------
 -- 7. Indexes for module_id lookups on content tables (hot query: list by module)

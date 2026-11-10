@@ -94,6 +94,25 @@ const ProjectViewPage: React.FC = () => {
       label: t("projects:domain_address"),
       value: project.domainAddress || "—",
     },
+    {
+      label: t("projects:google_review_url"),
+      value: project.googleReviewUrl ? (
+        <a
+          href={project.googleReviewUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-primary underline break-all"
+        >
+          {project.googleReviewUrl}
+        </a>
+      ) : (
+        "—"
+      ),
+    },
+    {
+      label: t("projects:rating_email_every_n"),
+      value: project.ratingEmailEveryNBookings ?? 1,
+    },
     { label: t("projects:price"), value: formatPrice(project.price) },
     {
       label: t("projects:billing_period"),

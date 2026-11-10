@@ -59,6 +59,8 @@ import ReservationServiceEditPage from "./pages/ReservationServiceEditPage";
 import ReservationServiceSchedulesPage from "./pages/ReservationServiceSchedulesPage";
 import ReservationCustomersPage from "./pages/ReservationCustomersPage";
 import ReservationCustomerViewPage from "./pages/ReservationCustomerViewPage";
+import ReservationRatingsPage from "./pages/ReservationRatingsPage";
+import ReservationRatingPage from "./pages/ReservationRatingPage";
 import ReservationEmbedPage from "./pages/ReservationEmbedPage";
 import SubmissionsPage from "./pages/SubmissionsPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
@@ -188,6 +190,7 @@ const App = () => (
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/blocked/edit/:rangeId" element={<ReservationDisabledRangeCreatePage />} />
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/blocked/new" element={<ReservationDisabledRangeCreatePage />} />
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/blocked" element={<ReservationDisabledRangesPage />} />
+                  <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/ratings" element={<ReservationRatingsPage />} />
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/customers" element={<ReservationCustomersPage />} />
                   <Route path="/workspace/projects/:projectId/modules/reservation/:moduleId/customers/:customerId" element={<ReservationCustomerViewPage />} />
 
@@ -235,6 +238,7 @@ const App = () => (
               </Route>
 
               {/* Public embed route — outside ProtectedRoute */}
+              <Route path="/embed/reservations/:secretToken/rate/:bookingToken" element={<ReservationRatingPage />} />
               <Route path="/embed/reservations/:secretToken/manage/:bookingToken" element={<ReservationEmbedPage />} />
               <Route path="/embed/reservations/:secretToken" element={<ReservationEmbedPage />} />
             </Routes>

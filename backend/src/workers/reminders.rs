@@ -3,13 +3,25 @@
 //! single-flight send: a row is only picked up while reminder_sent_at IS
 //! NULL, and is stamped after the send is queued.
 //!
-//! Cadence: run immediately on startup, then every 60 seconds. Env guard DISABLE_REMINDERS=true skips
+//! Cadence: run immediately on startup, then every REMINDER_POLL_INTERVAL_SECS
+//! seconds (default 60). Env guard DISABLE_REMINDERS=true skips
 //! startup.
 
 use sea_orm::{ConnectionTrait, DatabaseConnection, DatabaseBackend, Statement};
 
 const BATCH_SIZE: i64 = 100;
-const POLL_INTERVAL_SECS: u64 = 60;
+const DEFAULT_POLL_INTERVAL_SECS: u64 = 60;
+const MIN_POLL_INTERVAL_SECS: u64 = 10;
+
+/// Poll interval for the reminder loop. Overridable via
+/// `REMINDER_POLL_INTERVAL_SECS` (seconds, minimum 10, default 60).
+fn poll_interval_secs() -> u64 {
+    std::env::var("REMINDER_POLL_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(DEFAULT_POLL_INTERVAL_SECS)
+        .max(MIN_POLL_INTERVAL_SECS)
+}
 
 // ---------------------------------------------------------------------------
 // run_once — query due bookings, claim, and send reminder emails
@@ -181,22 +193,24 @@ fn build_embed_base_url(secret_token: Option<&str>) -> Option<String> {
 // spawn — wired from boot (same pattern as startReminders)
 // ---------------------------------------------------------------------------
 
-/// Start the 60s reminder loop. Run immediately on startup, then every 60
-/// seconds. No-op when DISABLE_REMINDERS=true.
+/// Start the reminder loop. Run immediately on startup, then every
+/// `REMINDER_POLL_INTERVAL_SECS` seconds (default 60).
+/// No-op when DISABLE_REMINDERS=true.
 pub fn spawn(db: DatabaseConnection) {
     if std::env::var("DISABLE_REMINDERS").as_deref() == Ok("true") {
         tracing::info!("[reminders] disabled by DISABLE_REMINDERS=true");
         return;
     }
+    let interval = poll_interval_secs();
     tokio::spawn(async move {
-        // Run immediately on startup, then every 60 seconds.
+        // Run immediately on startup, then every interval.
         run_once(&db).await;
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(POLL_INTERVAL_SECS)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
             run_once(&db).await;
         }
     });
-    tracing::info!("[reminders] started (every 60s)");
+    tracing::info!("[reminders] started (every {interval}s)");
 }
 
 // ---------------------------------------------------------------------------

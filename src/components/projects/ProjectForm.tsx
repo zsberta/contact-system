@@ -33,6 +33,7 @@ import {
   Building2,
   Globe,
   MessageSquare,
+  Star,
   User,
   Phone,
   Mail,
@@ -55,6 +56,8 @@ interface ProjectFormValues {
   customerName: string;
   customerPhone: string;
   customerEmail: string;
+  googleReviewUrl: string;
+  ratingEmailEveryNBookings: number;
 }
 
 interface ProjectFormProps {
@@ -243,6 +246,24 @@ const ProjectForm = ({
         .email({ message: "auth:invalid_email" })
         .optional()
         .or(z.literal("")),
+      googleReviewUrl: z
+        .string()
+        .max(1000, { message: "projects:max_length" })
+        .optional()
+        .or(z.literal(""))
+        .refine(
+          (val) =>
+            !val ||
+            val === "" ||
+            /^https?:\/\/.+\..+/.test(val),
+          { message: "projects:invalid_url" },
+        ),
+      ratingEmailEveryNBookings: z.coerce
+        .number({ invalid_type_error: "projects:rating_email_every_n_invalid" })
+        .int({ message: "projects:rating_email_every_n_invalid" })
+        .min(1, { message: "projects:rating_email_every_n_invalid" })
+        .max(1000, { message: "projects:rating_email_every_n_invalid" })
+        .default(1),
     })
     .superRefine((data, ctx) => {
       if (data.fordulonap && data.fordulonap !== "") {
@@ -298,6 +319,8 @@ const ProjectForm = ({
       customerName: initialData?.customerName ?? "",
       customerPhone: initialData?.customerPhone ?? "",
       customerEmail: initialData?.customerEmail ?? "",
+      googleReviewUrl: initialData?.googleReviewUrl ?? "",
+      ratingEmailEveryNBookings: initialData?.ratingEmailEveryNBookings ?? 1,
     },
   });
 
@@ -355,6 +378,8 @@ const ProjectForm = ({
           : Number(values.price),
       billingPeriod: values.billingPeriod ? values.billingPeriod : null,
       fordulonap,
+      googleReviewUrl: values.googleReviewUrl ? values.googleReviewUrl : null,
+      ratingEmailEveryNBookings: values.ratingEmailEveryNBookings ?? 1,
       comment: values.comment ? values.comment : null,
       customerName: values.customerName ? values.customerName : null,
       customerPhone: values.customerPhone ? values.customerPhone : null,
@@ -439,6 +464,66 @@ const ProjectForm = ({
                   <FormMessage>
                     {form.formState.errors.domainAddress?.message &&
                       t(form.formState.errors.domainAddress.message as string)}
+                  </FormMessage>
+                </FormItem>
+              )}
+            />
+
+            {/* Google review URL */}
+            <FormField
+              control={form.control}
+              name="googleReviewUrl"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("projects:google_review_url")}</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <Star className="absolute left-3 top-1/2 h-4 w-4 text-gray-400 transform -translate-y-1/2" />
+                      <Input
+                        placeholder={t("projects:google_review_url_placeholder")}
+                        maxLength={1000}
+                        className="pl-10"
+                        {...field}
+                      />
+                    </div>
+                  </FormControl>
+                  <FormDescription>
+                    {t("projects:google_review_url_description")}
+                  </FormDescription>
+                  <FormMessage>
+                    {form.formState.errors.googleReviewUrl?.message &&
+                      t(form.formState.errors.googleReviewUrl.message as string)}
+                  </FormMessage>
+                </FormItem>
+              )}
+            />
+
+            {/* Rating email frequency */}
+            <FormField
+              control={form.control}
+              name="ratingEmailEveryNBookings"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("projects:rating_email_every_n")}</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 h-4 w-4 text-gray-400 transform -translate-y-1/2" />
+                      <Input
+                        type="number"
+                        min={1}
+                        max={1000}
+                        step={1}
+                        className="pl-10"
+                        {...field}
+                      />
+                    </div>
+                  </FormControl>
+                  <FormDescription>
+                    {t("projects:rating_email_every_n_description")}
+                  </FormDescription>
+                  <FormMessage>
+                    {form.formState.errors.ratingEmailEveryNBookings?.message &&
+                      t(form.formState.errors.ratingEmailEveryNBookings.message as string)}
                   </FormMessage>
                 </FormItem>
               )}

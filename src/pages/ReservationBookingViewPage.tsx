@@ -22,11 +22,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeft, Mail, Trash2 } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
 import {
   deleteReservationBooking,
   getReservationBookingById,
+  sendReservationRatingEmail,
 } from "@/lib/reservations";
 import { buildWorkspaceModulePath } from "@/lib/workspace-navigation";
 import type { ReservationBookingDTO } from "@/types/reservation";
@@ -59,6 +60,7 @@ export default function ReservationBookingViewPage() {
   const bookingId = parseInt(bookingIdParam || "0", 10);
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isRatingEmailDialogOpen, setIsRatingEmailDialogOpen] = useState(false);
 
   const fmtDate = (iso: string, tz?: string | null) =>
     new Date(iso).toLocaleDateString(locale, {
@@ -120,6 +122,18 @@ export default function ReservationBookingViewPage() {
     },
   });
 
+  const ratingEmailMutation = useMutation({
+    mutationFn: () => sendReservationRatingEmail(reservationId!, bookingId),
+    onSuccess: () => {
+      showSuccess(t("reservations:rating_email_sent"));
+      setIsRatingEmailDialogOpen(false);
+    },
+    onError: (err: Error) => {
+      showError(err.message);
+      setIsRatingEmailDialogOpen(false);
+    },
+  });
+
   if (isLoading)
     return <p className="text-muted-foreground">{t("common:loading")}</p>;
   if (!booking) return <p>{t("reservations:booking_not_found")}</p>;
@@ -161,6 +175,21 @@ export default function ReservationBookingViewPage() {
           </Badge>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsRatingEmailDialogOpen(true)}
+            disabled={
+              ratingEmailMutation.isPending ||
+              booking.status !== "attended" ||
+              Number.isNaN(new Date(booking.endsAt).getTime()) ||
+              new Date(booking.endsAt) >= new Date()
+            }
+            title={t("reservations:rating_email_send")}
+          >
+            <Mail className="mr-2 h-4 w-4" />
+            {t("reservations:rating_email_send")}
+          </Button>
           <Button
             variant="destructive"
             size="sm"
@@ -310,6 +339,37 @@ export default function ReservationBookingViewPage() {
               {deleteMutation.isPending
                 ? t("reservations:booking_deleting")
                 : t("reservations:booking_delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={isRatingEmailDialogOpen}
+        onOpenChange={setIsRatingEmailDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("reservations:rating_email_send_title")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("reservations:rating_email_send_description", {
+                email: booking.email || "—",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={ratingEmailMutation.isPending}>
+              {t("common:cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => ratingEmailMutation.mutate()}
+              disabled={ratingEmailMutation.isPending}
+            >
+              {ratingEmailMutation.isPending
+                ? t("reservations:rating_email_sending")
+                : t("reservations:rating_email_send")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -12,6 +12,8 @@
 //! - GET    /:secret_token/bookings/by-token/:bookingToken
 //! - DELETE /:secret_token/bookings/by-token/:bookingToken (12h guard)
 //! - PATCH  /:secret_token/bookings/by-token/:bookingToken/reschedule
+//! - GET    /:secret_token/ratings/by-token/:bookingToken (rating page data)
+//! - POST   /:secret_token/ratings/by-token/:bookingToken (submit 1-5 rating)
 //!
 //! Shared logic (timezone/DST, holidays, ISO parsing, slot alignment,
 //! contact + custom-field validation, availability engine, customer
@@ -1545,4 +1547,232 @@ pub fn routes() -> Routes {
         .add("/{secret_token}/bookings/by-token/{bookingToken}", get(booking_by_token))
         .add("/{secret_token}/bookings/by-token/{bookingToken}", delete(cancel_by_token))
         .add("/{secret_token}/bookings/by-token/{bookingToken}/reschedule", patch(reschedule_by_token))
+        .add("/{secret_token}/ratings/by-token/{bookingToken}", get(rating_info_by_token))
+        .add("/{secret_token}/ratings/by-token/{bookingToken}", post(submit_rating_by_token))
+}
+
+// ---------------------------------------------------------------------------
+// Ratings (public rating page, capability = booking token)
+// ---------------------------------------------------------------------------
+
+/// Project display info for the rating page: public name + Google review URL.
+async fn load_rating_project(
+    db: &sea_orm::DatabaseConnection,
+    project_id: i64,
+) -> (Option<String>, Option<String>) {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT name, google_review_url FROM projects WHERE id = $1",
+            vec![project_id.into()],
+        ))
+        .await
+        .ok()
+        .flatten();
+    match row {
+        Some(r) => (
+            R::str_opt(&r, "name"),
+            R::str_opt(&r, "google_review_url"),
+        ),
+        None => (None, None),
+    }
+}
+
+async fn rating_info_by_token(
+    State(ctx): State<AppContext>,
+    Path((secret, token)): Path<(String, String)>,
+) -> Response {
+    if !check_token_format(&secret) {
+        return err(StatusCode::BAD_REQUEST, "Invalid secret token");
+    }
+    if token.is_empty() {
+        return err(StatusCode::BAD_REQUEST, "Invalid booking token");
+    }
+    let res: Result<Response, sea_orm::DbErr> = (async {
+        let Some(reservation) = load_reservation(&ctx.db, &secret).await? else {
+            return Ok(not_found());
+        };
+        let row = ctx
+            .db
+            .query_one_raw(Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT rb.id, rb.starts_at, rb.ends_at, rb.status, rb.first_name, rb.last_name, rb.email, rb.service_id, rb.locale, COALESCE(rst.name, rb.service_name_snapshot) AS service_name FROM reservation_bookings rb LEFT JOIN reservation_service_translations rst ON rst.service_id = rb.service_id AND rst.locale = (SELECT default_locale FROM reservations WHERE id = rb.reservation_id) WHERE rb.reservation_id = $1 AND rb.booking_token = $2",
+                vec![reservation.id.into(), token.into()],
+            ))
+            .await?;
+        let Some(b) = row else {
+            return Ok(err(StatusCode::NOT_FOUND, "Booking not found"));
+        };
+        let status: String = b.try_get("", "status").unwrap_or_default();
+        if status == "cancelled" {
+            return Ok(err(StatusCode::GONE, "Booking has been cancelled"));
+        }
+        let booking_id: i64 = b.try_get("", "id").unwrap_or(0);
+        let existing = ctx
+            .db
+            .query_one_raw(Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT id, rating, comment, created_at FROM reservation_ratings WHERE booking_id = $1",
+                vec![booking_id.into()],
+            ))
+            .await?;
+        let (project_name, google_review_url) = load_rating_project(&ctx.db, reservation.project_id).await;
+        let existing_json = existing.map(|r| {
+            json!({
+                "id": r.try_get::<i64>("", "id").unwrap_or(0),
+                "rating": r.try_get::<i16>("", "rating").unwrap_or(0) as i64,
+                "comment": R::str_opt(&r, "comment"),
+                "createdAt": R::ts_opt(&r, "created_at"),
+            })
+        });
+        // A booking that was already rated can never be rated again —
+        // reopening an old link shows the thank-you state, never the form.
+        let already_rated = existing_json.is_some();
+        Ok((
+            StatusCode::OK,
+            Json(json!({
+                "bookingId": booking_id,
+                "status": status,
+                "canRate": status == "attended" && !already_rated,
+                "startsAt": R::ts_opt(&b, "starts_at"),
+                "endsAt": R::ts_opt(&b, "ends_at"),
+                "firstName": R::str_opt(&b, "first_name"),
+                "lastName": R::str_opt(&b, "last_name"),
+                "serviceId": b.try_get::<Option<i64>>("", "service_id").ok().flatten(),
+                "serviceName": R::str_opt(&b, "service_name"),
+                "locale": R::str_opt(&b, "locale"),
+                "timezone": reservation.timezone,
+                "projectName": project_name,
+                "googleReviewUrl": google_review_url,
+                "alreadyRated": already_rated,
+                "existingRating": existing_json,
+            })),
+        )
+            .into_response())
+    })
+    .await;
+    match res {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("[reservation-embed/rating-info] {e:?}");
+            err(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")
+        }
+    }
+}
+
+async fn submit_rating_by_token(
+    State(ctx): State<AppContext>,
+    Path((secret, token)): Path<(String, String)>,
+    Json(body): Json<Value>,
+) -> Response {
+    if !check_token_format(&secret) {
+        return err(StatusCode::BAD_REQUEST, "Invalid secret token");
+    }
+    if token.is_empty() {
+        return err(StatusCode::BAD_REQUEST, "Invalid booking token");
+    }
+    let rating: i64 = body.get("rating").and_then(|v| v.as_i64()).unwrap_or(0);
+    if !(1..=5).contains(&rating) {
+        return err(StatusCode::BAD_REQUEST, "rating must be an integer between 1 and 5");
+    }
+    let comment: Option<String> = body
+        .get("comment")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    if let Some(c) = &comment {
+        if c.len() > 2000 {
+            return err(StatusCode::BAD_REQUEST, "comment must be at most 2000 characters");
+        }
+    }
+    let res: Result<Response, sea_orm::DbErr> = (async {
+        let Some(reservation) = load_reservation(&ctx.db, &secret).await? else {
+            return Ok(not_found());
+        };
+        let row = ctx
+            .db
+            .query_one_raw(Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT rb.id, rb.service_id, rb.customer_id, rb.first_name, rb.last_name, rb.email, rb.status FROM reservation_bookings rb WHERE rb.reservation_id = $1 AND rb.booking_token = $2",
+                vec![reservation.id.into(), token.into()],
+            ))
+            .await?;
+        let Some(b) = row else {
+            return Ok(err(StatusCode::NOT_FOUND, "Booking not found"));
+        };
+        let status: String = b.try_get("", "status").unwrap_or_default();
+        if status == "cancelled" {
+            return Ok(err(StatusCode::GONE, "Booking has been cancelled"));
+        }
+        if status != "attended" {
+            return Ok(err(
+                StatusCode::FORBIDDEN,
+                "This booking cannot be rated.",
+            ));
+        }
+        let booking_id: i64 = b.try_get("", "id").unwrap_or(0);
+        let already = ctx
+            .db
+            .query_one_raw(Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT id FROM reservation_ratings WHERE booking_id = $1",
+                vec![booking_id.into()],
+            ))
+            .await?;
+        if already.is_some() {
+            return Ok(err(StatusCode::CONFLICT, "This booking has already been rated"));
+        }
+        let first = R::str_opt(&b, "first_name").unwrap_or_default();
+        let last = R::str_opt(&b, "last_name").unwrap_or_default();
+        let rater_name = format!("{last} {first}").trim().to_string();
+        let email = R::str_opt(&b, "email").unwrap_or_default();
+        let service_id: Option<i64> = b.try_get::<Option<i64>>("", "service_id").ok().flatten();
+        let customer_id: Option<i64> = b.try_get::<Option<i64>>("", "customer_id").ok().flatten();
+        let created = ctx
+            .db
+            .query_one_raw(Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "INSERT INTO reservation_ratings (reservation_id, service_id, booking_id, customer_id, rater_name, email, rating, comment) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, created_at",
+                vec![
+                    reservation.id.into(),
+                    service_id.into(),
+                    booking_id.into(),
+                    customer_id.into(),
+                    rater_name.clone().into(),
+                    email.clone().into(),
+                    (rating as i32).into(),
+                    comment.clone().into(),
+                ],
+            ))
+            .await?
+            .ok_or(sea_orm::DbErr::RecordNotFound("rating insert failed".to_string()))?;
+        let (_, google_review_url) = load_rating_project(&ctx.db, reservation.project_id).await;
+        tracing::info!("[reservation-embed/rating] booking={booking_id} rating={rating}");
+        Ok((
+            StatusCode::CREATED,
+            Json(json!({
+                "id": created.try_get::<i64>("", "id").unwrap_or(0),
+                "rating": rating,
+                "comment": comment,
+                "raterName": rater_name,
+                "createdAt": R::ts_opt(&created, "created_at"),
+                "googleReviewUrl": google_review_url,
+            })),
+        )
+            .into_response())
+    })
+    .await;
+    match res {
+        Ok(r) => r,
+        Err(e) => {
+            // Unique-violation race: two parallel submits for the same
+            // booking — report as already-rated instead of 500.
+            let msg = format!("{e:?}");
+            if msg.contains("duplicate") || msg.contains("unique") {
+                return err(StatusCode::CONFLICT, "This booking has already been rated");
+            }
+            tracing::error!("[reservation-embed/rating-submit] {e:?}");
+            err(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")
+        }
+    }
 }

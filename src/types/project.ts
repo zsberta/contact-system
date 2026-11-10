@@ -43,6 +43,12 @@ export interface ProjectDTO {
   brandColor: string | null;
   // nexus-gateway merchant id when onboarded for gateway billing.
   gatewayMerchantId: string | null;
+  // Public Google business review URL. Shown to customers after a 3-5
+  // star rating so they can also rate the project on Google.
+  googleReviewUrl: string | null;
+  // Rating-email frequency: email every Nth attended booking (1 = every
+  // visit). See the ratings worker.
+  ratingEmailEveryNBookings: number;
 }
 
 export interface ProjectAttachmentDTO {
@@ -79,6 +85,10 @@ export interface ProjectCreateUpdateDTO {
   brandColor?: string | null;
   // Link/unlink gateway billing (merchant id from the credentials sync).
   gatewayMerchantId?: string | null;
+  // Public Google business review URL (optional).
+  googleReviewUrl?: string | null;
+  // Rating-email frequency: email every Nth attended booking (1 = every visit).
+  ratingEmailEveryNBookings?: number | null;
 }
 
 export type PageProjectDTO = Page<ProjectDTO>;

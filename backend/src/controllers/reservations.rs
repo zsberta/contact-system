@@ -5272,6 +5272,10 @@ async fn patch_booking(
             }
         }
         sets.push("reminder_sent_at = NULL".to_string());
+        // NOTE: rating_sent_at is deliberately NOT reset here. Rating emails
+        // are for completed past visits; once the worker processed a booking
+        // (sent or throttled), the decision is final. Resetting on every
+        // status edit would re-arm emails for historical bookings.
         vals.push(booking_id.into());
         let id_ph = ph;
         ctx.db
@@ -5344,6 +5348,217 @@ async fn delete_booking(
             .await?;
         tracing::info!("[reservations] booking.delete id={booking_id}");
         Ok((StatusCode::OK, Json(json!({ "success": true }))).into_response())
+    })
+    .await;
+    match res {
+        Ok(r) => r,
+        Err(e) => db_err(e),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Ratings
+// ---------------------------------------------------------------------------
+
+fn rating_dto(row: &sea_orm::QueryResult) -> Value {
+    json!({
+        "id": row.try_get::<i64>("", "id").unwrap_or(0),
+        "reservationId": row.try_get::<i64>("", "reservation_id").unwrap_or(0),
+        "serviceId": i64_opt(row, "service_id"),
+        "serviceName": str_opt(row, "service_name").or_else(|| str_opt(row, "service_name_snapshot")),
+        "bookingId": row.try_get::<i64>("", "booking_id").unwrap_or(0),
+        "customerId": i64_opt(row, "customer_id"),
+        "raterName": str_opt(row, "rater_name").unwrap_or_default(),
+        "email": str_opt(row, "email").unwrap_or_default(),
+        "rating": row.try_get::<i16>("", "rating").unwrap_or(0) as i64,
+        "comment": str_opt(row, "comment"),
+        "bookingStartsAt": ts_opt(row, "booking_starts_at"),
+        "bookingEndsAt": ts_opt(row, "booking_ends_at"),
+        "createdAt": ts_req(row, "created_at"),
+        "updatedAt": ts_req(row, "updated_at"),
+    })
+}
+
+async fn reservation_scope_check(
+    db: &sea_orm::DatabaseConnection,
+    user: &CurrentUser,
+    reservation_id: i64,
+) -> Result<bool, sea_orm::DbErr> {
+    let chk = db
+        .query_one_raw(Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT id, project_id FROM reservations WHERE id = $1",
+            vec![reservation_id.into()],
+        ))
+        .await?;
+    let Some(chk) = chk else {
+        return Ok(false);
+    };
+    if is_enduser(user) {
+        let pid: i64 = chk.try_get("", "project_id").unwrap_or(0);
+        if !user.project_ids.contains(&pid) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+async fn list_ratings(
+    State(ctx): State<AppContext>,
+    MaybeUser(u): MaybeUser,
+    Path(reservation_id): Path<i64>,
+) -> Response {
+    let user = match auth_required(&u) {
+        Ok(x) => x,
+        Err(r) => return r,
+    };
+    if reservation_id <= 0 {
+        return err_s(StatusCode::BAD_REQUEST, "Invalid reservation id");
+    }
+    let res: Result<Response, sea_orm::DbErr> = (async {
+        if !reservation_scope_check(&ctx.db, &user, reservation_id).await? {
+            return Ok(err_s(StatusCode::NOT_FOUND, "Reservation not found"));
+        }
+        let rows = ctx
+            .db
+            .query_all_raw(Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT rr.id, rr.reservation_id, rr.service_id, rr.booking_id, rr.customer_id,
+                        rr.rater_name, rr.email, rr.rating, rr.comment, rr.created_at, rr.updated_at,
+                        b.starts_at AS booking_starts_at, b.ends_at AS booking_ends_at,
+                        COALESCE(rst.name, b.service_name_snapshot) AS service_name,
+                        b.service_name_snapshot
+                 FROM reservation_ratings rr
+                 LEFT JOIN reservation_bookings b ON b.id = rr.booking_id
+                 LEFT JOIN reservation_service_translations rst ON rst.service_id = rr.service_id AND rst.locale = 'hu'
+                 WHERE rr.reservation_id = $1
+                 ORDER BY rr.created_at DESC, rr.id DESC",
+                vec![reservation_id.into()],
+            ))
+            .await?;
+        let content: Vec<Value> = rows.iter().map(rating_dto).collect();
+        let (count, sum, dist) = {
+            let mut sum: i64 = 0;
+            let mut dist = [0i64; 5];
+            for r in &rows {
+                let v: i16 = r.try_get("", "rating").unwrap_or(0);
+                if (1..=5).contains(&v) {
+                    sum += v as i64;
+                    dist[(v - 1) as usize] += 1;
+                }
+            }
+            (rows.len() as i64, sum, dist)
+        };
+        let average = if count > 0 {
+            (sum as f64 / count as f64 * 10.0).round() / 10.0
+        } else {
+            0.0
+        };
+        Ok((
+            StatusCode::OK,
+            Json(json!({
+                "content": content,
+                "summary": {
+                    "count": count,
+                    "average": average,
+                    "distribution": { "1": dist[0], "2": dist[1], "3": dist[2], "4": dist[3], "5": dist[4] },
+                },
+            })),
+        )
+            .into_response())
+    })
+    .await;
+    match res {
+        Ok(r) => r,
+        Err(e) => db_err(e),
+    }
+}
+
+async fn delete_rating(
+    State(ctx): State<AppContext>,
+    MaybeUser(u): MaybeUser,
+    Path((reservation_id, rating_id)): Path<(i64, i64)>,
+) -> Response {
+    let user = match auth_required(&u) {
+        Ok(x) => x,
+        Err(r) => return r,
+    };
+    if reservation_id <= 0 || rating_id <= 0 {
+        return err_s(StatusCode::BAD_REQUEST, "Invalid ids");
+    }
+    let res: Result<Response, sea_orm::DbErr> = (async {
+        if !reservation_scope_check(&ctx.db, &user, reservation_id).await? {
+            return Ok(err_s(StatusCode::NOT_FOUND, "Reservation not found"));
+        }
+        ctx.db
+            .execute_raw(Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "DELETE FROM reservation_ratings WHERE reservation_id = $1 AND id = $2",
+                vec![reservation_id.into(), rating_id.into()],
+            ))
+            .await?;
+        tracing::info!("[reservations] rating.delete id={rating_id}");
+        Ok((StatusCode::OK, Json(json!({ "success": true }))).into_response())
+    })
+    .await;
+    match res {
+        Ok(r) => r,
+        Err(e) => db_err(e),
+    }
+}
+
+/// Manual rating-email trigger (admin booking page button). Runs the exact
+/// same send as the worker — same checks (attended, visit over, email,
+/// not rated), same template, same `rating_sent_at` stamp (so the worker
+/// ignores it afterwards). Skips only the frequency throttle: an explicit
+/// send always goes out.
+async fn send_booking_rating_email(
+    State(ctx): State<AppContext>,
+    MaybeUser(u): MaybeUser,
+    Path((reservation_id, booking_id)): Path<(i64, i64)>,
+) -> Response {
+    let user = match auth_required(&u) {
+        Ok(x) => x,
+        Err(r) => return r,
+    };
+    if reservation_id <= 0 || booking_id <= 0 {
+        return err_s(StatusCode::BAD_REQUEST, "Invalid ids");
+    }
+    let res: Result<Response, sea_orm::DbErr> = (async {
+        if !reservation_scope_check(&ctx.db, &user, reservation_id).await? {
+            return Ok(err_s(StatusCode::NOT_FOUND, "Reservation not found"));
+        }
+        let belongs = ctx
+            .db
+            .query_one_raw(Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT id FROM reservation_bookings WHERE reservation_id = $1 AND id = $2",
+                vec![reservation_id.into(), booking_id.into()],
+            ))
+            .await?;
+        if belongs.is_none() {
+            return Ok(err_s(StatusCode::NOT_FOUND, "Booking not found"));
+        }
+        match crate::workers::ratings::send_rating_email_for_booking(&ctx.db, booking_id).await
+        {
+            Ok(()) => {
+                tracing::info!("[reservations] rating-email.manual booking={booking_id}");
+                Ok((StatusCode::OK, Json(json!({ "success": true }))).into_response())
+            }
+            Err(crate::workers::ratings::RatingEmailError::NotFound) => {
+                Ok(err_s(StatusCode::NOT_FOUND, "Booking not found").into_response())
+            }
+            Err(crate::workers::ratings::RatingEmailError::NotEligible(msg)) => {
+                Ok(err_s(StatusCode::BAD_REQUEST, msg.as_str()).into_response())
+            }
+            Err(crate::workers::ratings::RatingEmailError::AlreadyRated(msg)) => {
+                Ok(err_s(StatusCode::CONFLICT, msg.as_str()).into_response())
+            }
+            Err(crate::workers::ratings::RatingEmailError::Failed(detail)) => {
+                tracing::error!("[reservations] rating-email.manual failed booking={booking_id}: {detail}");
+                Ok(err_s(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error").into_response())
+            }
+        }
     })
     .await;
     match res {
@@ -6898,6 +7113,10 @@ pub fn routes() -> Routes {
         .add("/{id}/bookings/{bookingId}", get(get_booking))
         .add("/{id}/bookings/{bookingId}", patch(patch_booking))
         .add("/{id}/bookings/{bookingId}", delete(delete_booking))
+        // ratings
+        .add("/{id}/ratings", get(list_ratings))
+        .add("/{id}/ratings/{ratingId}", delete(delete_rating))
+        .add("/{id}/bookings/{bookingId}/rating-email", post(send_booking_rating_email))
         // disable settings + holidays
         .add("/{id}/disable-settings", get(get_disable_settings))
         .add("/{id}/holidays", get(get_holidays))

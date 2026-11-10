@@ -89,6 +89,8 @@ fn row_to_dto(r: &sea_orm::QueryResult) -> serde_json::Value {
         "landingLastBuildLog": r.try_get::<Option<String>>("", "landing_last_build_log").ok().flatten(),
         "brandColor": r.try_get::<Option<String>>("", "brand_color").ok().flatten(),
         "gatewayMerchantId": r.try_get::<Option<String>>("", "gateway_merchant_id").ok().flatten(),
+        "googleReviewUrl": r.try_get::<Option<String>>("", "google_review_url").ok().flatten(),
+        "ratingEmailEveryNBookings": r.try_get::<Option<i32>>("", "rating_email_every_n_bookings").ok().flatten().unwrap_or(1),
     })
 }
 
@@ -355,6 +357,30 @@ fn validate_body(b: &Value, partial: bool) -> std::result::Result<HashMap<String
             _ => return Err("gatewayMerchantId must be a UUID or null".into()),
         }
     }
+    if let Some(raw) = get("googleReviewUrl", "google_review_url") {
+        match empty_to_null(raw) {
+            None => { out.insert("google_review_url".into(), Value::Null); }
+            Some(s) if raw.is_string() && s.len() <= 1000
+                && (s.starts_with("https://") || s.starts_with("http://")) => {
+                out.insert("google_review_url".into(), json!(s));
+            }
+            _ => return Err("googleReviewUrl must be an http(s) URL up to 1000 chars or null".into()),
+        }
+    }
+    if let Some(raw) = get("ratingEmailEveryNBookings", "rating_email_every_n_bookings") {
+        match raw {
+            Value::Number(n) => match n.as_i64() {
+                Some(v) if (1..=1000).contains(&v) => {
+                    out.insert("rating_email_every_n_bookings".into(), json!(v));
+                }
+                _ => return Err("ratingEmailEveryNBookings must be an integer between 1 and 1000".into()),
+            },
+            _ => return Err("ratingEmailEveryNBookings must be an integer between 1 and 1000".into()),
+        }
+    } else if !partial {
+        // Create without an explicit value: default to every visit.
+        out.insert("rating_email_every_n_bookings".into(), json!(1));
+    }
     Ok(out)
 }
 
@@ -363,7 +389,7 @@ const PROJECT_COLS: &str = "id, name, domain_address, price, fordulonap, billing
               landing_repo_dir, landing_build_command, landing_build_env,
               landing_dist_path, landing_enabled, landing_last_build_at,
               landing_last_build_status, landing_last_build_log,
-              brand_color, gateway_merchant_id,
+              brand_color, gateway_merchant_id, google_review_url, rating_email_every_n_bookings,
               created_at, updated_at, last_status_change_at";
 
 const PROJECT_SELECT: &str = "SELECT id, name, domain_address, price::float8 AS price, fordulonap,
@@ -371,7 +397,7 @@ const PROJECT_SELECT: &str = "SELECT id, name, domain_address, price::float8 AS 
               landing_repo_dir, landing_build_command, landing_build_env::text AS landing_build_env,
               landing_dist_path, landing_enabled, landing_last_build_at,
               landing_last_build_status, landing_last_build_log,
-              brand_color, gateway_merchant_id,
+              brand_color, gateway_merchant_id, google_review_url, rating_email_every_n_bookings,
               created_at, updated_at, last_status_change_at
        FROM projects";
 
@@ -459,7 +485,7 @@ async fn list(
         "SELECT id, name, domain_address, price::float8 AS price, fordulonap,
                 billing_period::text AS billing_period, status::text AS status, comment, customer_name,
                 customer_phone, customer_email, brand_color,
-                gateway_merchant_id, created_at, updated_at, last_status_change_at
+                gateway_merchant_id, google_review_url, rating_email_every_n_bookings, created_at, updated_at, last_status_change_at
          FROM projects {where_sql} {order} LIMIT ${} OFFSET ${}",
         params.len() + 1,
         params.len() + 2
@@ -485,6 +511,8 @@ async fn list(
                     "customerEmail": r.try_get::<Option<String>>("", "customer_email").ok().flatten(),
                     "brandColor": r.try_get::<Option<String>>("", "brand_color").ok().flatten(),
                     "gatewayMerchantId": r.try_get::<Option<String>>("", "gateway_merchant_id").ok().flatten(),
+                    "googleReviewUrl": r.try_get::<Option<String>>("", "google_review_url").ok().flatten(),
+                    "ratingEmailEveryNBookings": r.try_get::<Option<i32>>("", "rating_email_every_n_bookings").ok().flatten().unwrap_or(1),
                     "createdAt": r.try_get::<Option<chrono::DateTime<chrono::Utc>>>("", "created_at").ok().flatten().map(|t| t.to_rfc3339()),
                     "updatedAt": r.try_get::<Option<chrono::DateTime<chrono::Utc>>>("", "updated_at").ok().flatten().map(|t| t.to_rfc3339()),
                     "lastStatusChangeAt": r.try_get::<Option<chrono::DateTime<chrono::Utc>>>("", "last_status_change_at").ok().flatten().map(|t| t.to_rfc3339()),
@@ -571,9 +599,9 @@ async fn create(State(ctx): State<AppContext>, user: CurrentUser, Json(b): Json<
           (name, domain_address, price, fordulonap, billing_period,
            status, comment, customer_name, customer_phone, customer_email,
            landing_repo_dir, landing_build_command, landing_build_env,
-           landing_dist_path, landing_enabled, brand_color, gateway_merchant_id)
+           landing_dist_path, landing_enabled, brand_color, gateway_merchant_id, google_review_url, rating_email_every_n_bookings)
          VALUES ($1, $2, $3::numeric, $4, $5::billing_period, $6::project_status, $7, $8, $9, $10,
-                 $11, $12, $13::jsonb, $14, $15, $16, $17::uuid)
+                 $11, $12, $13::jsonb, $14, $15, $16, $17::uuid, $18, $19::int)
          RETURNING {PROJECT_COLS}"
     );
     // Re-select with display casts so price/env come back DTO-ready.
@@ -600,6 +628,8 @@ async fn create(State(ctx): State<AppContext>, user: CurrentUser, Json(b): Json<
                 v.get("landing_enabled").and_then(|x| x.as_bool()).unwrap_or(false).into(),
                 get("brand_color"),
                 get("gateway_merchant_id"),
+                get("google_review_url"),
+                get("rating_email_every_n_bookings"),
             ],
         ))
         .await
@@ -677,6 +707,9 @@ async fn update(State(ctx): State<AppContext>, user: CurrentUser, Path(id): Path
             params.push(bind_or_null(val));
         } else if *col == "gateway_merchant_id" {
             sets.push(format!("{col} = ${idx}::uuid"));
+            params.push(bind_or_null(val));
+        } else if *col == "rating_email_every_n_bookings" {
+            sets.push(format!("{col} = ${idx}::int"));
             params.push(bind_or_null(val));
         } else {
             sets.push(format!("{col} = ${idx}"));

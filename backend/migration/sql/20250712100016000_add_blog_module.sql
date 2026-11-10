@@ -134,7 +134,7 @@ END $$;
 -- already has the constraint are silent.
 DO $$ BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_indexes WHERE indexname = 'idx_projects_domain_address_unique'
+    SELECT 1 FROM pg_constraint WHERE conname = 'projects_domain_address_unique'
   ) THEN
     ALTER TABLE projects
       ADD CONSTRAINT projects_domain_address_unique UNIQUE (domain_address);

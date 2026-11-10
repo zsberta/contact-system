@@ -1933,6 +1933,214 @@ pub struct BulkEmailParams<'a> {
     pub locale: Option<&'a str>,
 }
 
+// ---------------------------------------------------------------------------
+// Template 2d: rating request (customer-facing, project-branded)
+// ---------------------------------------------------------------------------
+
+/// Rating-request email sent to customers whose booking was marked
+/// "attended". Mirrors the booking emails: project-branded [`layout`],
+/// service/date/booking detail block, a CTA button opening the public
+/// rating page, the no-reply hint, and the sign-off.
+pub struct RatingRequestParams<'a> {
+    pub project_name: Option<&'a str>,
+    pub domain_address: Option<&'a str>,
+    pub customer_email: Option<&'a str>,
+    pub customer_first_name: Option<&'a str>,
+    pub starts_at: Option<&'a str>,
+    pub ends_at: Option<&'a str>,
+    pub booking_id: Option<i64>,
+    pub service_name: Option<&'a str>,
+    pub worker_name: Option<&'a str>,
+    pub locale: Option<&'a str>,
+    pub timezone: Option<&'a str>,
+    pub signer_name: Option<&'a str>,
+    /// Full URL of the public rating page for this booking.
+    pub rating_url: Option<&'a str>,
+}
+
+pub fn render_rating_request(p: RatingRequestParams<'_>) -> RenderedEmail {
+    let locale = normalise_locale(p.locale);
+    let header = resolve_project_identity(p.project_name, p.domain_address, p.customer_email);
+    let tz = p.timezone.unwrap_or("UTC");
+
+    let (starts, ends) = (p.starts_at.unwrap_or(""), p.ends_at.unwrap_or(""));
+    let title = if locale == "hu" {
+        "Hogy tetszett a szolgáltatás?"
+    } else {
+        "How did you like our service?"
+    };
+    let greeting = match p.customer_first_name.filter(|s| !s.is_empty()) {
+        Some(n) if locale == "hu" => format!("Kedves {n}!"),
+        Some(n) => format!("Dear {n}!"),
+        None if locale == "hu" => "Kedves Vendégünk!".to_string(),
+        None => "Dear Guest!".to_string(),
+    };
+    let intro = if locale == "hu" {
+        "Köszönjük, hogy minket választottál! Kérlek, értékeld a nálunk szerzett élményedet — ez csak egy percet vesz igénybe, és sokat segít nekünk."
+    } else {
+        "Thank you for choosing us! Please rate your experience with us — it only takes a minute and means a lot to us."
+    };
+    let cta_label = if locale == "hu" {
+        "Értékelés leadása"
+    } else {
+        "Leave a rating"
+    };
+    let id_label = if locale == "hu" {
+        "Foglalás azonosító"
+    } else {
+        "Booking ID"
+    };
+    let service_label = if locale == "hu" { "Szolgáltatás" } else { "Service" };
+    let date_label = if locale == "hu" {
+        "Időpont"
+    } else {
+        "Date & time"
+    };
+    let date_range = if !starts.is_empty() && !ends.is_empty() {
+        fmt_date_range(starts, ends, locale, tz)
+    } else {
+        String::new()
+    };
+
+    let service_display_owned;
+    let service_display = match (p.service_name, p.worker_name) {
+        (Some(s), Some(w)) if !s.is_empty() && !w.is_empty() => {
+            service_display_owned = format!("{s} - {w}");
+            Some(service_display_owned.as_str())
+        }
+        (Some(s), _) if !s.is_empty() => Some(s),
+        _ => None,
+    };
+
+    let subject_date = if starts.is_empty() {
+        String::new()
+    } else {
+        fmt_subject_datetime(starts, locale, tz)
+    };
+    let subject = match p.service_name {
+        Some(s) if !s.is_empty() => {
+            if subject_date.is_empty() {
+                if locale == "hu" {
+                    format!("{s} - Kérjük, értékeld a látogatásod!")
+                } else {
+                    format!("{s} - Please rate your visit!")
+                }
+            } else if locale == "hu" {
+                format!("{s} - {subject_date} - Kérjük, értékeld a látogatásod!")
+            } else {
+                format!("{s} - {subject_date} - Please rate your visit!")
+            }
+        }
+        _ => {
+            if locale == "hu" {
+                "Kérjük, értékeld a látogatásod!".to_string()
+            } else {
+                "Please rate your visit!".to_string()
+            }
+        }
+    };
+
+    let sign_off = if locale == "hu" { "Üdvözlettel," } else { "Best regards," };
+    let signature_name = p
+        .signer_name
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| header.name.clone())
+        .unwrap_or_else(|| {
+            if locale == "hu" {
+                "a csapat".to_string()
+            } else {
+                "the team".to_string()
+            }
+        });
+
+    let detail_rows = booking_detail_rows(
+        service_label,
+        date_label,
+        id_label,
+        service_display,
+        &date_range,
+        p.booking_id,
+    );
+
+    let cta_html = match p.rating_url.filter(|u| !u.is_empty()) {
+        Some(url) => format!(
+            "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"margin:0 auto 24px auto;\">\n  <tr><td style=\"background:{pr};border-radius:6px;\">\n    <a href=\"{u}\" style=\"display:inline-block;padding:12px 28px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;letter-spacing:0.01em;\">{c} →</a>\n  </td></tr>\n</table>",
+            pr = Brand::PRIMARY,
+            u = esc(url),
+            c = esc(cta_label),
+        ),
+        None => String::new(),
+    };
+
+    let body_html = format!(
+        "<h1 style=\"margin:0 0 8px 0;font-size:24px;line-height:1.25;font-weight:700;letter-spacing:-0.015em;color:{fg};\">{title}</h1>\n<p style=\"margin:0 0 8px 0;font-size:15px;line-height:1.6;color:{fg};\">{greet}</p>\n<p style=\"margin:0 0 24px 0;font-size:14px;line-height:1.6;color:{m};\">{intro}</p>\n{cta}{details}<p style=\"margin:0 0 24px 0;font-size:14px;line-height:1.6;color:{m};\">{hint}</p>\n<p style=\"margin:24px 0 0 0;font-size:14px;line-height:1.5;color:{m};\">{off}<br><strong style=\"color:{fg};\">{sig}</strong></p>",
+        fg = Brand::FOREGROUND,
+        m = Brand::MUTED,
+        title = esc(title),
+        greet = esc(&greeting),
+        intro = esc(intro),
+        cta = cta_html,
+        details = if detail_rows.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"margin:0 0 24px 0;border-collapse:collapse;\">{detail_rows}</table>"
+            )
+        },
+        hint = booking_reply_hint_html(&header, locale),
+        off = sign_off,
+        sig = esc(&signature_name),
+    );
+
+    let html = layout(locale, title, &body_html, Some(&header));
+
+    let detail_text = booking_detail_text(
+        service_label,
+        date_label,
+        id_label,
+        service_display,
+        &date_range,
+        p.booking_id,
+    );
+    let reply_text = if locale == "hu" {
+        format!(
+            "\nErre az e-mailre ne válaszolj. Ha bármit megosztanál velünk, írj a {} címre.\n",
+            header.write_to
+        )
+    } else {
+        format!(
+            "\nPlease do not reply to this email. If you'd like to share anything, write to {}.\n",
+            header.write_to
+        )
+    };
+    let text = format!(
+        "{greeting}\n\n{title}\n{intro}\n{details}{cta}\n{reply}\n{sign_off}\n{signature_name}",
+        greeting = greeting,
+        title = title,
+        intro = intro,
+        details = if detail_text.is_empty() {
+            String::new()
+        } else {
+            format!("\n{detail_text}")
+        },
+        cta = p
+            .rating_url
+            .filter(|u| !u.is_empty())
+            .map(|u| format!("\n{u}"))
+            .unwrap_or_default(),
+        reply = reply_text,
+        sign_off = sign_off,
+        signature_name = signature_name,
+    );
+
+    RenderedEmail { subject, html, text }
+}
+
+// ---------------------------------------------------------------------------
+// Template 5: bulk email (admin → all project customers)
+// ---------------------------------------------------------------------------
+
 pub fn render_bulk_email(p: BulkEmailParams<'_>) -> RenderedEmail {
     let locale = normalise_locale(p.locale);
     let header = resolve_project_identity(p.project_name, p.domain_address, p.customer_email);

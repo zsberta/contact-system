@@ -15,8 +15,16 @@
 ALTER TABLE push_subscriptions
   DROP CONSTRAINT IF EXISTS push_subscriptions_endpoint_key;
 
-ALTER TABLE push_subscriptions
-  ADD CONSTRAINT uq_push_subscriptions_user_endpoint UNIQUE (user_id, endpoint);
+-- Guarded (DO block): re-runs on a DB that already has the new constraint
+-- are silent.
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_push_subscriptions_user_endpoint'
+  ) THEN
+    ALTER TABLE push_subscriptions
+      ADD CONSTRAINT uq_push_subscriptions_user_endpoint UNIQUE (user_id, endpoint);
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_endpoint
   ON push_subscriptions (endpoint);

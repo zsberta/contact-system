@@ -8,9 +8,16 @@ ALTER TABLE reservation_services ADD COLUMN IF NOT EXISTS lead_time_minutes INTE
 ALTER TABLE reservation_services ADD COLUMN IF NOT EXISTS max_advance_days INTEGER NOT NULL DEFAULT 90 CHECK (max_advance_days >= 1);
 
 -- Defence-in-depth: slot_duration_minutes only meaningful for hour/minute granularity
-ALTER TABLE reservation_services ADD CONSTRAINT reservation_services_slot_duration_for_granularity CHECK (
-  slot_duration_minutes IS NULL OR granularity IN ('hour', 'minute')
-);
+-- Guarded (DO block): re-runs on a DB that already has the constraint are silent.
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'reservation_services_slot_duration_for_granularity'
+  ) THEN
+    ALTER TABLE reservation_services ADD CONSTRAINT reservation_services_slot_duration_for_granularity CHECK (
+      slot_duration_minutes IS NULL OR granularity IN ('hour', 'minute')
+    );
+  END IF;
+END $$;
 
 -- Down Migration
 ALTER TABLE reservation_services DROP CONSTRAINT IF EXISTS reservation_services_slot_duration_for_granularity;

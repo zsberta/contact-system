@@ -23,6 +23,7 @@ import {
   Mail,
   ScrollText,
   Server,
+  Star,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -46,6 +47,7 @@ const MODULE_LINKS: Record<ProjectModuleKind, Array<{ page: string; icon: React.
     { page: "bookings", icon: <ClipboardList className="h-4 w-4" />, translationKey: "navigation:bookings" },
     { page: "calendar", icon: <CalendarDays className="h-4 w-4" />, translationKey: "navigation:calendar" },
     { page: "blocked", icon: <Lock className="h-4 w-4" />, translationKey: "navigation:blocked" },
+    { page: "ratings", icon: <Star className="h-4 w-4" />, translationKey: "navigation:ratings" },
     { page: "customers", icon: <UserCircle className="h-4 w-4" />, translationKey: "navigation:reservation_customers" },
   ],
   form: [

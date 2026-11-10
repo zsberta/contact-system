@@ -34,6 +34,12 @@
   "customer_phone_placeholder": "+36 30 123 4567",
   "customer_email": "Email",
   "customer_email_placeholder": "customer@example.com",
+  "google_review_url": "Google review link",
+  "google_review_url_placeholder": "https://www.google.com/maps/…",
+  "google_review_url_description": "After a 3–5 star rating, guests can also rate the Google business page via this link.",
+  "rating_email_every_n": "Rating email frequency",
+  "rating_email_every_n_description": "After which attended visit the guest gets another rating email. 1 = after every visit, 5 = after the 1st, 5th, 10th, 15th visit.",
+  "rating_email_every_n_invalid": "Enter a whole number between 1 and 1000",
 
   "billing_period_monthly": "Monthly",
   "billing_period_yearly": "Yearly",
