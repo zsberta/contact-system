@@ -90,6 +90,16 @@ pub async fn cors_public(req: Request<Body>, next: Next) -> Response {
         let mut res = (StatusCode::NO_CONTENT, "").into_response();
         let headers = res.headers_mut();
         headers.insert("access-control-allow-origin", allow_origin_value(&origin));
+        // sendBeacon (used by the analytics loader) always sends cookies
+        // (credentials mode "include"), so the browser requires an
+        // explicit `Allow-Credentials: true` alongside the echoed origin.
+        // Only valid with an explicit origin — never with `*`.
+        if !origin.is_empty() {
+            headers.insert(
+                "access-control-allow-credentials",
+                HeaderValue::from_static("true"),
+            );
+        }
         headers.insert(
             "access-control-allow-methods",
             HeaderValue::from_static(ALLOW_METHODS),
@@ -108,6 +118,12 @@ pub async fn cors_public(req: Request<Body>, next: Next) -> Response {
     let mut res = next.run(req).await;
     let headers = res.headers_mut();
     headers.insert("access-control-allow-origin", allow_origin_value(&origin));
+    if !origin.is_empty() {
+        headers.insert(
+            "access-control-allow-credentials",
+            HeaderValue::from_static("true"),
+        );
+    }
     let vary = vary_value(headers.get("vary"));
     headers.insert("vary", vary);
     res

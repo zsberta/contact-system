@@ -67,6 +67,38 @@ async fn spa_root() -> Response {
     serve_index().await
 }
 
+/// True for the public widget shell (`/embed/...`), which customer sites
+/// load inside an `<iframe>`.
+fn is_embed_path(path: &str) -> bool {
+    path == "embed" || path.starts_with("embed/")
+}
+
+/// Frame policy for the public embed shell.
+///
+/// The host reverse-proxy stamps `X-Frame-Options: SAMEORIGIN` on every
+/// response (correct for the admin UI — clickjacking protection must stay
+/// there). That header also lands on `/embed/...`, so Firefox/Zen/Chrome
+/// refuse to show the booking widget inside customer sites:
+/// "will not allow ... to display the page if another site has embedded it".
+///
+/// The proxy header cannot be stripped from inside the app, but every
+/// modern browser **ignores `X-Frame-Options` when the document carries a
+/// `Content-Security-Policy` with `frame-ancestors`** — so this response
+/// header re-allows framing for the embed shell only. Loco's
+/// `SecureHeaders` middleware (currently disabled) only fills in headers
+/// that are missing, so it never overwrites this.
+///
+/// Security: the shell HTML itself carries no data. Read access is still
+/// gated by the 22-char secret token in the URL plus the per-reservation
+/// `allowed_origins` check on every `/api/public/reservations/*` call.
+fn with_embed_frame_policy(mut resp: Response) -> Response {
+    resp.headers_mut().insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("frame-ancestors *"),
+    );
+    resp
+}
+
 async fn spa_path(Path(path): Path<String>) -> Response {
     if path.starts_with("api/") {
         return (
@@ -78,9 +110,18 @@ async fn spa_path(Path(path): Path<String>) -> Response {
     let full = format!("{}/{}", dist_dir(), path);
     if let Some(mut resp) = file_response(&full).await {
         *resp.status_mut() = StatusCode::OK;
-        return resp;
+        return if is_embed_path(&path) {
+            with_embed_frame_policy(resp)
+        } else {
+            resp
+        };
     }
-    serve_index().await
+    let index = serve_index().await;
+    if is_embed_path(&path) {
+        with_embed_frame_policy(index)
+    } else {
+        index
+    }
 }
 
 async fn upload_file(Path(path): Path<String>) -> Response {
