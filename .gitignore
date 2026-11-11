@@ -15,6 +15,11 @@ dist-ssr/
 # bind mount target exists on a fresh clone.)
 uploads/
 !uploads/.gitkeep
+# Full PostgreSQL dumps written by the pgbackup compose service
+# (./backups bind mount). Keep the directory via .gitkeep so the
+# mount target exists on a fresh clone; never commit the dumps.
+backups/
+!backups/.gitkeep
 build/
 *.local
 

@@ -83,6 +83,15 @@ fn auth_required(u: &Option<CurrentUser>) -> Result<CurrentUser, Response> {
     }
 }
 
+/// Best-effort client IP for activity-log rows.
+fn req_ip(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.split(',').next().unwrap_or("").trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 fn is_enduser(u: &CurrentUser) -> bool {
     u.role == "enduser"
 }
@@ -2045,6 +2054,7 @@ async fn get_reservation(
 async fn create_reservation(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
     let user = match auth_required(&u) {
@@ -2156,6 +2166,28 @@ async fn create_reservation(
             .await?
             .ok_or(sea_orm::DbErr::RecordNotFound("re-read failed".to_string()))?;
         tracing::info!("[reservations] reservation.create id={new_id}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "POST",
+            "POST /api/reservations",
+            "reservation.create",
+            "CREATE",
+            Some("reservation"),
+            Some(new_id),
+            None,
+            Some(project_id),
+            201,
+            serde_json::json!({
+                "url": "/api/reservations",
+                "created": { "id": new_id, "projectId": project_id },
+            }),
+        )
+        .await;
         Ok((StatusCode::CREATED, Json(reservation_dto(&row, None))).into_response())
     })
     .await;
@@ -2187,10 +2219,11 @@ async fn create_reservation(
 async fn update_reservation(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
-    let _user = match auth_required(&u) {
+    let user = match auth_required(&u) {
         Ok(x) => x,
         Err(r) => return r,
     };
@@ -2235,6 +2268,25 @@ async fn update_reservation(
             .await?
             .ok_or(sea_orm::DbErr::RecordNotFound("re-read failed".to_string()))?;
         tracing::info!("[reservations] reservation.update id={id}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "PUT",
+            "PUT /api/reservations/:id",
+            "reservation.update",
+            "UPDATE",
+            Some("reservation"),
+            Some(id),
+            None,
+            row.try_get::<i64>("", "project_id").ok(),
+            200,
+            serde_json::json!({ "url": format!("/api/reservations/{id}") }),
+        )
+        .await;
         Ok((StatusCode::OK, Json(reservation_dto(&row, None))).into_response())
     })
     .await;
@@ -2255,9 +2307,10 @@ async fn update_reservation(
 async fn delete_reservation(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Response {
-    let _user = match auth_required(&u) {
+    let user = match auth_required(&u) {
         Ok(x) => x,
         Err(r) => return r,
     };
@@ -2269,13 +2322,14 @@ async fn delete_reservation(
             .db
             .query_one_raw(Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Postgres,
-                "DELETE FROM reservations WHERE id = $1 RETURNING module_id",
+                "DELETE FROM reservations WHERE id = $1 RETURNING module_id, project_id",
                 vec![id.into()],
             ))
             .await?;
         match row {
             None => Ok(err_s(StatusCode::NOT_FOUND, "Reservation not found")),
             Some(r) => {
+                let project_id: Option<i64> = r.try_get::<i64>("", "project_id").ok();
                 if let Ok(Some(mid)) = r.try_get::<Option<i64>>("", "module_id") {
                     let _ = ctx
                         .db
@@ -2287,6 +2341,25 @@ async fn delete_reservation(
                         .await;
                 }
                 tracing::info!("[reservations] reservation.delete id={id}");
+                crate::push::log_entity_activity(
+                    &ctx.db,
+                    &user.role,
+                    Some(user.id),
+                    Some(&user.email),
+                    Some(&user.role),
+                    req_ip(&headers),
+                    "DELETE",
+                    "DELETE /api/reservations/:id",
+                    "reservation.delete",
+                    "DELETE",
+                    Some("reservation"),
+                    Some(id),
+                    None,
+                    project_id,
+                    204,
+                    serde_json::json!({ "url": format!("/api/reservations/{id}") }),
+                )
+                .await;
                 Ok(StatusCode::NO_CONTENT.into_response())
             }
         }
@@ -2471,10 +2544,11 @@ const HOLIDAY_KEYS: &[&str] = &[
 async fn create_service(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path(reservation_id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
-    let _user = match auth_required(&u) {
+    let user = match auth_required(&u) {
         Ok(x) => x,
         Err(r) => return r,
     };
@@ -2633,6 +2707,28 @@ async fn create_service(
             ))
             .await?;
         tracing::info!("[reservations] reservation_service.create id={svc_id}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "POST",
+            "POST /api/reservations/:reservationId/services",
+            "service.create",
+            "CREATE",
+            Some("service"),
+            Some(svc_id),
+            None,
+            (project_id != 0).then_some(project_id),
+            201,
+            serde_json::json!({
+                "url": format!("/api/reservations/{reservation_id}/services"),
+                "created": { "id": svc_id, "reservationId": reservation_id },
+            }),
+        )
+        .await;
         Ok((StatusCode::CREATED, Json(service_dto(&svc))).into_response())
     })
     .await;
@@ -2645,10 +2741,11 @@ async fn create_service(
 async fn update_service(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path((reservation_id, service_id)): Path<(i64, i64)>,
     Json(body): Json<Value>,
 ) -> Response {
-    let _user = match auth_required(&u) {
+    let user = match auth_required(&u) {
         Ok(x) => x,
         Err(r) => return r,
     };
@@ -2827,6 +2924,27 @@ async fn update_service(
             .await?
             .ok_or(sea_orm::DbErr::RecordNotFound("re-read failed".to_string()))?;
         tracing::info!("[reservations] reservation_service.update id={service_id}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "PUT",
+            "PUT /api/reservations/:reservationId/services/:serviceId",
+            "service.update",
+            "UPDATE",
+            Some("service"),
+            Some(service_id),
+            None,
+            crate::push::project_of_reservation(&ctx.db, reservation_id).await,
+            200,
+            serde_json::json!({
+                "url": format!("/api/reservations/{reservation_id}/services/{service_id}"),
+            }),
+        )
+        .await;
         Ok((StatusCode::OK, Json(service_dto(&row))).into_response())
     })
     .await;
@@ -2839,9 +2957,10 @@ async fn update_service(
 async fn delete_service(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path((reservation_id, service_id)): Path<(i64, i64)>,
 ) -> Response {
-    let _user = match auth_required(&u) {
+    let user = match auth_required(&u) {
         Ok(x) => x,
         Err(r) => return r,
     };
@@ -2867,6 +2986,27 @@ async fn delete_service(
                 ))
                 .await?;
             tracing::info!("[reservations] reservation_service archived id={service_id}");
+            crate::push::log_entity_activity(
+                &ctx.db,
+                &user.role,
+                Some(user.id),
+                Some(&user.email),
+                Some(&user.role),
+                req_ip(&headers),
+                "DELETE",
+                "DELETE /api/reservations/:reservationId/services/:serviceId",
+                "service.archive",
+                "UPDATE",
+                Some("service"),
+                Some(service_id),
+                None,
+                crate::push::project_of_reservation(&ctx.db, reservation_id).await,
+                200,
+                serde_json::json!({
+                    "url": format!("/api/reservations/{reservation_id}/services/{service_id}"),
+                }),
+            )
+            .await;
             return Ok((StatusCode::OK, Json(json!({ "message": "Service archived (disabled)" }))).into_response());
         }
         for sql in [
@@ -2894,6 +3034,27 @@ async fn delete_service(
             }
         }
         tracing::info!("[reservations] reservation_service.delete id={service_id}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "DELETE",
+            "DELETE /api/reservations/:reservationId/services/:serviceId",
+            "service.delete",
+            "DELETE",
+            Some("service"),
+            Some(service_id),
+            None,
+            crate::push::project_of_reservation(&ctx.db, reservation_id).await,
+            200,
+            serde_json::json!({
+                "url": format!("/api/reservations/{reservation_id}/services/{service_id}"),
+            }),
+        )
+        .await;
         Ok((StatusCode::OK, Json(json!({ "message": "Service deleted" }))).into_response())
     })
     .await;
@@ -2975,6 +3136,7 @@ fn sniff_image(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
 async fn upload_service_image(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path(service_id): Path<i64>,
     mut multipart: Multipart,
 ) -> Response {
@@ -3061,6 +3223,28 @@ async fn upload_service_image(
             .await?
             .ok_or(sea_orm::DbErr::RecordNotFound("insert failed".to_string()))?;
         tracing::info!("[reservations] reservation_service.image_upload service={service_id}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "POST",
+            "POST /api/reservations/services/:serviceId/image",
+            "service.image_upload",
+            "CREATE",
+            Some("service"),
+            Some(service_id),
+            None,
+            (pid != 0).then_some(pid),
+            200,
+            serde_json::json!({
+                "url": format!("/api/reservations/services/{service_id}/image"),
+                "created": { "storedFilename": stored },
+            }),
+        )
+        .await;
         Ok((
             StatusCode::OK,
             Json(json!({
@@ -3084,9 +3268,10 @@ async fn upload_service_image(
 async fn delete_service_image(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path(service_id): Path<i64>,
 ) -> Response {
-    let _user = match auth_required(&u) {
+    let user = match auth_required(&u) {
         Ok(x) => x,
         Err(r) => return r,
     };
@@ -3110,6 +3295,27 @@ async fn delete_service_image(
             }
         }
         tracing::info!("[reservations] reservation_service.image_delete service={service_id}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "DELETE",
+            "DELETE /api/reservations/services/:serviceId/image",
+            "service.image_delete",
+            "DELETE",
+            Some("service"),
+            Some(service_id),
+            None,
+            None,
+            200,
+            serde_json::json!({
+                "url": format!("/api/reservations/services/{service_id}/image"),
+            }),
+        )
+        .await;
         Ok((StatusCode::OK, Json(json!({ "message": "Image deleted" }))).into_response())
     })
     .await;
@@ -3205,10 +3411,11 @@ fn norm_time(s: &str) -> Option<String> {
 async fn create_svc_schedule(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path((_reservation_id, service_id)): Path<(i64, i64)>,
     Json(b): Json<SchedBody>,
 ) -> Response {
-    let _user = match auth_required(&u) {
+    let user = match auth_required(&u) {
         Ok(x) => x,
         Err(r) => return r,
     };
@@ -3246,6 +3453,28 @@ async fn create_svc_schedule(
             .await?
             .ok_or(sea_orm::DbErr::RecordNotFound("insert failed".to_string()))?;
         tracing::info!("[reservations] schedule.create service={service_id}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "POST",
+            "POST /api/reservations/:reservationId/services/:serviceId/availability-schedules",
+            "schedule.create",
+            "CREATE",
+            Some("schedule"),
+            row.try_get::<i64>("", "id").ok(),
+            None,
+            crate::push::project_of_service(&ctx.db, service_id).await,
+            201,
+            serde_json::json!({
+                "url": format!("/api/reservations/services/{service_id}/availability-schedules"),
+                "created": { "serviceId": service_id },
+            }),
+        )
+        .await;
         Ok((StatusCode::CREATED, Json(svc_sched_dto(&row))).into_response())
     })
     .await;
@@ -3258,10 +3487,11 @@ async fn create_svc_schedule(
 async fn update_svc_schedule(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path((_reservation_id, _service_id, schedule_id)): Path<(i64, i64, i64)>,
     Json(b): Json<SchedBody>,
 ) -> Response {
-    let _user = match auth_required(&u) {
+    let user = match auth_required(&u) {
         Ok(x) => x,
         Err(r) => return r,
     };
@@ -3319,6 +3549,32 @@ async fn update_svc_schedule(
         match row {
             Some(r) => {
                 tracing::info!("[reservations] schedule.update id={schedule_id}");
+                let sched_svc: Option<i64> = r.try_get::<i64>("", "service_id").ok();
+                let sched_pid = match sched_svc {
+                    Some(sid) => crate::push::project_of_service(&ctx.db, sid).await,
+                    None => None,
+                };
+                crate::push::log_entity_activity(
+                    &ctx.db,
+                    &user.role,
+                    Some(user.id),
+                    Some(&user.email),
+                    Some(&user.role),
+                    req_ip(&headers),
+                    "PUT",
+                    "PUT /api/reservations/:reservationId/services/:serviceId/availability-schedules/:scheduleId",
+                    "schedule.update",
+                    "UPDATE",
+                    Some("schedule"),
+                    Some(schedule_id),
+                    None,
+                    sched_pid,
+                    200,
+                    serde_json::json!({
+                        "url": format!("/api/reservations/availability-schedules/{schedule_id}"),
+                    }),
+                )
+                .await;
                 Ok((StatusCode::OK, Json(svc_sched_dto(&r))).into_response())
             }
             None => Ok(err_s(StatusCode::NOT_FOUND, "Schedule not found")),
@@ -3334,9 +3590,10 @@ async fn update_svc_schedule(
 async fn delete_svc_schedule(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
-    Path((_reservation_id, _service_id, schedule_id)): Path<(i64, i64, i64)>,
+    headers: HeaderMap,
+    Path((_reservation_id, service_id, schedule_id)): Path<(i64, i64, i64)>,
 ) -> Response {
-    let _user = match auth_required(&u) {
+    let user = match auth_required(&u) {
         Ok(x) => x,
         Err(r) => return r,
     };
@@ -3354,6 +3611,27 @@ async fn delete_svc_schedule(
     {
         Ok(_) => {
             tracing::info!("[reservations] schedule.delete id={schedule_id}");
+            crate::push::log_entity_activity(
+                &ctx.db,
+                &user.role,
+                Some(user.id),
+                Some(&user.email),
+                Some(&user.role),
+                req_ip(&headers),
+                "DELETE",
+                "DELETE /api/reservations/:reservationId/services/:serviceId/availability-schedules/:scheduleId",
+                "schedule.delete",
+                "DELETE",
+                Some("schedule"),
+                Some(schedule_id),
+                None,
+                crate::push::project_of_service(&ctx.db, service_id).await,
+                200,
+                serde_json::json!({
+                    "url": format!("/api/reservations/availability-schedules/{schedule_id}"),
+                }),
+            )
+            .await;
             (StatusCode::OK, Json(json!({ "message": "Schedule deleted" }))).into_response()
         }
         Err(e) => db_err(e),
@@ -3412,6 +3690,7 @@ async fn list_res_schedules(
 async fn create_res_schedule(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path(reservation_id): Path<i64>,
     Json(b): Json<SchedBody>,
 ) -> Response {
@@ -3473,6 +3752,28 @@ async fn create_res_schedule(
             .await?
             .ok_or(sea_orm::DbErr::RecordNotFound("insert failed".to_string()))?;
         tracing::info!("[reservations] schedule.create reservation={reservation_id}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "POST",
+            "POST /api/reservations/:id/availability-schedules",
+            "schedule.create",
+            "CREATE",
+            Some("schedule"),
+            row.try_get::<i64>("", "id").ok(),
+            None,
+            crate::push::project_of_reservation(&ctx.db, reservation_id).await,
+            201,
+            serde_json::json!({
+                "url": format!("/api/reservations/{reservation_id}/availability-schedules"),
+                "created": { "reservationId": reservation_id },
+            }),
+        )
+        .await;
         Ok((StatusCode::CREATED, Json(sched_dto(&row, reservation_id))).into_response())
     })
     .await;
@@ -3490,6 +3791,7 @@ async fn create_res_schedule(
 async fn update_res_schedule(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path((reservation_id, schedule_id)): Path<(i64, i64)>,
     Json(b): Json<SchedBody>,
 ) -> Response {
@@ -3552,6 +3854,27 @@ async fn update_res_schedule(
         match row {
             Some(r) => {
                 tracing::info!("[reservations] schedule.update id={schedule_id}");
+                crate::push::log_entity_activity(
+                    &ctx.db,
+                    &user.role,
+                    Some(user.id),
+                    Some(&user.email),
+                    Some(&user.role),
+                    req_ip(&headers),
+                    "PUT",
+                    "PUT /api/reservations/:id/availability-schedules/:scheduleId",
+                    "schedule.update",
+                    "UPDATE",
+                    Some("schedule"),
+                    Some(schedule_id),
+                    None,
+                    crate::push::project_of_reservation(&ctx.db, reservation_id).await,
+                    200,
+                    serde_json::json!({
+                        "url": format!("/api/reservations/{reservation_id}/availability-schedules/{schedule_id}"),
+                    }),
+                )
+                .await;
                 Ok((StatusCode::OK, Json(sched_dto(&r, reservation_id))).into_response())
             }
             None => Ok(err_s(StatusCode::NOT_FOUND, "Schedule not found")),
@@ -3572,6 +3895,7 @@ async fn update_res_schedule(
 async fn delete_res_schedule(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path((reservation_id, schedule_id)): Path<(i64, i64)>,
 ) -> Response {
     let user = match auth_required(&u) {
@@ -3613,6 +3937,27 @@ async fn delete_res_schedule(
             return Ok(err_s(StatusCode::NOT_FOUND, "Schedule not found"));
         }
         tracing::info!("[reservations] schedule.delete id={schedule_id}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "DELETE",
+            "DELETE /api/reservations/:id/availability-schedules/:scheduleId",
+            "schedule.delete",
+            "DELETE",
+            Some("schedule"),
+            Some(schedule_id),
+            None,
+            crate::push::project_of_reservation(&ctx.db, reservation_id).await,
+            204,
+            serde_json::json!({
+                "url": format!("/api/reservations/{reservation_id}/availability-schedules/{schedule_id}"),
+            }),
+        )
+        .await;
         Ok(StatusCode::NO_CONTENT.into_response())
     })
     .await;
@@ -4411,6 +4756,7 @@ async fn get_customer(
 async fn create_customer(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
     let user = match auth_required(&u) {
@@ -4433,6 +4779,28 @@ async fn create_customer(
     match upsert_customer(&ctx.db, project_id, &contact).await {
         Ok(r) => {
             tracing::info!("[reservations] customer.create project={project_id}");
+            crate::push::log_entity_activity(
+                &ctx.db,
+                &user.role,
+                Some(user.id),
+                Some(&user.email),
+                Some(&user.role),
+                req_ip(&headers),
+                "POST",
+                "POST /api/reservations/customers",
+                "customer.create",
+                "CREATE",
+                Some("customer"),
+                r.try_get::<i64>("", "id").ok(),
+                None,
+                (project_id != 0).then_some(project_id),
+                201,
+                serde_json::json!({
+                    "url": "/api/reservations/customers",
+                    "created": { "projectId": project_id, "email": contact.email },
+                }),
+            )
+            .await;
             (StatusCode::CREATED, Json(customer_dto(&r))).into_response()
         }
         Err(e) => db_err(e),
@@ -4442,6 +4810,7 @@ async fn create_customer(
 async fn update_customer(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path(customer_id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -4503,6 +4872,27 @@ async fn update_customer(
             .await?
             .ok_or(sea_orm::DbErr::RecordNotFound("re-read failed".to_string()))?;
         tracing::info!("[reservations] customer.update id={customer_id}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "PUT",
+            "PUT /api/reservations/customers/:customerId",
+            "customer.update",
+            "UPDATE",
+            Some("customer"),
+            Some(customer_id),
+            None,
+            row.try_get::<i64>("", "project_id").ok(),
+            200,
+            serde_json::json!({
+                "url": format!("/api/reservations/customers/{customer_id}"),
+            }),
+        )
+        .await;
         Ok((StatusCode::OK, Json(customer_dto(&row))).into_response())
     })
     .await;
@@ -4515,6 +4905,7 @@ async fn update_customer(
 async fn delete_customer(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path(customer_id): Path<i64>,
 ) -> Response {
     let user = match auth_required(&u) {
@@ -4536,6 +4927,7 @@ async fn delete_customer(
         let Some(ex) = ex else {
             return Ok(err_s(StatusCode::NOT_FOUND, "Customer not found"));
         };
+        let cust_project: Option<i64> = ex.try_get::<i64>("", "project_id").ok();
         if let Some(ids) = scoped_ids(&user) {
             let pid: i64 = ex.try_get("", "project_id").unwrap_or(0);
             if !ids.contains(&pid) {
@@ -4550,6 +4942,27 @@ async fn delete_customer(
             ))
             .await?;
         tracing::info!("[reservations] customer.delete id={customer_id}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "DELETE",
+            "DELETE /api/reservations/customers/:customerId",
+            "customer.delete",
+            "DELETE",
+            Some("customer"),
+            Some(customer_id),
+            None,
+            cust_project,
+            204,
+            serde_json::json!({
+                "url": format!("/api/reservations/customers/{customer_id}"),
+            }),
+        )
+        .await;
         Ok(StatusCode::NO_CONTENT.into_response())
     })
     .await;
@@ -5094,7 +5507,7 @@ async fn create_booking(
             worker_user_id: svc.worker_user_id,
         };
         let custom_data = custom_fields.map(Value::Object);
-        match create_booking_txn(&ctx, reservation_id, project_id, &res_tz, &bs, &starts_iso, &ends_iso, &contact, customer_id, custom_data, &locale, Some(user.id), source, ip, ua).await {
+        match create_booking_txn(&ctx, reservation_id, project_id, &res_tz, &bs, &starts_iso, &ends_iso, &contact, customer_id, custom_data, &locale, Some(user.id), source, ip.clone(), ua.clone()).await {
             Ok(row) => {
                 let bid: i64 = row.try_get("", "id").unwrap_or(0);
                 let token: Option<String> = row.try_get::<Option<String>>("", "booking_token").ok().flatten();
@@ -5188,6 +5601,34 @@ async fn create_booking(
                     )
                     .await;
                 }
+                crate::push::log_booking_activity(
+                    &ctx.db,
+                    &user.role,
+                    Some(user.id),
+                    Some(&user.email),
+                    Some(&user.role),
+                    "POST",
+                    "POST /api/reservations/:id/bookings",
+                    "booking.create_manual",
+                    "CREATE",
+                    bid,
+                    project_id,
+                    201,
+                    serde_json::json!({
+                        "url": format!("/api/reservations/{reservation_id}/bookings"),
+                        "source": source,
+                        "created": {
+                            "id": bid,
+                            "reservationId": reservation_id,
+                            "serviceId": svc.id,
+                            "startsAt": starts_iso,
+                            "endsAt": ends_iso,
+                            "email": email,
+                        },
+                        "userAgent": ua,
+                    }),
+                )
+                .await;
                 tracing::info!("[reservations] booking.create id={bid}");
                 let full = ctx
                     .db
@@ -5225,6 +5666,7 @@ async fn patch_booking(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
     Path((reservation_id, booking_id)): Path<(i64, i64)>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
     let user = match auth_required(&u) {
@@ -5243,7 +5685,7 @@ async fn patch_booking(
             .db
             .query_one_raw(Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Postgres,
-                "SELECT rb.id, r.project_id FROM reservation_bookings rb JOIN reservations r ON r.id = rb.reservation_id WHERE rb.reservation_id = $1 AND rb.id = $2",
+                "SELECT rb.id, rb.status AS old_status, r.project_id FROM reservation_bookings rb JOIN reservations r ON r.id = rb.reservation_id WHERE rb.reservation_id = $1 AND rb.id = $2",
                 vec![reservation_id.into(), booking_id.into()],
             ))
             .await?;
@@ -5288,6 +5730,40 @@ async fn patch_booking(
         if status == "cancelled" {
             notify_booking_cancelled(&ctx.db, reservation_id, booking_id).await;
         }
+        {
+            let from_status: String = bk.try_get("", "old_status").unwrap_or_default();
+            let ua = headers
+                .get("user-agent")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.chars().take(500).collect::<String>());
+            let mut diff = serde_json::json!({
+                "status": { "from": from_status, "to": status },
+            });
+            if status == "cancelled" {
+                diff["cancelled_by_user_id"] =
+                    serde_json::json!({ "from": null, "to": user.id.to_string() });
+            }
+            crate::push::log_booking_activity(
+                &ctx.db,
+                &user.role,
+                Some(user.id),
+                Some(&user.email),
+                Some(&user.role),
+                "PATCH",
+                "PATCH /api/reservations/:id/bookings/:bookingId",
+                "booking.update",
+                "UPDATE",
+                booking_id,
+                project_id,
+                200,
+                serde_json::json!({
+                    "url": format!("/api/reservations/{reservation_id}/bookings/{booking_id}"),
+                    "diff": diff,
+                    "userAgent": ua,
+                }),
+            )
+            .await;
+        }
         tracing::info!("[reservations] booking.update id={booking_id} status={status}");
         let _ = project_id;
         let full = ctx
@@ -5312,6 +5788,7 @@ async fn delete_booking(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
     Path((reservation_id, booking_id)): Path<(i64, i64)>,
+    headers: HeaderMap,
 ) -> Response {
     let user = match auth_required(&u) {
         Ok(x) => x,
@@ -5339,6 +5816,32 @@ async fn delete_booking(
             }
         }
         notify_booking_cancelled(&ctx.db, reservation_id, booking_id).await;
+        {
+            let ua = headers
+                .get("user-agent")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.chars().take(500).collect::<String>());
+            let project_id: i64 = bk.try_get("", "project_id").unwrap_or(0);
+            crate::push::log_booking_activity(
+                &ctx.db,
+                &user.role,
+                Some(user.id),
+                Some(&user.email),
+                Some(&user.role),
+                "DELETE",
+                "DELETE /api/reservations/:id/bookings/:bookingId",
+                "booking.delete",
+                "DELETE",
+                booking_id,
+                project_id,
+                200,
+                serde_json::json!({
+                    "url": format!("/api/reservations/{reservation_id}/bookings/{booking_id}"),
+                    "userAgent": ua,
+                }),
+            )
+            .await;
+        }
         ctx.db
             .execute_raw(Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Postgres,
@@ -5477,6 +5980,7 @@ async fn list_ratings(
 async fn delete_rating(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path((reservation_id, rating_id)): Path<(i64, i64)>,
 ) -> Response {
     let user = match auth_required(&u) {
@@ -5498,6 +6002,27 @@ async fn delete_rating(
             ))
             .await?;
         tracing::info!("[reservations] rating.delete id={rating_id}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "DELETE",
+            "DELETE /api/reservations/:id/ratings/:ratingId",
+            "rating.delete",
+            "DELETE",
+            Some("rating"),
+            Some(rating_id),
+            None,
+            crate::push::project_of_reservation(&ctx.db, reservation_id).await,
+            200,
+            serde_json::json!({
+                "url": format!("/api/reservations/{reservation_id}/ratings/{rating_id}"),
+            }),
+        )
+        .await;
         Ok((StatusCode::OK, Json(json!({ "success": true }))).into_response())
     })
     .await;
@@ -5515,6 +6040,7 @@ async fn delete_rating(
 async fn send_booking_rating_email(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path((reservation_id, booking_id)): Path<(i64, i64)>,
 ) -> Response {
     let user = match auth_required(&u) {
@@ -5543,6 +6069,27 @@ async fn send_booking_rating_email(
         {
             Ok(()) => {
                 tracing::info!("[reservations] rating-email.manual booking={booking_id}");
+                crate::push::log_entity_activity(
+                    &ctx.db,
+                    &user.role,
+                    Some(user.id),
+                    Some(&user.email),
+                    Some(&user.role),
+                    req_ip(&headers),
+                    "POST",
+                    "POST /api/reservations/:id/bookings/:bookingId/rating-email",
+                    "rating.send_manual",
+                    "SEND",
+                    Some("booking"),
+                    Some(booking_id),
+                    None,
+                    crate::push::project_of_reservation(&ctx.db, reservation_id).await,
+                    200,
+                    serde_json::json!({
+                        "url": format!("/api/reservations/{reservation_id}/bookings/{booking_id}/rating-email"),
+                    }),
+                )
+                .await;
                 Ok((StatusCode::OK, Json(json!({ "success": true }))).into_response())
             }
             Err(crate::workers::ratings::RatingEmailError::NotFound) => {
@@ -6226,6 +6773,7 @@ async fn list_ranges(
 async fn create_range(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path(reservation_id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -6291,7 +6839,7 @@ async fn create_range(
             .query_one_raw(Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Postgres,
                 "INSERT INTO reservation_disabled_ranges (reservation_id, starts_at, ends_at, reason) VALUES ($1,$2::timestamptz,$3::timestamptz,$4) RETURNING id, reservation_id, starts_at, ends_at, reason, source, enabled, created_at",
-                vec![reservation_id.into(), starts_iso.into(), ends_iso.into(), reason.into()],
+                vec![reservation_id.into(), starts_iso.clone().into(), ends_iso.clone().into(), reason.into()],
             ))
             .await?
             .ok_or(sea_orm::DbErr::RecordNotFound("insert failed".to_string()))?;
@@ -6323,6 +6871,28 @@ async fn create_range(
                 .await?;
         }
         tracing::info!("[reservations] disabled_range.create id={rid}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "POST",
+            "POST /api/reservations/:id/disabled-ranges",
+            "disabled_range.create",
+            "CREATE",
+            Some("disabled_range"),
+            Some(rid),
+            None,
+            crate::push::project_of_reservation(&ctx.db, reservation_id).await,
+            201,
+            serde_json::json!({
+                "url": format!("/api/reservations/{reservation_id}/disabled-ranges"),
+                "created": { "id": rid, "startsAt": starts_iso, "endsAt": ends_iso },
+            }),
+        )
+        .await;
         Ok((StatusCode::CREATED, Json(range_dto(&row, link_ids))).into_response())
     })
     .await;
@@ -6343,6 +6913,7 @@ async fn create_range(
 async fn update_range(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path((reservation_id, range_id)): Path<(i64, i64)>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -6459,6 +7030,27 @@ async fn update_range(
         }
         let sids = range_service_ids(&ctx.db, range_id).await;
         tracing::info!("[reservations] disabled_range.update id={range_id}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "PUT",
+            "PUT /api/reservations/:id/disabled-ranges/:rangeId",
+            "disabled_range.update",
+            "UPDATE",
+            Some("disabled_range"),
+            Some(range_id),
+            None,
+            crate::push::project_of_reservation(&ctx.db, reservation_id).await,
+            200,
+            serde_json::json!({
+                "url": format!("/api/reservations/{reservation_id}/disabled-ranges/{range_id}"),
+            }),
+        )
+        .await;
         Ok((StatusCode::OK, Json(range_dto(&row, sids))).into_response())
     })
     .await;
@@ -6479,6 +7071,7 @@ async fn update_range(
 async fn delete_range(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path((reservation_id, range_id)): Path<(i64, i64)>,
 ) -> Response {
     let user = match auth_required(&u) {
@@ -6520,6 +7113,27 @@ async fn delete_range(
             return Ok(err_s(StatusCode::NOT_FOUND, "Disabled range not found"));
         }
         tracing::info!("[reservations] disabled_range.delete id={range_id}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "DELETE",
+            "DELETE /api/reservations/:id/disabled-ranges/:rangeId",
+            "disabled_range.delete",
+            "DELETE",
+            Some("disabled_range"),
+            Some(range_id),
+            None,
+            crate::push::project_of_reservation(&ctx.db, reservation_id).await,
+            204,
+            serde_json::json!({
+                "url": format!("/api/reservations/{reservation_id}/disabled-ranges/{range_id}"),
+            }),
+        )
+        .await;
         Ok(StatusCode::NO_CONTENT.into_response())
     })
     .await;
@@ -6534,6 +7148,7 @@ async fn delete_range(
 async fn day_toggle(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path(reservation_id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -6641,6 +7256,28 @@ async fn day_toggle(
                 .await?;
             tracing::info!("[reservations] day_toggle on {date_str}");
             let _ = next_str;
+            crate::push::log_entity_activity(
+                &ctx.db,
+                &user.role,
+                Some(user.id),
+                Some(&user.email),
+                Some(&user.role),
+                req_ip(&headers),
+                "POST",
+                "POST /api/reservations/:id/day-toggle",
+                "disabled_range.create",
+                "CREATE",
+                Some("disabled_range"),
+                Some(range_id),
+                None,
+                crate::push::project_of_reservation(&ctx.db, reservation_id).await,
+                200,
+                serde_json::json!({
+                    "url": format!("/api/reservations/{reservation_id}/day-toggle"),
+                    "created": { "id": range_id, "date": date_str },
+                }),
+            )
+            .await;
             return Ok((StatusCode::OK, Json(json!({ "enabled": true, "date": date_str, "rangeId": range_id }))).into_response());
         }
         if !existing.is_empty() {
@@ -6660,6 +7297,29 @@ async fn day_toggle(
                 .await?;
         }
         tracing::info!("[reservations] day_toggle off {date_str}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "POST",
+            "POST /api/reservations/:id/day-toggle",
+            "disabled_range.delete",
+            "DELETE",
+            Some("disabled_range"),
+            existing.first().copied(),
+            None,
+            crate::push::project_of_reservation(&ctx.db, reservation_id).await,
+            200,
+            serde_json::json!({
+                "url": format!("/api/reservations/{reservation_id}/day-toggle"),
+                "deletedRangeIds": existing,
+                "date": date_str,
+            }),
+        )
+        .await;
         Ok((StatusCode::OK, Json(json!({ "enabled": false, "date": date_str, "rangeIds": existing }))).into_response())
     })
     .await;
@@ -6674,6 +7334,7 @@ async fn day_toggle(
 async fn day_disable_service(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path(reservation_id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -6790,6 +7451,18 @@ async fn day_disable_service(
             .filter_map(|r| r.try_get::<i64>("", "id").ok())
             .collect();
         let mut cancelled: Vec<i64> = vec![];
+        let range_project_id: i64 = ctx
+            .db
+            .query_one_raw(Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT project_id FROM reservations WHERE id = $1",
+                vec![reservation_id.into()],
+            ))
+            .await
+            .ok()
+            .flatten()
+            .and_then(|r| r.try_get::<i64>("", "project_id").ok())
+            .unwrap_or(0);
         for bid in doomed {
             ctx.db
                 .execute_raw(Statement::from_sql_and_values(
@@ -6799,9 +7472,55 @@ async fn day_disable_service(
                 ))
                 .await?;
             notify_booking_cancelled(&ctx.db, reservation_id, bid).await;
+            crate::push::log_booking_activity(
+                &ctx.db,
+                &user.role,
+                Some(user.id),
+                Some(&user.email),
+                Some(&user.role),
+                "POST",
+                "POST /api/reservations/:id/disabled-ranges",
+                "booking.cancel",
+                "UPDATE",
+                bid,
+                range_project_id,
+                200,
+                serde_json::json!({
+                    "url": format!("/api/reservations/{reservation_id}/bookings/{bid}"),
+                    "diff": {
+                        "status": { "from": "confirmed", "to": "cancelled" },
+                        "cancelled_by_user_id": { "from": null, "to": user.id.to_string() },
+                    },
+                    "ipAddress": req_ip(&headers),
+                }),
+            )
+            .await;
             cancelled.push(bid);
         }
         tracing::info!("[reservations] day_disable_service range={range_id} cancelled={cancelled:?}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "POST",
+            "POST /api/reservations/:id/day-disable-service",
+            "disabled_range.create",
+            "CREATE",
+            Some("disabled_range"),
+            Some(range_id),
+            None,
+            (project_id != 0).then_some(project_id),
+            200,
+            serde_json::json!({
+                "url": format!("/api/reservations/{reservation_id}/day-disable-service"),
+                "created": { "id": range_id, "startsAt": start_iso, "endsAt": end_iso, "serviceId": service_id },
+                "cancelledBookingIds": cancelled,
+            }),
+        )
+        .await;
         Ok((
             StatusCode::OK,
             Json(json!({ "startsAt": start_iso, "endsAt": end_iso, "serviceId": service_id, "rangeId": range_id, "cancelledBookingIds": cancelled })),
@@ -6983,6 +7702,7 @@ async fn get_holidays(
 async fn put_holiday_rules(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
+    headers: HeaderMap,
     Path(reservation_id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -7058,6 +7778,28 @@ async fn put_holiday_rules(
             .map(|r| json!({ "key": str_opt(r, "holiday_key"), "enabled": r.try_get::<bool>("", "enabled").unwrap_or(false) }))
             .collect();
         tracing::info!("[reservations] disable_holidays_update service={service_id}");
+        crate::push::log_entity_activity(
+            &ctx.db,
+            &user.role,
+            Some(user.id),
+            Some(&user.email),
+            Some(&user.role),
+            req_ip(&headers),
+            "PUT",
+            "PUT /api/reservations/:id/disable-settings/holidays",
+            "holiday_rules.update",
+            "UPDATE",
+            Some("service"),
+            Some(service_id),
+            None,
+            crate::push::project_of_reservation(&ctx.db, reservation_id).await,
+            200,
+            serde_json::json!({
+                "url": format!("/api/reservations/{reservation_id}/disable-settings/holidays"),
+                "updated": { "serviceId": service_id, "rules": rules_out },
+            }),
+        )
+        .await;
         Ok((StatusCode::OK, Json(json!({ "serviceId": service_id, "rules": rules_out }))).into_response())
     })
     .await;

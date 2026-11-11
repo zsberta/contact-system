@@ -123,6 +123,15 @@ Roles are coarse: `admin` (full access) vs `enduser` (customer portal — read-o
 
 The frontend talks to the backend only through `apiFetch` (`src/lib/api.ts`), with per-module clients in `src/lib/`. Public embed widgets (booking, rating, forms) use token-capability URLs and never require login. All user-facing text is translated (HU + EN, wired through `src/i18n.ts`, enforced by `npm run check:i18n`).
 
+## Backups
+
+The `pgbackup` compose service dumps the whole PostgreSQL DB
+(`pg_dump -Fc`) into `./backups/` every 10 minutes: every dump is kept
+for 24h, then thinned to 2/day (00:00 + 12:00 UTC) for 30 days, then
+deleted. A 2 GB total-size cap (oldest evicted first) guards disk use.
+Starts with `docker compose up -d --build`. Details + restore
+in [`ops/pgbackup/README.md`](ops/pgbackup/README.md).
+
 ## Scope cuts (v1)
 
 Deliberately NOT in v1:

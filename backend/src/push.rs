@@ -649,3 +649,148 @@ async fn log_activity(
         tracing::error!("[push] activity log insert failed: {e:?}");
     }
 }
+
+/// Best-effort activity_logs INSERT for booking lifecycle rows, mirroring
+/// the legacy Node logActivity() shapes (booking.create_public,
+/// booking.create_manual, booking.update, booking.cancel,
+/// booking.cancel_public, booking.delete, booking.reschedule_public).
+/// The booking flows call this AFTER the write succeeds; failures are
+/// logged and dropped so logging never breaks the request.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn log_booking_activity(
+    db: &DatabaseConnection,
+    actor_type: &str,
+    actor_user_id: Option<i64>,
+    actor_email: Option<&str>,
+    actor_role: Option<&str>,
+    method: &str,
+    path: &str,
+    action: &str,
+    action_type: &str,
+    entity_id: i64,
+    project_id: i64,
+    status_code: i32,
+    metadata: serde_json::Value,
+) {
+    log_entity_activity(
+        db,
+        actor_type,
+        actor_user_id,
+        actor_email,
+        actor_role,
+        None,
+        method,
+        path,
+        action,
+        action_type,
+        Some("booking"),
+        Some(entity_id),
+        None,
+        (project_id != 0).then_some(project_id),
+        status_code,
+        metadata,
+    )
+    .await;
+}
+
+/// Clamp an actor type to the activity_logs CHECK values; unknown roles
+/// fall back to `enduser` so the row is written instead of rejected.
+fn norm_actor_type(t: &str) -> &str {
+    match t {
+        "admin" | "enduser" | "public" | "system" | "service" => t,
+        _ => "enduser",
+    }
+}
+
+/// Generic best-effort activity_logs INSERT for every state-changing
+/// endpoint (mirrors the legacy Node logActivity() shapes). Call AFTER the
+/// write succeeds; failures are logged and dropped so logging never breaks
+/// the request.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn log_entity_activity(
+    db: &DatabaseConnection,
+    actor_type: &str,
+    actor_user_id: Option<i64>,
+    actor_email: Option<&str>,
+    actor_role: Option<&str>,
+    actor_ip: Option<String>,
+    method: &str,
+    path: &str,
+    action: &str,
+    action_type: &str,
+    entity_type: Option<&str>,
+    entity_id: Option<i64>,
+    entity_label: Option<String>,
+    project_id: Option<i64>,
+    status_code: i32,
+    metadata: serde_json::Value,
+) {
+    let meta_text = serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".to_string());
+    let res = db
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO activity_logs
+               (actor_type, actor_user_id, actor_email, actor_role, actor_ip,
+                method, path, action, action_type,
+                entity_type, entity_id, entity_label, project_id,
+                status_code, ok, metadata)
+             VALUES ($1, $2, $3, $4, $5,
+                     $6, $7, $8, $9,
+                     $10, $11, $12, $13,
+                     $14, true, $15::jsonb)",
+            vec![
+                norm_actor_type(actor_type).to_string().into(),
+                actor_user_id.into(),
+                actor_email.map(|s| s.to_string()).into(),
+                actor_role.map(|s| s.to_string()).into(),
+                actor_ip.into(),
+                method.to_string().into(),
+                path.to_string().into(),
+                action.to_string().into(),
+                action_type.to_string().into(),
+                entity_type.map(|s| s.to_string()).into(),
+                entity_id.into(),
+                entity_label.into(),
+                project_id.into(),
+                status_code.into(),
+                meta_text.into(),
+            ],
+        ))
+        .await;
+    if let Err(e) = res {
+        tracing::error!("[push] entity activity log insert failed: {e:?}");
+    }
+}
+
+/// Cheap project lookup for log rows when only a reservation id is at hand.
+/// Returns None when unknown (the log row keeps a NULL project_id).
+pub(crate) async fn project_of_reservation(
+    db: &DatabaseConnection,
+    reservation_id: i64,
+) -> Option<i64> {
+    db.query_one_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT project_id FROM reservations WHERE id = $1",
+        vec![reservation_id.into()],
+    ))
+    .await
+    .ok()
+    .flatten()
+    .and_then(|r| r.try_get::<i64>("", "project_id").ok())
+}
+
+/// Cheap project lookup for log rows when only a service id is at hand.
+pub(crate) async fn project_of_service(
+    db: &DatabaseConnection,
+    service_id: i64,
+) -> Option<i64> {
+    db.query_one_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT r.project_id FROM reservation_services s JOIN reservations r ON r.id = s.reservation_id WHERE s.id = $1",
+        vec![service_id.into()],
+    ))
+    .await
+    .ok()
+    .flatten()
+    .and_then(|r| r.try_get::<i64>("", "project_id").ok())
+}

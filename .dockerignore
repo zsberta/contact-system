@@ -10,5 +10,11 @@ coverage
 .vscode
 .idea
 uploads/
+backups/
+# Never send DB dumps into the Docker build context. (Scoped to the
+# repo root + backups/ on purpose: backend/migration/sql/*.sql MUST
+# stay in the context — migrations are embedded in the binary.)
+/*.dump
+/ship_to_prod.sql
 playwright/
 .landing-flags/

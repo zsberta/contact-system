@@ -819,6 +819,34 @@ async fn create_booking_public(
             )
             .await;
         }
+        let ua_log: Option<String> = headers.get("user-agent").and_then(|v| v.to_str().ok()).map(|s| s.chars().take(500).collect());
+        crate::push::log_booking_activity(
+            &ctx.db,
+            "public",
+            None,
+            None,
+            None,
+            "POST",
+            "POST /api/public/reservations/:secret/bookings",
+            "booking.create_public",
+            "CREATE",
+            bid,
+            reservation.project_id,
+            201,
+            serde_json::json!({
+                "url": format!("/api/public/reservations/{secret}/bookings"),
+                "created": {
+                    "id": bid,
+                    "reservationId": reservation.id,
+                    "serviceId": svc.id,
+                    "startsAt": starts_iso,
+                    "endsAt": ends_iso,
+                    "email": contact.email,
+                },
+                "userAgent": ua_log,
+            }),
+        )
+        .await;
         // "remember me" profile opt-in (best-effort)
         let mut profile: Option<Value> = None;
         if body.get("rememberCustomer").and_then(|v| v.as_bool()).unwrap_or(false) {
@@ -1156,6 +1184,7 @@ async fn booking_by_token(
 async fn cancel_by_token(
     State(ctx): State<AppContext>,
     Path((secret, token)): Path<(String, String)>,
+    headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
     if !check_token_format(&secret) {
@@ -1208,10 +1237,36 @@ async fn cancel_by_token(
             .execute_raw(Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Postgres,
                 "UPDATE reservation_bookings SET status = 'cancelled', cancelled_at = NOW(), cancellation_reason = $3, reminder_sent_at = NULL WHERE reservation_id = $1 AND booking_token = $2",
-                vec![reservation.id.into(), token.into(), reason.into()],
+                vec![reservation.id.into(), token.clone().into(), reason.into()],
             ))
             .await?;
         R::notify_booking_cancelled(&ctx.db, reservation.id, bid).await;
+        {
+            let ua = headers
+                .get("user-agent")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.chars().take(500).collect::<String>());
+            crate::push::log_booking_activity(
+                &ctx.db,
+                "public",
+                None,
+                None,
+                None,
+                "DELETE",
+                "DELETE /api/public/reservations/:secret_token/bookings/by-token/:bookingToken",
+                "booking.cancel_public",
+                "UPDATE",
+                bid,
+                reservation.project_id,
+                200,
+                serde_json::json!({
+                    "url": format!("/api/public/reservations/{secret}/bookings/by-token/{token}"),
+                    "diff": { "status": { "from": status, "to": "cancelled" } },
+                    "userAgent": ua,
+                }),
+            )
+            .await;
+        }
         tracing::info!("[reservation-embed] booking.cancel_public id={bid}");
         Ok((StatusCode::OK, Json(json!({ "success": true }))).into_response())
     })
@@ -1228,6 +1283,7 @@ async fn cancel_by_token(
 async fn reschedule_by_token(
     State(ctx): State<AppContext>,
     Path((secret, token)): Path<(String, String)>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
     if !check_token_format(&secret) {
@@ -1423,6 +1479,89 @@ async fn reschedule_by_token(
         let new_id: i64 = new_row.try_get("", "id").unwrap_or(0);
         let new_token: Option<String> = new_row.try_get::<Option<String>>("", "booking_token").ok().flatten();
         R::notify_booking_cancelled(&ctx.db, reservation.id, old_id).await;
+        {
+            let ua = headers
+                .get("user-agent")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.chars().take(500).collect::<String>());
+            let old_starts_iso = R::iso_of_ms(old_starts);
+            let old_ends_iso = ex
+                .try_get::<chrono::DateTime<chrono::Utc>>("", "ends_at")
+                .map(|d| R::iso_of_ms(d.timestamp_millis()))
+                .unwrap_or_default();
+            let by_token_url =
+                format!("/api/public/reservations/{secret}/bookings/by-token/{token}");
+            crate::push::log_booking_activity(
+                &ctx.db,
+                "public",
+                None,
+                None,
+                None,
+                "PATCH",
+                "PATCH /api/public/reservations/:secret_token/bookings/by-token/:bookingToken",
+                "booking.cancel_public",
+                "UPDATE",
+                old_id,
+                reservation.project_id,
+                200,
+                serde_json::json!({
+                    "url": by_token_url,
+                    "diff": { "status": { "from": old_status, "to": "cancelled" } },
+                    "userAgent": ua,
+                }),
+            )
+            .await;
+            crate::push::log_booking_activity(
+                &ctx.db,
+                "public",
+                None,
+                None,
+                None,
+                "PATCH",
+                "PATCH /api/public/reservations/:secret_token/bookings/by-token/:bookingToken/reschedule",
+                "booking.reschedule_public",
+                "UPDATE",
+                old_id,
+                reservation.project_id,
+                200,
+                serde_json::json!({
+                    "url": by_token_url,
+                    "diff": {
+                        "starts_at": { "from": old_starts_iso, "to": starts_iso },
+                        "ends_at": { "from": old_ends_iso, "to": ends_iso },
+                    },
+                    "userAgent": ua,
+                }),
+            )
+            .await;
+            crate::push::log_booking_activity(
+                &ctx.db,
+                "public",
+                None,
+                None,
+                None,
+                "POST",
+                "POST /api/public/reservations/:secret/bookings",
+                "booking.create_public",
+                "CREATE",
+                new_id,
+                reservation.project_id,
+                201,
+                serde_json::json!({
+                    "url": format!("/api/public/reservations/{secret}/bookings"),
+                    "created": {
+                        "id": new_id,
+                        "reservationId": reservation.id,
+                        "serviceId": old_service_id,
+                        "startsAt": starts_iso,
+                        "endsAt": ends_iso,
+                        "email": R::str_opt(&ex, "email").unwrap_or_default(),
+                    },
+                    "userAgent": ua,
+                }),
+            )
+            .await;
+        }
         let loc = R::str_opt(&ex, "locale").unwrap_or_else(|| "hu".to_string());
         let sname = R::str_opt(&ex, "service_name").unwrap_or_else(|| "Reservation".to_string());
         if let Some(em) = R::str_opt(&ex, "email") {
@@ -1662,6 +1801,7 @@ async fn rating_info_by_token(
 
 async fn submit_rating_by_token(
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Path((secret, token)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -1694,7 +1834,7 @@ async fn submit_rating_by_token(
             .query_one_raw(Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Postgres,
                 "SELECT rb.id, rb.service_id, rb.customer_id, rb.first_name, rb.last_name, rb.email, rb.status FROM reservation_bookings rb WHERE rb.reservation_id = $1 AND rb.booking_token = $2",
-                vec![reservation.id.into(), token.into()],
+                vec![reservation.id.into(), token.clone().into()],
             ))
             .await?;
         let Some(b) = row else {
@@ -1748,10 +1888,35 @@ async fn submit_rating_by_token(
             .ok_or(sea_orm::DbErr::RecordNotFound("rating insert failed".to_string()))?;
         let (_, google_review_url) = load_rating_project(&ctx.db, reservation.project_id).await;
         tracing::info!("[reservation-embed/rating] booking={booking_id} rating={rating}");
+        let rating_id: i64 = created.try_get::<i64>("", "id").unwrap_or(0);
+        let ua_log: Option<String> = headers.get("user-agent").and_then(|v| v.to_str().ok()).map(|s| s.chars().take(500).collect());
+        crate::push::log_entity_activity(
+            &ctx.db,
+            "public",
+            None,
+            None,
+            None,
+            None,
+            "POST",
+            "POST /api/public/reservations/:secret_token/ratings/by-token/:bookingToken",
+            "rating.submit_public",
+            "CREATE",
+            Some("rating"),
+            Some(rating_id),
+            None,
+            Some(reservation.project_id),
+            201,
+            serde_json::json!({
+                "url": format!("/api/public/reservations/{secret}/ratings/by-token/{token}"),
+                "created": { "id": rating_id, "bookingId": booking_id, "rating": rating },
+                "userAgent": ua_log,
+            }),
+        )
+        .await;
         Ok((
             StatusCode::CREATED,
             Json(json!({
-                "id": created.try_get::<i64>("", "id").unwrap_or(0),
+                "id": rating_id,
                 "rating": rating,
                 "comment": comment,
                 "raterName": rater_name,

@@ -298,11 +298,34 @@ test.describe("frontend-driven E2E", () => {
     const svc = await api(page, "GET", `/api/reservations/${res0.id}/services`);
     const serviceId = svc.json?.[0]?.id ?? svc.json?.content?.[0]?.id;
     expect(serviceId, "active service").toBeTruthy();
+    // derive a truly bookable slot from the service's own weekly schedules
+    // (hardcoded datetimes break when schedule fixtures change)
+    const sched = await api(page, "GET", `/api/reservations/${res0.id}/services/${serviceId}/availability-schedules`);
+    expect(sched.status).toBe(200);
+    const weekly = (Array.isArray(sched.json) ? sched.json : sched.json?.content ?? [])
+      .find((s: any) => s.frequency === "weekly" && Number.isInteger(s.dayOfWeek ?? s.day_of_week) && (s.startTime ?? s.start_time) && (s.endTime ?? s.end_time));
+    expect(weekly, "weekly schedule").toBeTruthy();
+    const dow: number = weekly.dayOfWeek ?? weekly.day_of_week;
+    const st: string = weekly.startTime ?? weekly.start_time; // "HH:MM[:SS]" Budapest wall time
+    const en: string = weekly.endTime ?? weekly.end_time;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const [sh, sm] = st.split(":").map(Number);
+    const [eh, em] = en.split(":").map(Number);
+    // next date >= 2027-05-03 with the schedule's weekday (far future, stable)
+    const d = new Date(Date.UTC(2027, 4, 3));
+    while (d.getUTCDay() !== dow) d.setUTCDate(d.getUTCDate() + 1);
+    const y = d.getUTCFullYear(), m = d.getUTCMonth() + 1, day = d.getUTCDate();
+    // Budapest DST: last Sunday of March .. last Sunday of October = +02:00
+    const lastSunday = (yy: number, mm: number) => { const t = new Date(Date.UTC(yy, mm, 0)); while (t.getUTCDay() !== 0) t.setUTCDate(t.getUTCDate() - 1); return t.getUTCDate(); };
+    const dst = (m > 3 && m < 10) || (m === 3 && day >= lastSunday(y, 3)) || (m === 10 && day < lastSunday(y, 10));
+    const off = dst ? "+02:00" : "+01:00";
+    const startsAt = new Date(`${y}-${pad(m)}-${pad(day)}T${pad(sh)}:${pad(sm)}:00${off}`).toISOString();
+    const endsAt = new Date(`${y}-${pad(m)}-${pad(day)}T${pad(eh)}:${pad(em)}:00${off}`).toISOString();
     // exact ReservationBookingForm payload: scratch customer + service
     const r = await api(page, "POST", `/api/reservations/${res0.id}/bookings`, {
       serviceId,
-      startsAt: "2027-05-03T10:00:00Z",
-      endsAt: "2027-05-03T11:00:00Z",
+      startsAt,
+      endsAt,
       customerId: custId,
       firstName: "E2E",
       lastName: "Teszt",
@@ -441,9 +464,12 @@ test.describe("frontend-driven E2E", () => {
 
   test("09 imports dry-run (real FormData like the UI) + gateway + notifications reads", async ({ }, testInfo) => {
     const page = pg(testInfo);
+    // resolve a live project (hardcoded ids break when fixtures change)
+    const pj = await api(page, "GET", "/api/projects");
+    const liveProjectId = pj.json?.[0]?.id ?? pj.json?.content?.[0]?.id ?? 1;
     // exactly what ImportsPage sends: FormData{projectId, importType, file}
     // via apiFetch (which attaches the CSRF header like the real UI)
-    const dryStatus = await page.evaluate(async () => {
+    const dryStatus = await page.evaluate(async (projectId) => {
       const readXsrf = () => {
         for (const c of document.cookie.split(";")) {
           const [k, ...rest] = c.trim().split("=");
@@ -457,7 +483,7 @@ test.describe("frontend-driven E2E", () => {
         token = readXsrf();
       }
       const fd = new FormData();
-      fd.append("projectId", "1");
+      fd.append("projectId", String(projectId));
       fd.append("importType", "customers");
       fd.append("file", new File(["First Name,Last Name,Email\nE2E,Teszt,e2e@example.com\n"], "t.csv", { type: "text/csv" }));
       const r = await fetch("/api/imports/dry-run", {
@@ -466,7 +492,7 @@ test.describe("frontend-driven E2E", () => {
         body: fd,
       });
       return { status: r.status, body: (await r.text()).slice(0, 200) };
-    });
+    }, liveProjectId);
     expect(dryStatus.status, `dry-run: ${dryStatus.body}`).toBe(200);
     let r = await api(page, "GET", "/api/gateway/projects?per_page=1");
     expect([200, 503]).toContain(r.status);

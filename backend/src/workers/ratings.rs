@@ -264,8 +264,8 @@ pub async fn send_rating_email_for_booking(
                     b.status, b.starts_at, b.ends_at,
                     b.email, b.first_name, b.last_name,
                     b.service_name_snapshot, b.timezone,
-                    b.locale, b.booking_token,
-                    r.secret_token,
+                    b.locale, b.booking_token, b.reservation_id,
+                    r.secret_token, r.project_id,
                     p.name AS project_name,
                     p.domain_address,
                     p.customer_email
@@ -358,7 +358,7 @@ pub async fn send_rating_email_for_booking(
         },
     );
     crate::mailers::email::enqueue_mail(crate::mailers::email::EmailJob {
-        to: email,
+        to: email.clone(),
         subject: rendered.subject,
         text: rendered.text,
         html: rendered.html,
@@ -374,6 +374,28 @@ pub async fn send_rating_email_for_booking(
     ))
     .await
     .map_err(|e| RatingEmailError::Failed(format!("stamp failed: {e:?}")))?;
+    crate::push::log_entity_activity(
+        db,
+        "system",
+        None,
+        None,
+        None,
+        None,
+        "SEND",
+        "SEND -",
+        "rating.send",
+        "SEND",
+        Some("booking"),
+        Some(booking_id),
+        None,
+        row.try_get::<i64>("", "project_id").ok(),
+        200,
+        serde_json::json!({
+            "ratingUrl": rating_url,
+            "email": email,
+        }),
+    )
+    .await;
     Ok(())
 }
 

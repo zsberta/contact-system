@@ -15,6 +15,9 @@ services:
       - "5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Read-only backups mount so a dump can be restored with a single
+      # `docker exec ... pg_restore /backups/...` (see ops/pgbackup/README.md).
+      - ./backups:/backups:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U contact -d contact_system"]
       interval: 5s
@@ -37,6 +40,31 @@ services:
       INFO: 1
       SYSTEM: 1
       POST: 0
+
+  # Full PostgreSQL dump every 10 minutes + tiered prune (every dump
+  # kept for 24h, then 2/day for 30 days). Writes to ./backups
+  # (gitignored). Starts with `docker compose up -d --build`.
+  # See ops/pgbackup/README.md for policy + restore.
+  pgbackup:
+    image: pgvector/pgvector:pg16
+    container_name: contact-system-pgbackup
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGPORT: "5432"
+      POSTGRES_DB: contact_system
+      POSTGRES_USER: contact
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      BACKUP_INTERVAL_SECS: ${BACKUP_INTERVAL_SECS:-600}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-30}
+      BACKUP_MAX_SIZE_MB: ${BACKUP_MAX_SIZE_MB:-2048}
+    volumes:
+      - ./backups:/backups
+      - ./ops/pgbackup:/opt/pgbackup:ro
+    command: ["bash", "/opt/pgbackup/backup-loop.sh"]
 
   app:
     build:
