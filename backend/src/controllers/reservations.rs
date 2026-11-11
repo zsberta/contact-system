@@ -6317,7 +6317,7 @@ async fn create_range(
             ctx.db
                 .execute_raw(Statement::from_sql_and_values(
                     sea_orm::DatabaseBackend::Postgres,
-                    format!("INSERT INTO reservation_disabled_range_services (disabled_range_id, service_id) VALUES {}", values.join(", ")),
+                    format!("INSERT INTO reservation_disabled_range_services (disabled_range_id, service_id) VALUES {} ON CONFLICT (disabled_range_id, service_id) DO NOTHING", values.join(", ")),
                     vals,
                 ))
                 .await?;
