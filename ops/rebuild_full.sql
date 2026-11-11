@@ -748,7 +748,9 @@ COMMIT;
  SELECT
    s.id, s.reservation_id, s.service_id, s.starts_at, s.ends_at,
    s.first_name, s.last_name, s.email, c.phone, NULL,
-   c.id, s.created_by, w.id,
+   c.id, s.created_by, COALESCE(w.id,
+     CASE WHEN EXISTS (SELECT 1 FROM users u WHERE u.id = v.worker_user_id)
+          THEN v.worker_user_id END),
    COALESCE(t.name, 'Visszaállított szolgáltatás'), v.duration_minutes, v.price_amount,
    v.currency, r.timezone, s.status, s.source, 'hu', NULL,
    -- original token where the logs still carry it (reschedule/cancel URLs),
