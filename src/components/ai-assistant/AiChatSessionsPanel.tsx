@@ -33,7 +33,7 @@ export function AiChatSessionsPanel({
 
   // Pagination / search / sort state
   const { query, handlers } = useDataTableQuery({
-    defaultSize: 10,
+    defaultSize: 50,
     defaultSortField: "createdAt",
     defaultSortOrder: "desc",
   });

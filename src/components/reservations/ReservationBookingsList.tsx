@@ -1,6 +1,7 @@
 // ----------------------------------------------------------------------------
 // ReservationBookingsList — paged DataTable of received reservation bookings.
-// Shows service, customer, schedule, status, and worker info. Row
+// Shows schedule, customer, status, service, worker, and booked-at info in
+// a compact stacked layout. Row
 // double-click and the actions menu navigate to the booking view page.
 // ----------------------------------------------------------------------------
 
@@ -90,7 +91,7 @@ export function ReservationBookingsList({ reservationId }: Props) {
   });
 
   const { query, handlers } = useDataTableQuery({
-    defaultSize: 10,
+    defaultSize: 50,
     defaultSortField: "bookedAt",
     defaultSortOrder: "desc",
   });
@@ -106,35 +107,31 @@ export function ReservationBookingsList({ reservationId }: Props) {
 
   const columns = [
     {
-      accessorKey: "serviceName",
-      header: t("reservations:booking_service"),
-      cell: (row: ReservationBookingDTO) =>
-        row.serviceName || row.serviceNameSnapshot || "—",
+      accessorKey: "startsAt",
+      header: t("reservations:booking_reservation"),
+      cell: (row: ReservationBookingDTO) => {
+        const sameDay = isSameDay(row.startsAt, row.endsAt);
+        // Compact stacked layout: date on one line, time range below.
+        return sameDay ? (
+          <span className="block leading-tight">
+            <span className="block">{fmtDate(row.startsAt, row.timezone)}</span>
+            <span className="block font-semibold">{fmtTime(row.startsAt, row.timezone)}–{fmtTime(row.endsAt, row.timezone)}</span>
+          </span>
+        ) : (
+          <span className="block leading-tight">
+            <span className="block">{fmtDate(row.startsAt, row.timezone)} {fmtTime(row.startsAt, row.timezone)}</span>
+            <span className="block">{fmtDate(row.endsAt, row.timezone)} {fmtTime(row.endsAt, row.timezone)}</span>
+          </span>
+        );
+      },
       enableSorting: true,
     },
     {
       accessorKey: "customerName",
       header: t("reservations:booking_customer"),
       cell: (row: ReservationBookingDTO) => {
-        const name = row.customerName || [row.lastName, row.firstName].filter(Boolean).join(" ");
-        return name || "—";
-      },
-      enableSorting: true,
-    },
-    {
-      accessorKey: "startsAt",
-      header: t("reservations:booking_reservation"),
-      cell: (row: ReservationBookingDTO) => isSameDay(row.startsAt, row.endsAt)
-        ? <>{fmtDate(row.startsAt, row.timezone)} <span className="font-semibold">{fmtTime(row.startsAt, row.timezone)} – {fmtTime(row.endsAt, row.timezone)}</span></>
-        : <>{fmtDate(row.startsAt, row.timezone)} {fmtTime(row.startsAt, row.timezone)} – {fmtDate(row.endsAt, row.timezone)} {fmtTime(row.endsAt, row.timezone)}</>,
-      enableSorting: true,
-    },
-    {
-      accessorKey: "workerFirstName",
-      header: t("reservations:booking_worker"),
-      cell: (row: ReservationBookingDTO) => {
-        const name = [row.workerLastName, row.workerFirstName].filter(Boolean).join(" ");
-        return name || "—";
+        const name = row.customerName || [row.lastName, row.firstName].filter(Boolean).join(" ") || "—";
+        return <span className="block max-w-[110px] truncate" title={name}>{name}</span>;
       },
       enableSorting: true,
     },
@@ -143,15 +140,44 @@ export function ReservationBookingsList({ reservationId }: Props) {
       header: t("reservations:booking_status"),
       cell: (row: ReservationBookingDTO) => (
         <div>
-          <Badge variant={row.status === "confirmed" || row.status === "attended" ? "default" : row.status === "cancelled" ? "destructive" : row.status === "no_show" ? "outline" : "secondary"}>
+          <Badge className="text-[11px] px-1.5 py-0" variant={row.status === "confirmed" || row.status === "attended" ? "default" : row.status === "cancelled" ? "destructive" : row.status === "no_show" ? "outline" : "secondary"}>
             {t(`reservations:booking_status_${row.status}`)}
           </Badge>
           {row.status === "cancelled" && row.cancellationReason && (
-            <p className="text-xs text-muted-foreground mt-1 max-w-[200px] truncate" title={row.cancellationReason}>
+            <p className="text-xs text-muted-foreground mt-1 max-w-[120px] truncate" title={row.cancellationReason}>
               {row.cancellationReason}
             </p>
           )}
         </div>
+      ),
+      enableSorting: true,
+    },
+    {
+      accessorKey: "serviceName",
+      header: t("reservations:booking_service"),
+      cell: (row: ReservationBookingDTO) => {
+        const name = row.serviceName || row.serviceNameSnapshot || "—";
+        return <span className="block max-w-[110px] truncate" title={name}>{name}</span>;
+      },
+      enableSorting: true,
+    },
+    {
+      accessorKey: "workerFirstName",
+      header: t("reservations:booking_worker"),
+      cell: (row: ReservationBookingDTO) => {
+        const name = [row.workerLastName, row.workerFirstName].filter(Boolean).join(" ") || "—";
+        return <span className="block max-w-[90px] truncate" title={name}>{name}</span>;
+      },
+      enableSorting: true,
+    },
+    {
+      accessorKey: "bookedAt",
+      header: t("reservations:booking_booked_at"),
+      cell: (row: ReservationBookingDTO) => (
+        <span className="block leading-tight">
+          <span className="block">{fmtDate(row.bookedAt, row.timezone)}</span>
+          <span className="block">{fmtTime(row.bookedAt, row.timezone)}</span>
+        </span>
       ),
       enableSorting: true,
     },

@@ -45,7 +45,7 @@ export default function ReservationCustomersPage() {
   const projectId = projectIdParam ? Number(projectIdParam) : undefined;
   const [deleteTarget, setDeleteTarget] = useState<ReservationCustomerDTO | null>(null);
 
-  const { query, handlers } = useDataTableQuery({ defaultSize: 10 });
+  const { query, handlers } = useDataTableQuery({ defaultSize: 50 });
   const { data, isLoading } = useQuery({
     queryKey: ["reservation-customers", query, projectId],
     queryFn: () =>

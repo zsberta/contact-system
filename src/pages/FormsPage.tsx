@@ -43,7 +43,7 @@ const FormsPage: React.FC = () => {
       : undefined;
 
   const { query, handlers } = useDataTableQuery({
-    defaultSize: 10,
+    defaultSize: 50,
     defaultSortField: "createdAt",
     defaultSortOrder: "desc",
   });

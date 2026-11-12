@@ -24,7 +24,7 @@ interface UseDataTableQueryOptions {
 }
 
 export function useDataTableQuery({
-  defaultSize = 10,
+  defaultSize = 50,
   defaultSortField = "",
   defaultSortOrder = "asc",
 }: UseDataTableQueryOptions = {}) {

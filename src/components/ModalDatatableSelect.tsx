@@ -96,7 +96,7 @@ export function ModalDatatableSelect<TData extends { id: number }>({
   // Query state
   const [queryParams, setQueryParams] = useState<QueryParams>({
     page: 0,
-    size: 10,
+    size: 50,
     sortField: "id",
     sortOrder: "asc",
     queries: [],

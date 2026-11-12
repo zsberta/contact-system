@@ -79,7 +79,7 @@ const BlogPage: React.FC<BlogPageProps> = ({ showCreateButton = true, showRowAct
       : "hu";
 
   const { query, handlers } = useDataTableQuery({
-    defaultSize: 10,
+    defaultSize: 50,
     defaultSortField: "updatedAt",
     defaultSortOrder: "desc",
   });

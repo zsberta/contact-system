@@ -60,7 +60,7 @@ const ServicePage: React.FC<ServicePageProps> = ({ basePath = "/services", conte
 
 
   const { query, handlers } = useDataTableQuery({
-    defaultSize: 10,
+    defaultSize: 50,
     defaultSortField: "sortOrder",
     defaultSortOrder: "asc",
   });

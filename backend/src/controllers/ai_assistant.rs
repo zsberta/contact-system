@@ -47,17 +47,17 @@
 //!   skipped / replaced with `tracing`.
 
 use axum::{
-    extract::{Multipart, Path, Query, State},
+    extract::{Multipart, Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
 use loco_rs::prelude::*;
 use sea_orm::{ConnectionTrait, Statement, TransactionTrait};
-use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
 use crate::middleware::auth::{CurrentUser, MaybeUser};
+use crate::middleware::query::MultiQuery;
 
 fn err(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, Json(json!({ "errorMessage": msg.into() }))).into_response()
@@ -556,48 +556,39 @@ fn validate_config_body(body: &Value, partial: bool) -> Result<HashMap<String, s
 // Handlers: configs
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
-struct ListQuery {
-    page: Option<i64>,
-    size: Option<i64>,
-    #[serde(rename = "sortField")]
-    sort_field: Option<String>,
-    #[serde(rename = "sortOrder")]
-    sort_order: Option<String>,
-    queries: Option<Vec<String>>,
-    #[serde(rename = "filterType")]
-    filter_type: Option<String>,
-    #[serde(rename = "projectId")]
-    #[serde(alias = "project_id")]
-    project_id: Option<String>,
-}
-
 async fn list_configs(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
-    Query(q): Query<ListQuery>,
+    MultiQuery(q): MultiQuery,
 ) -> Response {
     let user = match auth_required(&u) {
         Ok(x) => x,
         Err(r) => return r,
     };
-    let page = q.page.unwrap_or(0).max(0);
-    let size = q.size.unwrap_or(10).clamp(1, 100);
-    let sort_col = match q.sort_field.as_deref() {
+    let one = |k: &str| q.get(k).and_then(|v| v.first()).cloned();
+    let page = one("page").and_then(|s| s.parse::<i64>().ok()).unwrap_or(0).max(0);
+    let size = one("size").and_then(|s| s.parse::<i64>().ok()).unwrap_or(10).clamp(1, 100);
+    let sort_field = one("sortField");
+    let sort_order = one("sortOrder");
+    let sort_col = match sort_field.as_deref() {
         Some("id") => "c.id",
         Some("name") => "c.name",
         Some("status") => "c.status",
         Some("updatedAt") => "c.updated_at",
         _ => "c.created_at",
     };
-    let dir = if q.sort_order.as_deref() == Some("asc") { "ASC" } else { "DESC" };
-    let sorted = q.sort_field.is_some();
-    let terms: Vec<String> = q.queries.unwrap_or_default().into_iter().filter(|t| !t.trim().is_empty()).collect();
-    let filter_all = q.filter_type.as_deref() == Some("all");
+    let dir = if sort_order.as_deref() == Some("asc") { "ASC" } else { "DESC" };
+    let sorted = sort_field.is_some();
+    let mut raw_terms: Vec<String> = q.get("queries").cloned().unwrap_or_default();
+    if let Some(extra) = q.get("queries[]") {
+        raw_terms.extend(extra.clone());
+    }
+    let terms: Vec<String> = raw_terms.into_iter().filter(|t| !t.trim().is_empty()).collect();
+    let filter_all = one("filterType").as_deref() == Some("all");
     let mut conds: Vec<String> = vec![];
     let mut vals: Vec<sea_orm::Value> = vec![];
     let mut ph = 1;
-    if let Some(pid) = q.project_id.and_then(|s| s.parse::<i64>().ok()).filter(|n| *n > 0) {
+    if let Some(pid) = one("projectId").or_else(|| one("project_id")).and_then(|s| s.parse::<i64>().ok()).filter(|n| *n > 0) {
         conds.push(format!("c.project_id = ${ph}"));
         ph += 1;
         vals.push(pid.into());
@@ -1665,22 +1656,11 @@ async fn delete_avatar(
 // Sessions / messages (read-only)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
-struct SessionListQuery {
-    page: Option<i64>,
-    size: Option<i64>,
-    queries: Option<Vec<String>>,
-    #[serde(rename = "sortField")]
-    sort_field: Option<String>,
-    #[serde(rename = "sortOrder")]
-    sort_order: Option<String>,
-}
-
 async fn list_sessions(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
     Path(id): Path<i64>,
-    Query(q): Query<SessionListQuery>,
+    MultiQuery(q): MultiQuery,
 ) -> Response {
     let user = match auth_required(&u) {
         Ok(x) => x,
@@ -1689,15 +1669,22 @@ async fn list_sessions(
     if id <= 0 {
         return err(StatusCode::BAD_REQUEST, "Invalid id");
     }
-    let page = q.page.unwrap_or(0).max(0);
-    let size = q.size.unwrap_or(20).clamp(1, 100);
-    let terms: Vec<String> = q.queries.unwrap_or_default().into_iter().filter(|t| !t.trim().is_empty()).collect();
-    let sort_col = match q.sort_field.as_deref() {
+    let one = |k: &str| q.get(k).and_then(|v| v.first()).cloned();
+    let page = one("page").and_then(|s| s.parse::<i64>().ok()).unwrap_or(0).max(0);
+    let size = one("size").and_then(|s| s.parse::<i64>().ok()).unwrap_or(20).clamp(1, 100);
+    let mut raw_terms: Vec<String> = q.get("queries").cloned().unwrap_or_default();
+    if let Some(extra) = q.get("queries[]") {
+        raw_terms.extend(extra.clone());
+    }
+    let terms: Vec<String> = raw_terms.into_iter().filter(|t| !t.trim().is_empty()).collect();
+    let sort_field = one("sortField");
+    let sort_order = one("sortOrder");
+    let sort_col = match sort_field.as_deref() {
         Some("language") => "s.language",
         Some("sessionId") => "s.session_id",
         _ => "s.created_at",
     };
-    let dir = if q.sort_order.as_deref() == Some("asc") { "ASC" } else { "DESC" };
+    let dir = if sort_order.as_deref() == Some("asc") { "ASC" } else { "DESC" };
     let res: Result<Response, sea_orm::DbErr> = (async {
         match scoped_config_project(&ctx.db, &user, id).await? {
             Err(r) => return Ok(r),

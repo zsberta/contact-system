@@ -48,7 +48,7 @@ export default function SubmissionsBookingsTab({ projectId }: Props) {
   const [modalTitle, setModalTitle] = useState("");
 
   const { query, handlers } = useDataTableQuery({
-    defaultSize: 10,
+    defaultSize: 50,
     defaultSortField: "bookedAt",
     defaultSortOrder: "desc",
   });

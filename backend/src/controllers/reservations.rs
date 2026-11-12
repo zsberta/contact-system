@@ -58,6 +58,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 
 use crate::middleware::auth::{CurrentUser, MaybeUser};
+use crate::middleware::query::MultiQuery;
 
 // ---------------------------------------------------------------------------
 // Small plumbing
@@ -1853,21 +1854,6 @@ pub(crate) fn pg_debug_code(e: &sea_orm::DbErr) -> Option<String> {
 const RES_LIST_COLS: &str = "r.id, r.project_id, p.name AS project_name, r.name, r.slug, r.secret_token, r.allowed_origins, r.status, r.extra_fields_enabled, r.disable_hungarian_holidays, r.embed_title, r.brand_color, r.iframe_width, r.iframe_height, r.privacy_policy_url, r.cookie_policy_url, r.timezone, r.reminder_hours_before, r.created_at, r.updated_at";
 const RES_ONE_COLS: &str = "r.id, r.project_id, p.name AS project_name, r.name, r.slug, r.secret_token, r.allowed_origins, r.status, r.extra_fields_enabled, r.disable_hungarian_holidays, r.embed_title, r.brand_color, r.iframe_width, r.iframe_height, r.privacy_policy_url, r.cookie_policy_url, r.timezone, r.reminder_hours_before, r.created_at, r.updated_at";
 
-#[derive(Debug, Deserialize)]
-struct ListQuery {
-    page: Option<i64>,
-    size: Option<i64>,
-    #[serde(rename = "sortField")]
-    sort_field: Option<String>,
-    #[serde(rename = "sortOrder")]
-    sort_order: Option<String>,
-    queries: Option<Vec<String>>,
-    #[serde(rename = "filterType")]
-    filter_type: Option<String>,
-    #[serde(rename = "projectId")]
-    project_id: Option<String>,
-}
-
 fn reservation_project_id(db: &sea_orm::DatabaseConnection, reservation_id: i64) -> impl std::future::Future<Output = Result<Option<i64>, sea_orm::DbErr>> + '_ {
     async move {
         let row = db
@@ -1913,15 +1899,18 @@ async fn deny_unless_member(
 async fn list_reservations(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
-    Query(q): Query<ListQuery>,
+    MultiQuery(q): MultiQuery,
 ) -> Response {
     let user = match auth_required(&u) {
         Ok(x) => x,
         Err(r) => return r,
     };
-    let page = q.page.unwrap_or(0).max(0);
-    let size = q.size.unwrap_or(10).clamp(1, 100);
-    let sort_col = match q.sort_field.as_deref() {
+    let one = |k: &str| q.get(k).and_then(|v| v.first()).cloned();
+    let page = one("page").and_then(|s| s.parse::<i64>().ok()).unwrap_or(0).max(0);
+    let size = one("size").and_then(|s| s.parse::<i64>().ok()).unwrap_or(10).clamp(1, 100);
+    let sort_field = one("sortField");
+    let sort_order = one("sortOrder");
+    let sort_col = match sort_field.as_deref() {
         Some("id") => "r.id",
         Some("name") => "r.name",
         Some("status") => "r.status",
@@ -1929,14 +1918,17 @@ async fn list_reservations(
         Some("updatedAt") => "r.updated_at",
         _ => "r.created_at",
     };
-    let dir = if q.sort_order.as_deref() == Some("asc") { "ASC" } else { "DESC" };
-    let sorted = q.sort_field.is_some();
-    let queries: Vec<String> = q.queries.unwrap_or_default();
-    let filter_all = q.filter_type.as_deref() == Some("all");
+    let dir = if sort_order.as_deref() == Some("asc") { "ASC" } else { "DESC" };
+    let sorted = sort_field.is_some();
+    let mut queries: Vec<String> = q.get("queries").cloned().unwrap_or_default();
+    if let Some(extra) = q.get("queries[]") {
+        queries.extend(extra.clone());
+    }
+    let filter_all = one("filterType").as_deref() == Some("all");
     let mut conds: Vec<String> = vec![];
     let mut vals: Vec<sea_orm::Value> = vec![];
     let mut ph = 1;
-    if let Some(pid) = q.project_id.and_then(|s| s.parse::<i64>().ok()).filter(|n| *n > 0) {
+    if let Some(pid) = one("projectId").and_then(|s| s.parse::<i64>().ok()).filter(|n| *n > 0) {
         conds.push(format!("r.project_id = ${ph}"));
         ph += 1;
         vals.push(pid.into());
@@ -4605,22 +4597,10 @@ pub(crate) async fn send_booking_confirmation(
 // Customers
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
-struct CustomerListQuery {
-    #[serde(rename = "projectId")]
-    project_id: Option<String>,
-    queries: Option<Vec<String>>,
-    search: Option<String>,
-    #[serde(rename = "filterType")]
-    filter_type: Option<String>,
-    page: Option<i64>,
-    size: Option<i64>,
-}
-
 async fn list_customers(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
-    Query(q): Query<CustomerListQuery>,
+    MultiQuery(q): MultiQuery,
 ) -> Response {
     let user = match auth_required(&u) {
         Ok(x) => x,
@@ -4632,16 +4612,20 @@ async fn list_customers(
             return err_s(StatusCode::FORBIDDEN, "No accessible projects");
         }
     }
-    let page = q.page.unwrap_or(0).max(0);
-    let size = q.size.unwrap_or(20).clamp(1, 100);
-    let mut terms: Vec<String> = q.queries.unwrap_or_default();
-    if let Some(s) = q.search {
+    let one = |k: &str| q.get(k).and_then(|v| v.first()).cloned();
+    let page = one("page").and_then(|s| s.parse::<i64>().ok()).unwrap_or(0).max(0);
+    let size = one("size").and_then(|s| s.parse::<i64>().ok()).unwrap_or(20).clamp(1, 100);
+    let mut terms: Vec<String> = q.get("queries").cloned().unwrap_or_default();
+    if let Some(extra) = q.get("queries[]") {
+        terms.extend(extra.clone());
+    }
+    if let Some(s) = one("search") {
         let t = s.trim().to_string();
         if !t.is_empty() && !terms.contains(&t) {
             terms.push(t);
         }
     }
-    let filter_all = q.filter_type.as_deref() == Some("all");
+    let filter_all = one("filterType").as_deref() == Some("all");
     let mut conds: Vec<String> = vec![];
     let mut vals: Vec<sea_orm::Value> = vec![];
     let mut ph = 1;
@@ -4650,7 +4634,7 @@ async fn list_customers(
         ph += 1;
         vals.push(ids.into());
     }
-    if let Some(pid) = q.project_id.and_then(|s| s.parse::<i64>().ok()).filter(|n| *n > 0) {
+    if let Some(pid) = one("projectId").and_then(|s| s.parse::<i64>().ok()).filter(|n| *n > 0) {
         conds.push(format!("rc.project_id = ${ph}"));
         ph += 1;
         vals.push(pid.into());
@@ -5175,26 +5159,11 @@ fn booking_sort_col(field: &str) -> &'static str {
 
 const BOOKING_JOIN: &str = "FROM reservation_bookings b LEFT JOIN reservation_service_translations rst ON rst.service_id = b.service_id AND rst.locale = 'hu' LEFT JOIN reservation_customers rc ON rc.id = b.customer_id LEFT JOIN users wb ON wb.id = b.worker_user_id LEFT JOIN reservation_services svc ON svc.id = b.service_id LEFT JOIN users ws ON ws.id = svc.worker_user_id";
 
-#[derive(Debug, Deserialize)]
-struct BookingListQuery {
-    page: Option<i64>,
-    size: Option<i64>,
-    #[serde(rename = "sortField")]
-    sort_field: Option<String>,
-    #[serde(rename = "sortOrder")]
-    sort_order: Option<String>,
-    queries: Option<Vec<String>>,
-    #[serde(rename = "searchText")]
-    search_text: Option<String>,
-    #[serde(rename = "filterType")]
-    filter_type: Option<String>,
-}
-
 async fn list_bookings(
     State(ctx): State<AppContext>,
     MaybeUser(u): MaybeUser,
     Path(reservation_id): Path<i64>,
-    Query(q): Query<BookingListQuery>,
+    MultiQuery(q): MultiQuery,
 ) -> Response {
     let user = match auth_required(&u) {
         Ok(x) => x,
@@ -5203,22 +5172,26 @@ async fn list_bookings(
     if reservation_id <= 0 {
         return err_s(StatusCode::BAD_REQUEST, "Invalid reservation id");
     }
-    let sort_field = q.sort_field.unwrap_or_else(|| "bookedAt".to_string());
+    let one = |k: &str| q.get(k).and_then(|v| v.first()).cloned();
+    let sort_field = one("sortField").unwrap_or_else(|| "bookedAt".to_string());
     if !["startsAt", "endsAt", "bookedAt", "serviceName", "customerName", "workerFirstName", "status"].contains(&sort_field.as_str()) {
         return err_s(StatusCode::BAD_REQUEST, "Invalid sortField");
     }
-    let dir = if q.sort_order.as_deref() == Some("asc") { "ASC" } else { "DESC" };
+    let dir = if one("sortOrder").as_deref() == Some("asc") { "ASC" } else { "DESC" };
     let sorted = true;
-    let mut terms: Vec<String> = q.queries.unwrap_or_default();
-    if let Some(s) = q.search_text {
+    let mut terms: Vec<String> = q.get("queries").cloned().unwrap_or_default();
+    if let Some(extra) = q.get("queries[]") {
+        terms.extend(extra.clone());
+    }
+    if let Some(s) = one("searchText") {
         let t = s.trim().to_string();
         if !t.is_empty() && !terms.contains(&t) {
             terms.push(t);
         }
     }
-    let filter_all = q.filter_type.as_deref() == Some("all");
-    let page = q.page.unwrap_or(0).max(0);
-    let size = q.size.unwrap_or(10).clamp(1, 100);
+    let filter_all = one("filterType").as_deref() == Some("all");
+    let page = one("page").and_then(|s| s.parse::<i64>().ok()).unwrap_or(0).max(0);
+    let size = one("size").and_then(|s| s.parse::<i64>().ok()).unwrap_or(10).clamp(1, 100);
     let res: Result<Response, sea_orm::DbErr> = (async {
         let chk = ctx
             .db

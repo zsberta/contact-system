@@ -171,7 +171,7 @@ function LogDetail({ log }: { log: LogDTO }) {
 }
 
 const LogsPage: React.FC = () => {
-  const { t, i18n } = useTranslation(["logs", "common"]);
+  const { t } = useTranslation(["logs", "common"]);
   const [searchParams] = useSearchParams();
   const isMobile = useIsMobile();
 
@@ -379,20 +379,25 @@ const LogsPage: React.FC = () => {
         },
       ];
     }
+    // Compact on all screens: small mono text, truncated cells, tight badges.
     return [
       {
         accessorKey: "createdAt",
         header: t("logs:created_at"),
-        cell: (row: LogDTO) => formatLogDate(row.createdAt, i18n.language),
+        cell: (row: LogDTO) => (
+          <span className="whitespace-nowrap font-mono text-[11px] leading-tight">
+            {formatLogDateCompact(row.createdAt)}
+          </span>
+        ),
         enableSorting: true,
       },
       {
         accessorKey: "actor",
         header: t("logs:actor"),
         cell: (row: LogDTO) => (
-          <span className="flex flex-col gap-1">
-            <span className="max-w-52 truncate text-xs">{row.actorEmail || "—"}</span>
-            <Badge variant="outline" className="w-fit font-mono text-[10px]">
+          <span className="flex min-w-0 flex-col items-start gap-0.5">
+            <span className="block max-w-36 truncate text-[11px] leading-tight" title={row.actorEmail || undefined}>{row.actorEmail || "—"}</span>
+            <Badge variant="outline" className="px-1 py-0 font-mono text-[10px] leading-tight">
               {row.actorType}
             </Badge>
           </span>
@@ -402,7 +407,7 @@ const LogsPage: React.FC = () => {
         accessorKey: "action",
         header: t("logs:action"),
         cell: (row: LogDTO) => (
-          <span className="font-mono text-xs">{row.action}</span>
+          <span className="block max-w-36 truncate font-mono text-[11px] leading-tight" title={row.action}>{row.action}</span>
         ),
         enableSorting: true,
       },
@@ -410,7 +415,7 @@ const LogsPage: React.FC = () => {
         accessorKey: "actionType",
         header: t("logs:action_type"),
         cell: (row: LogDTO) => (
-          <Badge variant={actionTypeBadgeVariant(row.actionType)}>
+          <Badge variant={actionTypeBadgeVariant(row.actionType)} className="px-1.5 py-0 text-[10px] leading-tight">
             {row.actionType}
           </Badge>
         ),
@@ -419,22 +424,30 @@ const LogsPage: React.FC = () => {
       {
         accessorKey: "entity",
         header: t("logs:entity"),
-        cell: (row: LogDTO) =>
-          row.entityType
+        cell: (row: LogDTO) => {
+          const label = row.entityType
             ? `${row.entityType}${row.entityId !== null ? ` #${row.entityId}` : ""}`
-            : "—",
+            : "—";
+          return (
+            <span className="block max-w-28 truncate font-mono text-[11px] leading-tight" title={label}>{label}</span>
+          );
+        },
       },
       {
         accessorKey: "projectId",
         header: t("logs:project"),
-        cell: (row: LogDTO) => (row.projectId !== null ? `#${row.projectId}` : "—"),
+        cell: (row: LogDTO) => (
+          <span className="whitespace-nowrap font-mono text-[11px] leading-tight">
+            {row.projectId !== null ? `#${row.projectId}` : "—"}
+          </span>
+        ),
         enableSorting: true,
       },
       {
         accessorKey: "statusCode",
         header: t("logs:status"),
         cell: (row: LogDTO) => (
-          <Badge variant={row.ok ? "default" : "destructive"}>
+          <Badge variant={row.ok ? "default" : "destructive"} className="px-1.5 py-0 text-[10px] leading-tight">
             {row.ok ? (row.statusCode ?? "OK") : (row.statusCode ?? "FAIL")}
           </Badge>
         ),
@@ -444,13 +457,13 @@ const LogsPage: React.FC = () => {
         id: "actions",
         header: t("common:actions"),
         cell: (row: LogDTO) => (
-          <Button variant="ghost" size="sm" onClick={() => setSelected(row)} aria-label={t("logs:view_details")}>
-            <Eye className="h-4 w-4" />
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setSelected(row)} aria-label={t("logs:view_details")}>
+            <Eye className="h-3.5 w-3.5" />
           </Button>
         ),
       },
     ];
-  }, [t, i18n.language, isMobile]);
+  }, [t, isMobile]);
 
   return (
     <div className="w-full px-0 sm:container sm:mx-auto sm:p-4">

@@ -58,7 +58,7 @@ const FaqPage: React.FC<FaqPageProps> = ({ basePath = "/faq", contextProjectId =
       : undefined;
 
   const { query, handlers } = useDataTableQuery({
-    defaultSize: 10,
+    defaultSize: 50,
     defaultSortField: "sortOrder",
     defaultSortOrder: "asc",
   });

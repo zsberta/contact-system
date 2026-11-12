@@ -38,7 +38,7 @@ export function FormSubmissionsList({ formId }: Props) {
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const { query, handlers } = useDataTableQuery({
-    defaultSize: 10,
+    defaultSize: 50,
     defaultSortField: "submittedAt",
     defaultSortOrder: "desc",
   });

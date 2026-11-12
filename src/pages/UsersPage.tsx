@@ -29,7 +29,7 @@ const UsersPage: React.FC = () => {
 
   const [queryParams, setQueryParams] = useState<QueryParams>({
     page: 0,
-    size: 10,
+    size: 50,
     sortField: "createdAt",
     sortOrder: "desc",
     queries: [],
